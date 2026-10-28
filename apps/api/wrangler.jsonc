@@ -1,0 +1,24 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "evalmydocs-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "vars": {
+    "PUBLIC_URL": "http://localhost:8787",
+    "JUDGE_MODEL": "gpt-6-astra",
+    "JUDGE_REASONING_EFFORT": "medium",
+    "JUDGE_BASE_URL": "https://api.openai.com/v1",
+    "MAX_PAGES_PER_RUN": "50",
+    "AWS_REGION": "us-west-2"
+  },
+  "d1_databases": [{ "binding": "DB", "database_name": "evalmydocs", "database_id": "local", "migrations_dir": "migrations" }],
+  "r2_buckets": [{ "binding": "BLOBS", "bucket_name": "evalmydocs-blobs" }],
+  "durable_objects": { "bindings": [{ "name": "RUN_EVENTS", "class_name": "RunEvents" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RunEvents"] }],
+  "workflows": [
+    { "name": "evalmydocs-run", "binding": "RUN_WORKFLOW", "class_name": "RunWorkflow" },
+    { "name": "evalmydocs-page", "binding": "PAGE_WORKFLOW", "class_name": "PageWorkflow" }
+  ]
+}

@@ -38,3 +38,14 @@ UI + MCP come later (user will be prescriptive). Auth later (CurrentUser service
 - Local creds: apps/api/.dev.vars from Doppler benchmarking/prd + reducto-api/dev (AWS, OPENAI). Google DocAI SA for layout processor not available locally.
 - Live smoke (packages/core/scripts/smoke.ts) passed for reducto, azure, textract, mistral, extend (3 credits/page agentic), llamaparse, datalab, pulse. Cohere needs a public PNG URL (untested); Google untested (no layout processor creds).
 - Core status: type-clean (`npx tsc -p packages/core`). Next: apps/api (D1 schema, R2, pdfium render to PNG, RunWorkflow, RunDO websocket, HttpApi).
+
+## apps/api plan (written; migrations/0001_init.sql + wrangler.jsonc exist)
+- R2 keys: documents/{docId}.pdf; pages/{pageId}.pdf + .png (pageId = `${docId}-${index}`); runs/{runId}/{pageId}/{presetId}.md + .raw.json.
+- Blob URLs for providers: GET /blobs/{key}?exp&sig, HMAC-SHA256 with BLOB_SIGNING_KEY secret, PUBLIC_URL var. Local dev needs a tunnel (cloudflared quick tunnel) so vendors can fetch.
+- RunWorkflow(params {runId}): step prepare:{docId} (split with core splitPages, render PNG with @embedpdf/pdfium `init({wasmBinary})` + FPDF_LoadMemDocument/FPDFBitmap_Create/FPDF_RenderPageBitmap/EPDF_PNG_EncodeRGBA, ~150 DPI) -> step create PageWorkflow batch (createBatch max 100) -> step.waitForEvent("pages-done") -> step summarize (core summarize over parses+verdicts; write runs.summary; delete run_credentials).
+- PageWorkflow(params {runId,pageId}): per preset concurrently: step submit:{preset} (Done -> persist md/raw + parses row inside the step) else loop step.sleep(backoff 2s..60s) + step poll:{preset}:{n} up to ~30 min; failures after retries -> parses row status failed (do not fail page). Then step judge (core judgePage on succeeded presets; insert verdicts). Then step notify RunEvents DO.
+- Step retries: {limit 5, delay "5 seconds", backoff exponential, timeout "5 minutes"}; ProviderError/JudgeError retryable=false -> NonRetryableError from "cloudflare:workflows".
+- RunEvents DO (one per run): websocket hibernation broadcast of progress; counts finished pages; when all done -> env.RUN_WORKFLOW.get(runId).sendEvent({type:"pages-done"}). No polling anywhere in our system; vendor polling uses durable step.sleep.
+- Credentials: hosted presets use env secrets; BYOK in run_credentials (AES-GCM, CREDENTIALS_KEY secret), loaded+decrypted inside steps, never in workflow params.
+- HttpApi (effect/http-api): GET /v1/presets; POST /v1/documents (raw PDF body, ?filename) -> {documentId,pageCount}; POST /v1/runs {documentIds, presetIds?, credentials?} -> {runId, shareId}; GET /v1/runs/{id}; GET /v1/runs/{id}/pages/{pageId}; GET /v1/share/{shareId}; GET /v1/runs/{id}/events (websocket -> DO); GET /openapi.json.
+- Auth stub: CurrentUser service from `x-evalmydocs-user` header in dev (AUTH_MODE=dev); real email auth later.
