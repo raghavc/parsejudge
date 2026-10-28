@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import type { Env } from "./env.ts";
 
 export type RunEvent =
+  | { readonly type: "progress"; readonly done: number; readonly total: number; readonly status: string | null }
   | { readonly type: "page_done"; readonly pageId: string; readonly done: number; readonly total: number }
   | { readonly type: "run_done"; readonly status: "succeeded" | "failed" };
 
@@ -23,6 +24,7 @@ export class RunEvents extends DurableObject<Env> {
   }
 
   async runDone(status: "succeeded" | "failed"): Promise<void> {
+    await this.ctx.storage.put("status", status);
     this.broadcast({ type: "run_done", status });
   }
 
@@ -30,7 +32,15 @@ export class RunEvents extends DurableObject<Env> {
     if (request.headers.get("upgrade") !== "websocket") return new Response("Expected WebSocket", { status: 426 });
     const [client, server] = Object.values(new WebSocketPair()) as [WebSocket, WebSocket];
     this.ctx.acceptWebSocket(server);
+    server.send(JSON.stringify(await this.progress()));
     return new Response(null, { status: 101, webSocket: client });
+  }
+
+  /** Sent on connect so a late subscriber never misses state. */
+  private async progress(): Promise<RunEvent> {
+    const total = (await this.ctx.storage.get<number>("total")) ?? 0;
+    const done = (await this.ctx.storage.list({ prefix: "page:" })).size;
+    return { type: "progress", done, total, status: (await this.ctx.storage.get<string>("status")) ?? null };
   }
 
   private broadcast(event: RunEvent): void {
