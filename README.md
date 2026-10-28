@@ -1,4 +1,4 @@
-# evalmydocs
+# parsejudge
 
 Open-source document parser evaluation. Upload PDFs, parse every page with several providers, and score the
 results with a blind comparative LLM judge. Each run produces a shareable summary: accuracy, failures, cost,
@@ -35,7 +35,7 @@ Requirements: Node 22+, pnpm 10.
 pnpm install
 cd apps/api
 cp .dev.vars.example .dev.vars        # fill in the keys you have
-npx wrangler d1 migrations apply evalmydocs --local
+npx wrangler d1 migrations apply parsejudge --local
 cloudflared tunnel --url http://localhost:8787   # providers fetch pages from a public URL
 npx wrangler dev --var PUBLIC_URL:<tunnel url>
 python3 scripts/e2e.py file.pdf reducto_r1 aws_textract

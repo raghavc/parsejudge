@@ -39,5 +39,5 @@
 
 ## Not built yet
 
-- Email signup and sessions. `AUTH_MODE=dev` trusts the `x-evalmydocs-user` header.
+- Email signup and sessions. `AUTH_MODE=dev` trusts the `x-parsejudge-user` header.
 - Quotas, UI, MCP server, versioned pricing table.

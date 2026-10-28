@@ -1,4 +1,4 @@
-import type { Credentials } from "@evalmydocs/core";
+import type { Credentials } from "@parsejudge/core";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();

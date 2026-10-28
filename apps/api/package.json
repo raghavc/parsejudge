@@ -1,5 +1,5 @@
 {
-  "name": "@evalmydocs/api",
+  "name": "@parsejudge/api",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@embedpdf/pdfium": "^2.15.1",
-    "@evalmydocs/core": "workspace:*",
+    "@parsejudge/core": "workspace:*",
     "effect": "4.0.7"
   },
   "devDependencies": {

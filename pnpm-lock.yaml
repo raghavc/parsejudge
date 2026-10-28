@@ -19,7 +19,7 @@ importers:
       "@embedpdf/pdfium":
         specifier: ^2.15.1
         version: 2.15.1
-      "@evalmydocs/core":
+      "@parsejudge/core":
         specifier: workspace:*
         version: link:../../packages/core
       effect:

@@ -7,7 +7,7 @@ import {
   type ParseOutput,
   PROVIDERS,
   type ProviderError,
-} from "@evalmydocs/core";
+} from "@parsejudge/core";
 import { Effect, Option } from "effect";
 import { FetchHttpClient, type HttpClient } from "effect/http";
 import { signedBlobUrl } from "./blobs.ts";

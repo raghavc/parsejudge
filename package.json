@@ -1,5 +1,5 @@
 {
-  "name": "evalmydocs",
+  "name": "parsejudge",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.18.0",

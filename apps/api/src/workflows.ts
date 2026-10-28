@@ -1,5 +1,5 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep, type WorkflowStepConfig } from "cloudflare:workers";
-import { JUDGE_VERSION, judgePage, type PageResult, splitPages, summarize } from "@evalmydocs/core";
+import { JUDGE_VERSION, judgePage, type PageResult, splitPages, summarize } from "@parsejudge/core";
 import { Effect } from "effect";
 import type { Env } from "./env.ts";
 import type { RunEvents } from "./events.ts";

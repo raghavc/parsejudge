@@ -4,7 +4,7 @@ import sys
 import urllib.request
 
 API = "http://localhost:8787"
-HEADERS = {"x-evalmydocs-user": "dev@example.com"}
+HEADERS = {"x-parsejudge-user": "dev@example.com"}
 BYOK_KEYS = {"llamaparse": "LLAMA_CLOUD_API_KEY", "extend": "EXTEND_API_KEY", "datalab": "DATALAB_API_KEY", "pulse": "PULSE_API_KEY", "mistral_ocr": "MISTRAL_API_KEY", "cohere": "COHERE_API_KEY"}
 
 

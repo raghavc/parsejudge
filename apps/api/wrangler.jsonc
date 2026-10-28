@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "evalmydocs-api",
+  "name": "parsejudge-api",
   "main": "src/index.ts",
   "compatibility_date": "2026-10-01",
   "compatibility_flags": ["nodejs_compat"],
@@ -15,12 +15,12 @@
     "AWS_REGION": "us-west-2",
     "AUTH_MODE": "dev"
   },
-  "d1_databases": [{ "binding": "DB", "database_name": "evalmydocs", "database_id": "local", "migrations_dir": "migrations" }],
-  "r2_buckets": [{ "binding": "BLOBS", "bucket_name": "evalmydocs-blobs" }],
+  "d1_databases": [{ "binding": "DB", "database_name": "parsejudge", "database_id": "local", "migrations_dir": "migrations" }],
+  "r2_buckets": [{ "binding": "BLOBS", "bucket_name": "parsejudge-blobs" }],
   "durable_objects": { "bindings": [{ "name": "RUN_EVENTS", "class_name": "RunEvents" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RunEvents"] }],
   "workflows": [
-    { "name": "evalmydocs-run", "binding": "RUN_WORKFLOW", "class_name": "RunWorkflow" },
-    { "name": "evalmydocs-page", "binding": "PAGE_WORKFLOW", "class_name": "PageWorkflow" }
+    { "name": "parsejudge-run", "binding": "RUN_WORKFLOW", "class_name": "RunWorkflow" },
+    { "name": "parsejudge-page", "binding": "PAGE_WORKFLOW", "class_name": "PageWorkflow" }
   ]
 }

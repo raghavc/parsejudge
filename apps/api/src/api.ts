@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { DEFAULT_PRESET_IDS, findPreset, JUDGE_VERSION, PRESETS, splitPages } from "@evalmydocs/core";
+import { DEFAULT_PRESET_IDS, findPreset, JUDGE_VERSION, PRESETS, splitPages } from "@parsejudge/core";
 import { Effect, Layer, Schema } from "effect";
 import { HttpRouter, HttpServer, HttpServerRequest } from "effect/http";
 import { HttpApi, HttpApiBuilder, HttpApiEndpoint, HttpApiError, HttpApiGroup } from "effect/http-api";
@@ -53,7 +53,7 @@ const PageDetail = Schema.Struct({
   ),
 });
 
-export const Api = HttpApi.make("evalmydocs")
+export const Api = HttpApi.make("parsejudge")
   .add(HttpApiGroup.make("presets").add(HttpApiEndpoint.get("list", "/v1/presets", { success: Schema.Array(PresetInfo) })))
   .add(
     HttpApiGroup.make("documents").add(
@@ -99,12 +99,12 @@ export const Api = HttpApi.make("evalmydocs")
 const query = <A>(promise: () => Promise<A>) => Effect.promise(promise);
 
 /**
- * The signed-in user. Placeholder until email auth lands: trusts the `x-evalmydocs-user` header
+ * The signed-in user. Placeholder until email auth lands: trusts the `x-parsejudge-user` header
  * when AUTH_MODE is "dev", and rejects every request otherwise.
  */
 const currentUser = Effect.gen(function* () {
   const request = yield* HttpServerRequest.HttpServerRequest;
-  const email = request.headers["x-evalmydocs-user"];
+  const email = request.headers["x-parsejudge-user"];
   if (cf.AUTH_MODE !== "dev" || email === undefined || !email.includes("@")) {
     return yield* new HttpApiError.Unauthorized({});
   }
