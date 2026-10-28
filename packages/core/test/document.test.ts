@@ -14,8 +14,8 @@ describe("sniffFormat", () => {
 
   it("rejects other files, including other ZIPs", () => {
     expect(Effect.runSync(Effect.flip(sniffFormat(new TextEncoder().encode("hello"))))).toBeInstanceOf(InvalidDocument);
-    expect(Effect.runSync(Effect.flip(sniffFormat(new TextEncoder().encode("PK\u0003\u0004xl/workbook.xml"))))).toBeInstanceOf(
-      InvalidDocument,
-    );
+    expect(Effect.runSync(Effect.flip(sniffFormat(fixture("workbook-mentioning-docx.xlsx"))))).toBeInstanceOf(InvalidDocument);
+    const docx = fixture("two-pages.docx");
+    expect(Effect.runSync(Effect.flip(sniffFormat(docx.subarray(0, docx.length / 2))))).toBeInstanceOf(InvalidDocument);
   });
 });

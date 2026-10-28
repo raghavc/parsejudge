@@ -12,12 +12,14 @@ export class RunEvents extends DurableObject<Env> {
     await this.ctx.storage.put({ runId, total });
   }
 
+  /** Idempotent: a retried call does not count or broadcast the page twice, but does resend `pages-done`. */
   async pageDone(pageId: string): Promise<void> {
     const runId = await this.ctx.storage.get<string>("runId");
     const total = (await this.ctx.storage.get<number>("total")) ?? 0;
-    await this.ctx.storage.put(`page:${pageId}`, true);
+    const known = (await this.ctx.storage.get<boolean>(`page:${pageId}`)) === true;
+    if (!known) await this.ctx.storage.put(`page:${pageId}`, true);
     const done = (await this.ctx.storage.list({ prefix: "page:" })).size;
-    this.broadcast({ type: "page_done", pageId, done, total });
+    if (!known) this.broadcast({ type: "page_done", pageId, done, total });
     if (runId !== undefined && done === total) {
       await (await this.env.RUN_WORKFLOW.get(runId)).sendEvent({ type: "pages-done", payload: { done } });
     }
