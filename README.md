@@ -48,7 +48,8 @@ The OpenAPI document is at `/openapi.json`.
 
 Deploy `apps/api` to your own Cloudflare account: create the D1 database and R2 bucket named in
 `wrangler.jsonc`, set the secrets from `.dev.vars.example` with `wrangler secret put`, apply migrations with
-`--remote`, then `wrangler deploy`.
+`--remote`, then `wrangler deploy`. DOCX and PPTX conversion runs in the LibreOffice container in
+`containers/libreoffice`; Wrangler builds it with Docker on deploy and in `wrangler dev`.
 
 ## Checks
 
