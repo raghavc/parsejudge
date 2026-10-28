@@ -1,12 +1,13 @@
 import { env } from "cloudflare:workers";
-import { DEFAULT_PRESET_IDS, findPreset, JUDGE_VERSION, PRESETS, sniffFormat, splitPages } from "@parsejudge/core";
+import { DEFAULT_PRESET_IDS, ErrorCategory, findPreset, JUDGE_VERSION, PRESETS, sniffFormat, splitPages } from "@parsejudge/core";
 import { Effect, Layer, Schema } from "effect";
 import { HttpRouter, HttpServer, HttpServerRequest } from "effect/http";
 import { HttpApi, HttpApiBuilder, HttpApiEndpoint, HttpApiError, HttpApiGroup } from "effect/http-api";
+import { signedBlobUrl } from "./blobs.ts";
 import { toPdf } from "./converter.ts";
 import { encryptCredentials } from "./credentials.ts";
 import type { Env } from "./env.ts";
-import { documentKey, markdownKey, sourceKey } from "./keys.ts";
+import { documentKey, markdownKey, pageId as pageIdOf, pagePngKey, sourceKey } from "./keys.ts";
 
 const cf = env as unknown as Env;
 
@@ -26,6 +27,57 @@ const CreateRun = Schema.Struct({
   credentials: Schema.optional(Schema.Record(Schema.String, Schema.Record(Schema.String, Schema.String))),
 });
 
+const Interval = Schema.Struct({ low: Schema.Number, high: Schema.Number });
+
+/** Mirrors `RunSummary` in @parsejudge/core. */
+const RunSummary = Schema.Struct({
+  presets: Schema.Array(
+    Schema.Struct({
+      presetId: Schema.String,
+      label: Schema.String,
+      pages: Schema.Number,
+      failedPages: Schema.Number,
+      meanScore: Schema.NullOr(Schema.Number),
+      medianScore: Schema.NullOr(Schema.Number),
+      highSeverityRate: Schema.NullOr(Schema.Number),
+      highSeverityInterval: Schema.NullOr(Interval),
+      errorCounts: Schema.Record(ErrorCategory, Schema.optional(Schema.Number)),
+      listPriceUsdPerPage: Schema.Number,
+      observedCostUsdPerPage: Schema.NullOr(Schema.Number),
+      latencyMsMean: Schema.NullOr(Schema.Number),
+      latencyMsP50: Schema.NullOr(Schema.Number),
+      latencyMsP95: Schema.NullOr(Schema.Number),
+    }),
+  ),
+  headToHead: Schema.Array(
+    Schema.Struct({
+      presetId: Schema.String,
+      opponentId: Schema.String,
+      wins: Schema.Number,
+      ties: Schema.Number,
+      losses: Schema.Number,
+    }),
+  ),
+  tradeoff: Schema.Array(
+    Schema.Struct({
+      presetId: Schema.String,
+      listPriceUsdPerPage: Schema.Number,
+      meanScore: Schema.Number,
+      pareto: Schema.Boolean,
+    }),
+  ),
+});
+
+/** `imageUrl` is the rendered page PNG every provider got. It expires after an hour and 404s until the page is rendered. */
+const PageRef = Schema.Struct({ id: Schema.String, index: Schema.Number, imageUrl: Schema.String });
+
+const DocumentInfo = Schema.Struct({
+  id: Schema.String,
+  filename: Schema.String,
+  format: Schema.String,
+  pages: Schema.Array(PageRef),
+});
+
 const Run = Schema.Struct({
   id: Schema.String,
   shareId: Schema.String,
@@ -33,7 +85,8 @@ const Run = Schema.Struct({
   presetIds: Schema.Array(Schema.String),
   judgeVersion: Schema.String,
   judgeModel: Schema.String,
-  summary: Schema.NullOr(Schema.Unknown),
+  documents: Schema.Array(DocumentInfo),
+  summary: Schema.NullOr(RunSummary),
   error: Schema.NullOr(Schema.String),
   createdAt: Schema.Number,
   completedAt: Schema.NullOr(Schema.Number),
@@ -41,6 +94,7 @@ const Run = Schema.Struct({
 
 const PageDetail = Schema.Struct({
   pageId: Schema.String,
+  imageUrl: Schema.String,
   parses: Schema.Array(
     Schema.Struct({
       presetId: Schema.String,
@@ -146,16 +200,43 @@ const toRun = (row: RunRow) => ({
   presetIds: JSON.parse(row.preset_ids) as Array<string>,
   judgeVersion: row.judge_version,
   judgeModel: row.judge_model,
-  summary: row.summary === null ? null : (JSON.parse(row.summary) as unknown),
+  summary: row.summary === null ? null : (JSON.parse(row.summary) as typeof RunSummary.Type),
   error: row.error,
   createdAt: row.created_at,
   completedAt: row.completed_at,
 });
 
+const pageImageUrl = (pageId: string) => signedBlobUrl(cf.PUBLIC_URL, cf.BLOB_SIGNING_KEY, pagePngKey(pageId));
+
+const runDocuments = (runId: string) =>
+  query(async () => {
+    const rows = await cf.DB.prepare(
+      `SELECT d.id, d.filename, d.format, d.page_count FROM run_documents r JOIN documents d ON d.id = r.document_id
+       WHERE r.run_id = ? ORDER BY d.created_at, d.id`,
+    )
+      .bind(runId)
+      .all<{ id: string; filename: string; format: string; page_count: number }>();
+    return Promise.all(
+      rows.results.map(async (row) => ({
+        id: row.id,
+        filename: row.filename,
+        format: row.format,
+        pages: await Promise.all(
+          Array.from({ length: row.page_count }, async (_, index) => {
+            const id = pageIdOf(row.id, index);
+            return { id, index, imageUrl: await pageImageUrl(id) };
+          }),
+        ),
+      })),
+    );
+  });
+
 const findRun = (column: "id" | "share_id", value: string) =>
-  query(() => cf.DB.prepare(`SELECT * FROM runs WHERE ${column} = ?`).bind(value).first<RunRow>()).pipe(
-    Effect.flatMap((row) => (row === null ? Effect.fail(new HttpApiError.NotFound({})) : Effect.succeed(toRun(row)))),
-  );
+  Effect.gen(function* () {
+    const row = yield* query(() => cf.DB.prepare(`SELECT * FROM runs WHERE ${column} = ?`).bind(value).first<RunRow>());
+    if (row === null) return yield* new HttpApiError.NotFound({});
+    return { ...toRun(row), documents: yield* runDocuments(row.id) };
+  });
 
 const PresetsLive = HttpApiBuilder.group(Api, "presets", (handlers) =>
   handlers.handle("list", () =>
@@ -296,7 +377,7 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
             })),
           ),
         );
-        return { pageId: params.pageId, parses };
+        return { pageId: params.pageId, imageUrl: yield* query(() => pageImageUrl(params.pageId)), parses };
       }),
     ),
 );
