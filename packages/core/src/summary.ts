@@ -1,0 +1,163 @@
+import type { Cost, ErrorCategory, PresetVerdict } from "./domain.ts";
+import { findPreset } from "./presets.ts";
+
+/** Everything known about one (page, preset) cell after a run. */
+export interface PageResult {
+  readonly pageId: string;
+  readonly presetId: string;
+  readonly status: "succeeded" | "failed";
+  readonly latencyMs?: number;
+  readonly cost?: Cost;
+  readonly verdict?: PresetVerdict;
+}
+
+export interface Interval {
+  readonly low: number;
+  readonly high: number;
+}
+
+export interface PresetSummary {
+  readonly presetId: string;
+  readonly label: string;
+  readonly pages: number;
+  readonly failedPages: number;
+  readonly meanScore: number | null;
+  readonly medianScore: number | null;
+  /** Share of judged pages with at least one high-severity error, with a Wilson 95% interval. */
+  readonly highSeverityRate: number | null;
+  readonly highSeverityInterval: Interval | null;
+  readonly errorCounts: Readonly<Partial<Record<ErrorCategory, number>>>;
+  readonly costUsdPerPage: number;
+  readonly costSource: Cost["source"];
+  readonly latencyMsP50: number | null;
+  readonly latencyMsP95: number | null;
+}
+
+export interface HeadToHead {
+  readonly presetId: string;
+  readonly opponentId: string;
+  readonly wins: number;
+  readonly ties: number;
+  readonly losses: number;
+}
+
+export interface TradeoffPoint {
+  readonly presetId: string;
+  readonly costUsdPerPage: number;
+  readonly meanScore: number;
+  readonly pareto: boolean;
+}
+
+export interface RunSummary {
+  readonly presets: ReadonlyArray<PresetSummary>;
+  readonly headToHead: ReadonlyArray<HeadToHead>;
+  readonly tradeoff: ReadonlyArray<TradeoffPoint>;
+}
+
+const mean = (values: ReadonlyArray<number>): number | null =>
+  values.length === 0 ? null : values.reduce((sum, value) => sum + value, 0) / values.length;
+
+const quantile = (values: ReadonlyArray<number>, q: number): number | null => {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const position = (sorted.length - 1) * q;
+  const lower = Math.floor(position);
+  const upper = Math.ceil(position);
+  const low = sorted[lower] ?? 0;
+  return low + ((sorted[upper] ?? low) - low) * (position - lower);
+};
+
+export const wilson = (successes: number, total: number, z = 1.96): Interval | null => {
+  if (total === 0) return null;
+  const p = successes / total;
+  const denominator = 1 + (z * z) / total;
+  const center = (p + (z * z) / (2 * total)) / denominator;
+  const margin = (z * Math.sqrt((p * (1 - p)) / total + (z * z) / (4 * total * total))) / denominator;
+  return { low: Math.max(0, center - margin), high: Math.min(1, center + margin) };
+};
+
+/** Observed provider cost when every succeeded page reported one; list price otherwise. */
+const costPerPage = (presetId: string, results: ReadonlyArray<PageResult>): Pick<PresetSummary, "costUsdPerPage" | "costSource"> => {
+  const succeeded = results.filter((result) => result.status === "succeeded");
+  const reported = succeeded.flatMap((result) => (result.cost?.source === "provider" ? [result.cost.usd] : []));
+  if (succeeded.length > 0 && reported.length === succeeded.length) {
+    return { costUsdPerPage: mean(reported) ?? 0, costSource: "provider" };
+  }
+  return { costUsdPerPage: findPreset(presetId)?.listPriceUsdPerPage ?? 0, costSource: "list_price" };
+};
+
+const summarizePreset = (presetId: string, results: ReadonlyArray<PageResult>): PresetSummary => {
+  const verdicts = results.flatMap((result) => (result.verdict === undefined ? [] : [result.verdict]));
+  const scores = verdicts.map((verdict) => verdict.score);
+  const withHigh = verdicts.filter((verdict) => verdict.errors.some((error) => error.severity === "high")).length;
+  const errorCounts: Partial<Record<ErrorCategory, number>> = {};
+  for (const error of verdicts.flatMap((verdict) => verdict.errors)) {
+    if (error.severity !== "not_error") errorCounts[error.category] = (errorCounts[error.category] ?? 0) + 1;
+  }
+  const latencies = results.flatMap((result) => (result.latencyMs === undefined ? [] : [result.latencyMs]));
+  return {
+    presetId,
+    label: findPreset(presetId)?.label ?? presetId,
+    pages: results.length,
+    failedPages: results.filter((result) => result.status === "failed").length,
+    meanScore: mean(scores),
+    medianScore: quantile(scores, 0.5),
+    highSeverityRate: verdicts.length === 0 ? null : withHigh / verdicts.length,
+    highSeverityInterval: wilson(withHigh, verdicts.length),
+    errorCounts,
+    ...costPerPage(presetId, results),
+    latencyMsP50: quantile(latencies, 0.5),
+    latencyMsP95: quantile(latencies, 0.95),
+  };
+};
+
+/** A failed page scores 1, the judge's floor, so failures count against a preset in head-to-head. */
+const pageScore = (result: PageResult | undefined): number | undefined =>
+  result?.verdict?.score ?? (result?.status === "failed" ? 1 : undefined);
+
+const headToHead = (presetIds: ReadonlyArray<string>, results: ReadonlyArray<PageResult>): Array<HeadToHead> => {
+  const byCell = new Map(results.map((result) => [`${result.pageId}\u0000${result.presetId}`, result]));
+  const pageIds = [...new Set(results.map((result) => result.pageId))];
+  return presetIds.flatMap((presetId) =>
+    presetIds
+      .filter((opponentId) => opponentId !== presetId)
+      .map((opponentId) => {
+        let wins = 0;
+        let ties = 0;
+        let losses = 0;
+        for (const pageId of pageIds) {
+          const own = pageScore(byCell.get(`${pageId}\u0000${presetId}`));
+          const other = pageScore(byCell.get(`${pageId}\u0000${opponentId}`));
+          if (own === undefined || other === undefined) continue;
+          if (own > other) wins++;
+          else if (own < other) losses++;
+          else ties++;
+        }
+        return { presetId, opponentId, wins, ties, losses };
+      }),
+  );
+};
+
+/** A point is Pareto-optimal when no other point is at least as cheap and at least as accurate, and better in one. */
+const tradeoff = (presets: ReadonlyArray<PresetSummary>): Array<TradeoffPoint> => {
+  const points = presets.flatMap((preset) =>
+    preset.meanScore === null ? [] : [{ presetId: preset.presetId, costUsdPerPage: preset.costUsdPerPage, meanScore: preset.meanScore }],
+  );
+  return points
+    .map((point) => ({
+      ...point,
+      pareto: !points.some(
+        (other) =>
+          other.costUsdPerPage <= point.costUsdPerPage &&
+          other.meanScore >= point.meanScore &&
+          (other.costUsdPerPage < point.costUsdPerPage || other.meanScore > point.meanScore),
+      ),
+    }))
+    .sort((a, b) => a.costUsdPerPage - b.costUsdPerPage);
+};
+
+export const summarize = (results: ReadonlyArray<PageResult>): RunSummary => {
+  const presetIds = [...new Set(results.map((result) => result.presetId))];
+  const presets = presetIds.map((id) => summarizePreset(id, results.filter((result) => result.presetId === id)));
+  return { presets, headToHead: headToHead(presetIds, results), tradeoff: tradeoff(presets) };
+};

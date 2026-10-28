@@ -1,0 +1,21 @@
+export interface Env {
+  COMPETITORS_API_TOKEN: string;
+  REDUCTO_API_KEY: string;
+  MISTRAL_API_KEY: string;
+  EXTEND_API_KEY: string;
+  LLAMA_CLOUD_API_KEY: string;
+  DATALAB_API_KEY: string;
+  DATALAB_BASE_URL?: string;
+  PULSE_API_KEY: string;
+  COHERE_API_KEY: string;
+  AZURE_DI_ENDPOINT: string;
+  AZURE_DI_KEY: string;
+  GCP_PROJECT_ID?: string;
+  GCP_REGION?: string;
+  GOOGLE_DOCUMENT_AI_ACCESS_TOKEN?: string;
+  GOOGLE_DOCUMENT_AI_PROJECT_ID?: string;
+  GOOGLE_DOCUMENT_AI_LOCATION?: string;
+  GOOGLE_DOCUMENT_AI_PROCESSOR_ID: string;
+  GOOGLE_DOCUMENT_AI_OCR_PROCESSOR_ID: string;
+  GOOGLE_APPLICATION_CREDENTIALS: string;
+}

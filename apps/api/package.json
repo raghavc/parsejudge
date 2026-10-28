@@ -1,0 +1,7 @@
+{
+  "name": "@evalmydocs/api",
+  "private": true,
+  "type": "module",
+  "scripts": { "dev": "wrangler dev", "check": "wrangler types --check 2>/dev/null; tsc -p .", "test": "vitest run", "deploy": "wrangler deploy" },
+  "dependencies": { "@evalmydocs/core": "workspace:*", "effect": "4.0.7", "@effect/sql-d1": "4.0.7", "@embedpdf/pdfium": "^2.15.1", "fast-png": "^7.0.0" },
+}

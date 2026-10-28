@@ -1,0 +1,259 @@
+{
+ "reducto_r1": {
+  "provider": "reducto",
+  "display_name": "Reducto R-1 API",
+  "source_name": "reducto_r1",
+  "config": {
+   "formatting": {
+    "merge_tables": false
+   },
+   "settings": {
+    "model": "r-1",
+    "force_url_result": false,
+    "persist_results": true,
+    "timeout": 1800
+   }
+  }
+ },
+ "azure_document_intelligence_high_resolution": {
+  "provider": "azure_document_intelligence",
+  "display_name": "Azure Document Intelligence high-resolution OCR",
+  "source_name": "azure_document_intelligence_high_resolution",
+  "config": {
+   "features": [
+    "ocrHighResolution"
+   ]
+  }
+ },
+ "aws_textract_analyze_document": {
+  "provider": "aws_textract",
+  "display_name": "AWS Textract AnalyzeDocument (layout, tables, forms, signatures)",
+  "source_name": "aws_textract_analyze_document",
+  "config": {
+   "region": "us-west-2",
+   "featureTypes": [
+    "LAYOUT",
+    "TABLES",
+    "FORMS",
+    "SIGNATURES"
+   ]
+  }
+ },
+ "google_document_ai_layout_v1_6": {
+  "provider": "google_document_ai",
+  "display_name": "Google Document AI Layout Parser v1.6 (Gemini 3.0 Flash, release candidate)",
+  "source_name": "google_document_ai_layout_v1_6",
+  "config": {
+   "processorVersion": "pretrained-layout-parser-v1.6-2026-01-13",
+   "imagelessMode": true,
+   "enableTableAnnotation": true,
+   "enableImageAnnotation": true,
+   "chunkSize": 1024,
+   "includeAncestorHeadings": true
+  }
+ },
+ "google_document_ai_layout_v1_6_pro": {
+  "provider": "google_document_ai",
+  "display_name": "Google Document AI Layout Parser v1.6 Pro (Gemini 3.0 Pro, release candidate)",
+  "source_name": "google_document_ai_layout_v1_6_pro",
+  "config": {
+   "processorVersion": "pretrained-layout-parser-v1.6-pro-2025-12-01",
+   "imagelessMode": true,
+   "enableTableAnnotation": true,
+   "enableImageAnnotation": true,
+   "chunkSize": 1024,
+   "includeAncestorHeadings": true
+  }
+ },
+ "google_document_ai_enterprise_ocr": {
+  "provider": "google_document_ai",
+  "display_name": "Google Document AI Enterprise OCR",
+  "source_name": "google_document_ai_enterprise_ocr",
+  "config": {
+   "processorType": "ocr"
+  }
+ },
+ "mistral_ocr41_blocks": {
+  "provider": "mistral",
+  "display_name": "Mistral OCR 4.1 blocks",
+  "source_name": "mistral_ocr41_blocks",
+  "config": {
+   "model": "mistral-ocr-4-1",
+   "tableFormat": "html",
+   "includeBlocks": true,
+   "confidenceScoresGranularity": "block"
+  }
+ },
+ "extend_performance_agentic": {
+  "provider": "extend",
+  "display_name": "Extend performance agentic",
+  "source_name": "extend_performance_agentic",
+  "config": {
+   "config": {
+    "engine": "parse_performance",
+    "engineVersion": "2.0.0",
+    "target": "markdown",
+    "chunkingStrategy": {
+     "type": "page"
+    },
+    "blockOptions": {
+     "figures": {
+      "enabled": true,
+      "advancedChartExtractionEnabled": true
+     },
+     "tables": {
+      "enabled": true,
+      "targetFormat": "html",
+      "cellBlocksEnabled": true,
+      "agentic": {
+       "enabled": true
+      }
+     },
+     "text": {
+      "signatureDetectionEnabled": true,
+      "agentic": {
+       "enabled": true
+      }
+     },
+     "formulas": {
+      "enabled": true
+     },
+     "keyValue": {
+      "blankFieldFormattingEnabled": true
+     }
+    },
+    "advancedOptions": {
+     "pageRotationEnabled": true
+    }
+   }
+  }
+ },
+ "extend_default": {
+  "provider": "extend",
+  "display_name": "Extend performance",
+  "source_name": "extend_default",
+  "config": {
+   "config": {
+    "engine": "parse_performance",
+    "engineVersion": "2.0.0",
+    "target": "markdown"
+   }
+  }
+ },
+ "llamaparse_agentic_plus": {
+  "provider": "llamaparse",
+  "display_name": "LlamaParse agentic plus",
+  "source_name": "llamaparse_agentic_plus",
+  "config": {
+   "tier": "agentic_plus",
+   "version": "latest",
+   "disable_cache": true,
+   "expand": [
+    "markdown",
+    "metadata",
+    "job_metadata",
+    "items"
+   ]
+  }
+ },
+ "llamaparse_agentic": {
+  "provider": "llamaparse",
+  "display_name": "LlamaParse agentic",
+  "source_name": "llamaparse_agentic",
+  "config": {
+   "tier": "agentic",
+   "version": "latest",
+   "disable_cache": true,
+   "expand": [
+    "markdown",
+    "metadata",
+    "job_metadata",
+    "items"
+   ]
+  }
+ },
+ "llamaparse_cost_effective": {
+  "provider": "llamaparse",
+  "display_name": "LlamaParse cost effective",
+  "source_name": "llamaparse_cost_effective",
+  "config": {
+   "tier": "cost_effective",
+   "version": "latest",
+   "disable_cache": true,
+   "expand": [
+    "markdown",
+    "metadata",
+    "job_metadata",
+    "items"
+   ]
+  }
+ },
+ "datalab_accurate": {
+  "provider": "datalab",
+  "display_name": "Datalab accurate",
+  "source_name": "datalab_accurate",
+  "config": {
+   "mode": "accurate",
+   "output_format": "html,json",
+   "skip_cache": true,
+   "additional_config": {
+    "keep_pageheader_in_output": true,
+    "keep_pagefooter_in_output": true
+   }
+  }
+ },
+ "datalab_balanced": {
+  "provider": "datalab",
+  "display_name": "Datalab balanced",
+  "source_name": "datalab_balanced",
+  "config": {
+   "mode": "balanced",
+   "output_format": "html,json",
+   "skip_cache": true,
+   "additional_config": {
+    "keep_pageheader_in_output": true,
+    "keep_pagefooter_in_output": true
+   }
+  }
+ },
+ "datalab_fast": {
+  "provider": "datalab",
+  "display_name": "Datalab fast",
+  "source_name": "datalab_fast",
+  "config": {
+   "mode": "fast",
+   "output_format": "html,json",
+   "skip_cache": true,
+   "additional_config": {
+    "keep_pageheader_in_output": true,
+    "keep_pagefooter_in_output": true
+   }
+  }
+ },
+ "pulse_ultra_refine": {
+  "provider": "pulse",
+  "display_name": "Pulse Ultra 2 refine",
+  "source_name": "pulse_ultra_refine",
+  "config": {
+   "model": "pulse-ultra-2",
+   "refine": true,
+   "figure_processing": {
+    "description": true
+   },
+   "extensions": {
+    "alt_outputs": {
+     "return_html": true
+    }
+   }
+  }
+ },
+ "cohere_parse_v5": {
+  "provider": "cohere",
+  "display_name": "Cohere Parse v5.0",
+  "source_name": "cohere_parse_v5",
+  "config": {
+   "model": "parse-v5.0",
+   "output_format": "markdown"
+  }
+ }
+}

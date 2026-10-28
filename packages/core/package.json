@@ -1,0 +1,9 @@
+{
+  "name": "@evalmydocs/core",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts", "./*": "./src/*.ts" },
+  "scripts": { "check": "tsc -p .", "test": "vitest run" },
+  "dependencies": { "effect": "4.0.7", "pdf-lib": "^1.17.1", "aws4fetch": "^1.0.20" },
+  "devDependencies": { "vitest": "^5.0.5", "@effect/vitest": "4.0.7" }
+}
