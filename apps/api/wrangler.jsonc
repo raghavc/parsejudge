@@ -6,11 +6,16 @@
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
   "limits": { "cpu_ms": 300000 },
+  "assets": {
+    "directory": "../web/dist",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/v1/*", "/blobs/*", "/openapi.json"]
+  },
   "vars": {
     "PUBLIC_URL": "http://localhost:8787",
-    "JUDGE_MODEL": "gpt-6-astra",
+    "JUDGE_MODEL": "openai/gpt-6.1-sol",
     "JUDGE_REASONING_EFFORT": "medium",
-    "JUDGE_BASE_URL": "https://api.openai.com/v1",
+    "JUDGE_BASE_URL": "https://openrouter.ai/api/v1",
     "MAX_PAGES_PER_RUN": "50",
     "MAX_CONCURRENCY": "{}",
     "AWS_REGION": "us-west-2",

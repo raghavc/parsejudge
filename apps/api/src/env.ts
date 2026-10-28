@@ -18,7 +18,7 @@ export interface Env {
   readonly MAX_CONCURRENCY?: string;
   readonly BLOB_SIGNING_KEY: string;
   readonly CREDENTIALS_KEY: string;
-  readonly OPENAI_API_KEY: string;
+  readonly JUDGE_API_KEY: string;
   readonly AUTH_MODE: string;
   /** Hosted provider credentials (REDUCTO_API_KEY, AZURE_DI_KEY, ...). */
   readonly [credential: string]: unknown;

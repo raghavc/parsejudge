@@ -224,6 +224,20 @@ export class PageWorkflow extends WorkflowEntrypoint<Env, PageWorkflowParams> {
         await saveFailure(this.env, cell, error instanceof Error ? error.message : String(error));
       });
     }
+    await step.do(`report ${name}`, async () => {
+      const row = await this.env.DB.prepare(
+        "SELECT status, latency_ms FROM parses WHERE run_id = ? AND page_id = ? AND preset_id = ?",
+      )
+        .bind(cell.runId, cell.pageId, cell.presetId)
+        .first<{ status: string; latency_ms: number | null }>();
+      const ok = row?.status === "succeeded";
+      await events(this.env, cell.runId).parseDone({
+        presetId: cell.presetId,
+        pageId: cell.pageId,
+        ok,
+        latencyMs: ok ? (row?.latency_ms ?? null) : null,
+      });
+    });
   }
 
   private async judge(runId: string, page: string): Promise<void> {
@@ -242,7 +256,7 @@ export class PageWorkflow extends WorkflowEntrypoint<Env, PageWorkflowParams> {
     const verdicts = await runStep(
       judgePage(
         {
-          apiKey: this.env.OPENAI_API_KEY,
+          apiKey: this.env.JUDGE_API_KEY,
           model: this.env.JUDGE_MODEL,
           reasoningEffort: this.env.JUDGE_REASONING_EFFORT,
           baseUrl: this.env.JUDGE_BASE_URL,

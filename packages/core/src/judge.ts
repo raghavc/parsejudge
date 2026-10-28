@@ -96,6 +96,9 @@ const base64 = (bytes: Uint8Array): string => {
 
 /** One judge call per page: all parses, blinded, scored 1-10 against the page image. */
 export const judgePage = Effect.fn("judge.page")(function* (config: JudgeConfig, input: JudgeInput) {
+  if (config.apiKey === undefined || config.apiKey === "") {
+    return yield* new JudgeError({ retryable: false, message: "Judge API key is not set." });
+  }
   const labelToPreset = yield* blindLabels(input.pageId, Object.keys(input.markdownByPreset));
   const labels = Object.keys(labelToPreset);
   const sections = labels
