@@ -1,5 +1,5 @@
-import { DEFAULT_PRESET_IDS, findPreset, JUDGE_VERSION, PRESETS, splitPages } from "@evalmydocs/core";
 import { env } from "cloudflare:workers";
+import { DEFAULT_PRESET_IDS, findPreset, JUDGE_VERSION, PRESETS, splitPages } from "@evalmydocs/core";
 import { Effect, Layer, Schema } from "effect";
 import { HttpRouter, HttpServer, HttpServerRequest } from "effect/http";
 import { HttpApi, HttpApiBuilder, HttpApiEndpoint, HttpApiError, HttpApiGroup } from "effect/http-api";
@@ -54,9 +54,7 @@ const PageDetail = Schema.Struct({
 });
 
 export const Api = HttpApi.make("evalmydocs")
-  .add(
-    HttpApiGroup.make("presets").add(HttpApiEndpoint.get("list", "/v1/presets", { success: Schema.Array(PresetInfo) })),
-  )
+  .add(HttpApiGroup.make("presets").add(HttpApiEndpoint.get("list", "/v1/presets", { success: Schema.Array(PresetInfo) })))
   .add(
     HttpApiGroup.make("documents").add(
       HttpApiEndpoint.post("upload", "/v1/documents", {
@@ -176,9 +174,7 @@ const DocumentsLive = HttpApiBuilder.group(Api, "documents", (handlers) =>
     Effect.gen(function* () {
       const userId = yield* currentUser;
       const request = yield* HttpServerRequest.HttpServerRequest;
-      const bytes = new Uint8Array(
-        yield* request.arrayBuffer.pipe(Effect.mapError(() => new HttpApiError.BadRequest({}))),
-      );
+      const bytes = new Uint8Array(yield* request.arrayBuffer.pipe(Effect.mapError(() => new HttpApiError.BadRequest({}))));
       const pages = yield* splitPages(bytes, Number(cf.MAX_PAGES_PER_RUN)).pipe(
         Effect.mapError(() => new HttpApiError.BadRequest({})),
       );
@@ -204,7 +200,8 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
         for (const id of presetIds) {
           const preset = findPreset(id);
           if (preset === undefined) return yield* new HttpApiError.BadRequest({});
-          if (!preset.hosted && payload.credentials?.[preset.provider] === undefined) return yield* new HttpApiError.BadRequest({});
+          if (!preset.hosted && payload.credentials?.[preset.provider] === undefined)
+            return yield* new HttpApiError.BadRequest({});
         }
         const owned = yield* query(() =>
           cf.DB.prepare(
@@ -260,7 +257,14 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
              FROM parses p LEFT JOIN verdicts v USING (run_id, page_id, preset_id) WHERE p.run_id = ? AND p.page_id = ?`,
           )
             .bind(params.runId, params.pageId)
-            .all<{ preset_id: string; status: string; error: string | null; score: number | null; reasoning: string | null; errors: string | null }>(),
+            .all<{
+              preset_id: string;
+              status: string;
+              error: string | null;
+              score: number | null;
+              reasoning: string | null;
+              errors: string | null;
+            }>(),
         );
         if (rows.results.length === 0) return yield* new HttpApiError.NotFound({});
         const parses = yield* query(() =>

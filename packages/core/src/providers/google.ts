@@ -102,7 +102,9 @@ export const googleDocumentAi: ProviderAdapter = {
 
 export function googleDocumentAiMarkdown(raw: unknown): string {
   const document = record(record(raw).document);
-  const blocks = Array.isArray(record(document.documentLayout).blocks) ? (record(document.documentLayout).blocks as unknown[]) : [];
+  const blocks = Array.isArray(record(document.documentLayout).blocks)
+    ? (record(document.documentLayout).blocks as unknown[])
+    : [];
   const markdown = renderBlocks(blocks);
   return markdown.length > 0 ? markdown : (string(document.text) ?? "");
 }
@@ -128,9 +130,7 @@ function renderTextBlock(block: Record<string, unknown>, context: RenderContext)
   const text = typeof block.text === "string" ? block.text.trim() : "";
   const children = Array.isArray(block.blocks) ? renderBlocks(block.blocks, context) : "";
   const ownText = context === "tableCell" ? escapeHtml(text) : headingMarkdown(text, block.type);
-  return [ownText, children]
-    .filter((part) => part.length > 0)
-    .join(context === "tableCell" ? "<br><br>" : "\n\n");
+  return [ownText, children].filter((part) => part.length > 0).join(context === "tableCell" ? "<br><br>" : "\n\n");
 }
 
 function headingMarkdown(text: string, type: unknown): string {
@@ -184,9 +184,7 @@ function renderListBlock(block: Record<string, unknown>, context: RenderContext)
   });
   if (context === "tableCell") {
     const tag = ordered ? "ol" : "ul";
-    return contents.length > 0
-      ? `<${tag}>${contents.map((content) => `<li>${content}</li>`).join("")}</${tag}>`
-      : "";
+    return contents.length > 0 ? `<${tag}>${contents.map((content) => `<li>${content}</li>`).join("")}</${tag}>` : "";
   }
   return contents
     .map((content, index) => {

@@ -2,7 +2,7 @@ import { Effect, Option } from "effect";
 import { HttpClientRequest } from "effect/http";
 import { sendJson } from "../http.ts";
 import { record, string } from "../json.ts";
-import { credential, failure, pending, type ProviderAdapter } from "../provider.ts";
+import { credential, failure, type ProviderAdapter, pending } from "../provider.ts";
 
 const API_VERSION = "2024-11-30";
 
@@ -45,4 +45,3 @@ export const azure: ProviderAdapter = {
     return Option.some({ markdown: string(record(body.analyzeResult).content) ?? "", raw: body });
   }),
 };
-

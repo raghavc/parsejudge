@@ -1,5 +1,8 @@
 /** Comparative judge prompt. Changing it changes JUDGE_VERSION; keep both in sync. */
-export const comparePrompt = (parseSections: string, labels: string): string => `You are evaluating multiple text extractions of one PDF page.
+export const comparePrompt = (
+  parseSections: string,
+  labels: string,
+): string => `You are evaluating multiple text extractions of one PDF page.
 The original page image is provided for reference.
 
 The parses are blinded and shuffled. Evaluate each parse independently against the page image.

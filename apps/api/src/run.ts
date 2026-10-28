@@ -1,13 +1,13 @@
+import { NonRetryableError } from "cloudflare:workflows";
 import {
   type Credentials,
   findPreset,
-  JudgeError,
+  type JudgeError,
   type PageInput,
   type ParseOutput,
   PROVIDERS,
-  ProviderError,
+  type ProviderError,
 } from "@evalmydocs/core";
-import { NonRetryableError } from "cloudflare:workflows";
 import { Effect, Option } from "effect";
 import { FetchHttpClient, type HttpClient } from "effect/http";
 import { signedBlobUrl } from "./blobs.ts";
@@ -72,9 +72,7 @@ export const saveParse = async (env: Env, cell: Cell, output: ParseOutput, laten
 };
 
 export const saveFailure = (env: Env, cell: Cell, error: string) =>
-  env.DB.prepare(
-    `INSERT OR REPLACE INTO parses (run_id, page_id, preset_id, status, error) VALUES (?, ?, ?, 'failed', ?)`,
-  )
+  env.DB.prepare(`INSERT OR REPLACE INTO parses (run_id, page_id, preset_id, status, error) VALUES (?, ?, ?, 'failed', ?)`)
     .bind(cell.runId, cell.pageId, cell.presetId, error.slice(0, 1000))
     .run();
 

@@ -5,13 +5,15 @@
   "compatibility_date": "2026-10-01",
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
+  "limits": { "cpu_ms": 300000 },
   "vars": {
     "PUBLIC_URL": "http://localhost:8787",
     "JUDGE_MODEL": "gpt-6-astra",
     "JUDGE_REASONING_EFFORT": "medium",
     "JUDGE_BASE_URL": "https://api.openai.com/v1",
     "MAX_PAGES_PER_RUN": "50",
-    "AWS_REGION": "us-west-2"
+    "AWS_REGION": "us-west-2",
+    "AUTH_MODE": "dev"
   },
   "d1_databases": [{ "binding": "DB", "database_name": "evalmydocs", "database_id": "local", "migrations_dir": "migrations" }],
   "r2_buckets": [{ "binding": "BLOBS", "bucket_name": "evalmydocs-blobs" }],

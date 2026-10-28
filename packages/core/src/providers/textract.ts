@@ -35,7 +35,8 @@ const tableHtml = (table: Block, byId: ReadonlyMap<string, Block>): string => {
     const cell = byId.get(id);
     if (cell === undefined || cell.BlockType !== "CELL") continue;
     const row = number(cell.RowIndex) ?? 0;
-    const span = (name: string) => (number(cell[name]) ?? 1) > 1 ? ` ${name === "RowSpan" ? "rowspan" : "colspan"}="${number(cell[name])}"` : "";
+    const span = (name: string) =>
+      (number(cell[name]) ?? 1) > 1 ? ` ${name === "RowSpan" ? "rowspan" : "colspan"}="${number(cell[name])}"` : "";
     const cells = rows.get(row) ?? [];
     cells.push(`<td${span("RowSpan")}${span("ColumnSpan")}>${blockText(cell, byId)}</td>`);
     rows.set(row, cells);

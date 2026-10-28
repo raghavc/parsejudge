@@ -8,7 +8,9 @@ const [pdfUrl = "", imageUrl = "", ...only] = process.argv.slice(2);
 const credentials = Object.fromEntries(
   readFileSync(new URL("../../../apps/api/.dev.vars", import.meta.url), "utf8")
     .split("\n")
-    .flatMap((line) => (line.includes("=") ? [[line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1).replace(/^"|"$/g, "")]] : [])),
+    .flatMap((line) =>
+      line.includes("=") ? [[line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1).replace(/^"|"$/g, "")]] : [],
+    ),
 );
 const page = {
   pdfUrl,
@@ -17,13 +19,14 @@ const page = {
 };
 
 const run = Effect.fn("smoke")(function* (presetId: string) {
-  const preset = PRESETS.find((p) => p.id === presetId)!;
+  const preset = PRESETS.find((p) => p.id === presetId);
+  if (preset === undefined) return yield* Effect.die(`Unknown preset ${presetId}`);
   const adapter = PROVIDERS[preset.provider];
   const started = Date.now();
   let submission = yield* adapter.submit(page, preset.config, credentials);
-  while (submission._tag === "Pending") {
+  while (submission._tag === "Pending" && adapter.poll !== undefined) {
     yield* Effect.sleep("2 seconds");
-    const polled = yield* adapter.poll!(submission.job, credentials);
+    const polled = yield* adapter.poll(submission.job, credentials);
     if (Option.isSome(polled)) submission = { _tag: "Done", output: polled.value };
   }
   const { markdown, reportedCost } = submission.output;

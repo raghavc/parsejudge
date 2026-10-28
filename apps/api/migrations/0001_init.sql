@@ -74,3 +74,10 @@ CREATE TABLE run_credentials (
 
 CREATE INDEX runs_user ON runs (user_id, created_at DESC);
 CREATE INDEX documents_user ON documents (user_id, created_at DESC);
+
+CREATE TABLE judge_failures (
+  run_id TEXT NOT NULL REFERENCES runs(id),
+  page_id TEXT NOT NULL REFERENCES pages(id),
+  error TEXT NOT NULL,
+  PRIMARY KEY (run_id, page_id)
+);

@@ -152,9 +152,7 @@ export const PRESETS: ReadonlyArray<Preset> = [
   },
 ];
 
-export const DEFAULT_PRESET_IDS: ReadonlyArray<string> = PRESETS.filter((preset) => preset.hosted).map(
-  (preset) => preset.id,
-);
+export const DEFAULT_PRESET_IDS: ReadonlyArray<string> = PRESETS.filter((preset) => preset.hosted).map((preset) => preset.id);
 
 const byId = new Map(PRESETS.map((preset) => [preset.id, preset]));
 

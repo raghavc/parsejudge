@@ -6,8 +6,7 @@ const decoder = new TextDecoder();
 const toBase64 = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes));
 const fromBase64 = (text: string) => Uint8Array.from(atob(text), (char) => char.charCodeAt(0));
 
-const key = (secret: string) =>
-  crypto.subtle.importKey("raw", fromBase64(secret), "AES-GCM", false, ["encrypt", "decrypt"]);
+const key = (secret: string) => crypto.subtle.importKey("raw", fromBase64(secret), "AES-GCM", false, ["encrypt", "decrypt"]);
 
 /** AES-GCM with a 256-bit base64 key (CREDENTIALS_KEY); the run id is bound as additional data. */
 export const encryptCredentials = async (secret: string, runId: string, credentials: Credentials) => {

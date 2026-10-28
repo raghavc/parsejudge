@@ -1,6 +1,6 @@
+import { handler } from "./api.ts";
 import { verifyBlobUrl } from "./blobs.ts";
 import type { Env } from "./env.ts";
-import { handler } from "./api.ts";
 
 export { RunEvents } from "./events.ts";
 export { PageWorkflow, RunWorkflow } from "./workflows.ts";

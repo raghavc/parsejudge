@@ -1,5 +1,5 @@
-import { JUDGE_VERSION, judgePage, type PageResult, splitPages, summarize } from "@evalmydocs/core";
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep, type WorkflowStepConfig } from "cloudflare:workers";
+import { JUDGE_VERSION, judgePage, type PageResult, splitPages, summarize } from "@evalmydocs/core";
 import { Effect } from "effect";
 import type { Env } from "./env.ts";
 import type { RunEvents } from "./events.ts";
@@ -31,11 +31,16 @@ export class RunWorkflow extends WorkflowEntrypoint<Env, RunWorkflowParams> {
     try {
       const run = await step.do("load run", async () => {
         await this.env.DB.prepare("UPDATE runs SET status = 'running' WHERE id = ?").bind(runId).run();
-        const row = await this.env.DB.prepare("SELECT preset_ids FROM runs WHERE id = ?").bind(runId).first<{ preset_ids: string }>();
+        const row = await this.env.DB.prepare("SELECT preset_ids FROM runs WHERE id = ?")
+          .bind(runId)
+          .first<{ preset_ids: string }>();
         const documents = await this.env.DB.prepare("SELECT document_id FROM run_documents WHERE run_id = ? ORDER BY document_id")
           .bind(runId)
           .all<{ document_id: string }>();
-        return { presetIds: JSON.parse(row?.preset_ids ?? "[]") as Array<string>, documentIds: documents.results.map((d) => d.document_id) };
+        return {
+          presetIds: JSON.parse(row?.preset_ids ?? "[]") as Array<string>,
+          documentIds: documents.results.map((d) => d.document_id),
+        };
       });
 
       const pageIds: Array<string> = [];
@@ -68,7 +73,9 @@ export class RunWorkflow extends WorkflowEntrypoint<Env, RunWorkflowParams> {
 
   /** Splits the document into single-page PDFs and PNGs once; later runs reuse them. */
   private async preparePages(documentId: string): Promise<Array<string>> {
-    const document = await this.env.DB.prepare("SELECT page_count FROM documents WHERE id = ?").bind(documentId).first<{ page_count: number }>();
+    const document = await this.env.DB.prepare("SELECT page_count FROM documents WHERE id = ?")
+      .bind(documentId)
+      .first<{ page_count: number }>();
     const count = document?.page_count ?? 0;
     const ids = Array.from({ length: count }, (_, index) => pageId(documentId, index));
     const rendered = await this.env.DB.prepare("SELECT COUNT(*) AS n FROM pages WHERE document_id = ? AND rendered = 1")
@@ -107,16 +114,30 @@ export class RunWorkflow extends WorkflowEntrypoint<Env, RunWorkflowParams> {
         ? { cost: { usd: row.cost_usd, source: row.cost_source === "provider" ? "provider" : "list_price" } }
         : {}),
       ...(typeof row.score === "number"
-        ? { verdict: { presetId: String(row.preset_id), score: row.score, reasoning: String(row.reasoning), errors: JSON.parse(String(row.errors)) } }
+        ? {
+            verdict: {
+              presetId: String(row.preset_id),
+              score: row.score,
+              reasoning: String(row.reasoning),
+              errors: JSON.parse(String(row.errors)),
+            },
+          }
         : {}),
     }));
-    await this.env.DB.prepare("UPDATE runs SET summary = ? WHERE id = ?").bind(JSON.stringify(summarize(results)), runId).run();
+    await this.env.DB.prepare("UPDATE runs SET summary = ? WHERE id = ?")
+      .bind(JSON.stringify(summarize(results)), runId)
+      .run();
     await this.finish(runId, "succeeded", null);
   }
 
   private async finish(runId: string, status: "succeeded" | "failed", error: string | null): Promise<void> {
     await this.env.DB.batch([
-      this.env.DB.prepare("UPDATE runs SET status = ?, error = ?, completed_at = ? WHERE id = ?").bind(status, error, Date.now(), runId),
+      this.env.DB.prepare("UPDATE runs SET status = ?, error = ?, completed_at = ? WHERE id = ?").bind(
+        status,
+        error,
+        Date.now(),
+        runId,
+      ),
       this.env.DB.prepare("DELETE FROM run_credentials WHERE run_id = ?").bind(runId),
     ]);
   }
@@ -127,7 +148,15 @@ export class PageWorkflow extends WorkflowEntrypoint<Env, PageWorkflowParams> {
   override async run(event: Readonly<WorkflowEvent<PageWorkflowParams>>, step: WorkflowStep) {
     const { runId, pageId: page, presetIds } = event.payload;
     await Promise.all(presetIds.map((presetId) => this.parse(step, { runId, pageId: page, presetId })));
-    await step.do("judge", RETRY, () => this.judge(runId, page));
+    try {
+      await step.do("judge", RETRY, () => this.judge(runId, page));
+    } catch (error) {
+      await step.do("record judge failure", async () => {
+        await this.env.DB.prepare("INSERT OR REPLACE INTO judge_failures (run_id, page_id, error) VALUES (?, ?, ?)")
+          .bind(runId, page, error instanceof Error ? error.message : String(error))
+          .run();
+      });
+    }
     await step.do("report", () => events(this.env, runId).pageDone(page));
   }
 
@@ -150,7 +179,9 @@ export class PageWorkflow extends WorkflowEntrypoint<Env, PageWorkflowParams> {
   }
 
   private async judge(runId: string, page: string): Promise<void> {
-    const rows = await this.env.DB.prepare("SELECT preset_id FROM parses WHERE run_id = ? AND page_id = ? AND status = 'succeeded'")
+    const rows = await this.env.DB.prepare(
+      "SELECT preset_id FROM parses WHERE run_id = ? AND page_id = ? AND status = 'succeeded'",
+    )
       .bind(runId, page)
       .all<{ preset_id: string }>();
     if (rows.results.length === 0) return;
@@ -173,14 +204,9 @@ export class PageWorkflow extends WorkflowEntrypoint<Env, PageWorkflowParams> {
     );
     await this.env.DB.batch(
       verdicts.map((verdict) =>
-        this.env.DB.prepare("INSERT OR REPLACE INTO verdicts (run_id, page_id, preset_id, score, reasoning, errors) VALUES (?, ?, ?, ?, ?, ?)").bind(
-          runId,
-          page,
-          verdict.presetId,
-          verdict.score,
-          verdict.reasoning,
-          JSON.stringify(verdict.errors),
-        ),
+        this.env.DB.prepare(
+          "INSERT OR REPLACE INTO verdicts (run_id, page_id, preset_id, score, reasoning, errors) VALUES (?, ?, ?, ?, ?, ?)",
+        ).bind(runId, page, verdict.presetId, verdict.score, verdict.reasoning, JSON.stringify(verdict.errors)),
       ),
     );
   }

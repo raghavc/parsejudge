@@ -1,5 +1,6 @@
 import { init, type WrappedPdfiumModule } from "@embedpdf/pdfium";
-import pdfiumWasm from "@embedpdf/pdfium/pdfium.wasm";
+import pdfiumWasm from "../node_modules/@embedpdf/pdfium/dist/pdfium.wasm";
+import { encodePng } from "./png.ts";
 
 const DPI = 150;
 const MAX_DIMENSION = 2000;
@@ -40,15 +41,12 @@ export const renderFirstPagePng = async (pdf: Uint8Array): Promise<Uint8Array> =
   const bitmap = m.FPDFBitmap_CreateEx(width, height, BITMAP_BGRA, 0, 0);
   m.FPDFBitmap_FillRect(bitmap, 0, 0, width, height, 0xffffffff);
   m.FPDF_RenderPageBitmap(bitmap, page, 0, 0, width, height, 0, RENDER_ANNOTATIONS);
-  const pngSizePtr = m.pdfium.wasmExports.malloc(4);
-  const pngPtr = m.EPDF_PNG_EncodeRGBA(m.FPDFBitmap_GetBuffer(bitmap), width, height, width * 4, 0, pngSizePtr);
-  const pngSize = m.pdfium.getValue(pngSizePtr, "i32");
-  const png = m.pdfium.HEAPU8.slice(pngPtr, pngPtr + pngSize);
-  m.pdfium.wasmExports.free(pngPtr);
-  m.pdfium.wasmExports.free(pngSizePtr);
+  const stride = m.FPDFBitmap_GetStride(bitmap);
+  const buffer = m.FPDFBitmap_GetBuffer(bitmap);
+  const bgra = m.pdfium.HEAPU8.slice(buffer, buffer + stride * height);
   m.FPDFBitmap_Destroy(bitmap);
   m.FPDF_ClosePage(page);
   m.FPDF_CloseDocument(doc);
   m.pdfium.wasmExports.free(pdfPtr);
-  return png;
+  return encodePng(bgra, width, height, stride);
 };

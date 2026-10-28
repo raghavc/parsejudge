@@ -1,6 +1,7 @@
 # evalmydocs backend design (working notes)
 
 ## Product
+
 Public site: email signup, upload docs, run parse eval. Default free run: Reducto r-1 + hyperscalers
 (Azure DI, AWS Textract, Google Document AI), judged by blind comparative judge (gpt-6-astra, OpenAI API).
 We pay for default compute; keep docs/results. BYOK for others (LlamaParse, Extend, Datalab, Mistral, Pulse, Cohere).
@@ -8,6 +9,7 @@ Each run -> shareable link: summary, tradeoff curve list price vs accuracy. Self
 UI + MCP come later (user will be prescriptive). Auth later (CurrentUser service stub).
 
 ## Decisions
+
 - Monorepo: packages/core (Effect only, runtime-agnostic), apps/api (CF Worker: HttpApi, Workflows, D1, R2, DO).
 - Effect v4 (effect@4.0.7; http, http-api, workflow, sql, ai modules live inside `effect`; @effect/sql-d1 4.0.7).
 - Durable engine: Cloudflare Workflows (Effect Workflow needs cluster engine; none on Workers). Step bodies are Effect.
@@ -22,6 +24,7 @@ UI + MCP come later (user will be prescriptive). Auth later (CurrentUser service
 - Prices: versioned list-price table per preset; provider-reported cost when available.
 
 ## Reference material (docs/reference)
+
 - reference_parse_eval.py: judge schema, label blinding (sha256 seed shuffle), summary metrics (mean, h2h, wilson CI).
 - compare_prompt.txt: comparative judge prompt ({parse_sections}, {labels}).
 - competitors_src/: request shapes, markdown extraction, cost formulas for every provider.
@@ -31,6 +34,7 @@ UI + MCP come later (user will be prescriptive). Auth later (CurrentUser service
   Google DocAI: service account JSON + processor ids (see competitors README). AWS: needs static keys for Workers.
 
 ## Progress notes (verified live 2026-10-28)
+
 - Unit of work = one (page, preset): each page is split to a single-page PDF + PNG; exact per-page attribution, uniform inputs.
 - LlamaParse v2: POST api.cloud.llamaindex.ai/api/v2/parse {tier,version,source_url} -> {id,status}; GET /api/v2/parse/{id}?expand=markdown -> job.status COMPLETED, markdown.pages[].markdown.
 - Extend: POST api.extend.ai/parse_runs (x-extend-api-version 2026-02-09) {file:{url},config} -> {id,status:PROCESSING}; GET /parse_runs/{id} -> status PROCESSED, output.chunks[].content, usage.credits ($0.01/credit; perf = 2 credits/page).
@@ -40,6 +44,7 @@ UI + MCP come later (user will be prescriptive). Auth later (CurrentUser service
 - Core status: type-clean (`npx tsc -p packages/core`). Next: apps/api (D1 schema, R2, pdfium render to PNG, RunWorkflow, RunDO websocket, HttpApi).
 
 ## apps/api plan (written; migrations/0001_init.sql + wrangler.jsonc exist)
+
 - R2 keys: documents/{docId}.pdf; pages/{pageId}.pdf + .png (pageId = `${docId}-${index}`); runs/{runId}/{pageId}/{presetId}.md + .raw.json.
 - Blob URLs for providers: GET /blobs/{key}?exp&sig, HMAC-SHA256 with BLOB_SIGNING_KEY secret, PUBLIC_URL var. Local dev needs a tunnel (cloudflared quick tunnel) so vendors can fetch.
 - RunWorkflow(params {runId}): step prepare:{docId} (split with core splitPages, render PNG with @embedpdf/pdfium `init({wasmBinary})` + FPDF_LoadMemDocument/FPDFBitmap_Create/FPDF_RenderPageBitmap/EPDF_PNG_EncodeRGBA, ~150 DPI) -> step create PageWorkflow batch (createBatch max 100) -> step.waitForEvent("pages-done") -> step summarize (core summarize over parses+verdicts; write runs.summary; delete run_credentials).

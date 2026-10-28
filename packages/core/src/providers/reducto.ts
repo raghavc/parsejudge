@@ -2,7 +2,7 @@ import { Effect, Option } from "effect";
 import { HttpClientRequest } from "effect/http";
 import { sendJson } from "../http.ts";
 import { array, joinNonEmpty, number, record, string } from "../json.ts";
-import { credential, done, failure, pending, type ParseOutput, type ProviderAdapter } from "../provider.ts";
+import { credential, failure, type ParseOutput, type ProviderAdapter, pending } from "../provider.ts";
 
 const BASE_URL = "https://platform.reducto.ai";
 const CREDIT_USD = 0.015;

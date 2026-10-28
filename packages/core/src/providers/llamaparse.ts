@@ -2,7 +2,7 @@ import { Effect, Option } from "effect";
 import { HttpClientRequest } from "effect/http";
 import { sendJson } from "../http.ts";
 import { array, joinNonEmpty, record, string } from "../json.ts";
-import { credential, failure, pending, type ProviderAdapter } from "../provider.ts";
+import { credential, failure, type ProviderAdapter, pending } from "../provider.ts";
 
 const BASE_URL = "https://api.cloud.llamaindex.ai/api/v2/parse";
 

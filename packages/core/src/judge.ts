@@ -122,9 +122,7 @@ export const judgePage = Effect.fn("judge.page")(function* (config: JudgeConfig,
   const response = yield* client
     .execute(request)
     .pipe(Effect.mapError((error) => new JudgeError({ retryable: true, message: error.message })));
-  const text = yield* response.text.pipe(
-    Effect.mapError((error) => new JudgeError({ retryable: true, message: error.message })),
-  );
+  const text = yield* response.text.pipe(Effect.mapError((error) => new JudgeError({ retryable: true, message: error.message })));
   if (response.status !== 200) {
     const retryable = response.status === 429 || response.status >= 500;
     return yield* new JudgeError({ retryable, message: `HTTP ${response.status}: ${text.slice(0, 500)}` });
@@ -136,14 +134,17 @@ export const judgePage = Effect.fn("judge.page")(function* (config: JudgeConfig,
   const parsed = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(Verdicts))(content).pipe(
     Effect.mapError((error) => new JudgeError({ retryable: true, message: `Invalid judge output: ${error.message}` })),
   );
-  const verdicts: Array<PresetVerdict> = [];
+  const verdicts = new Map<string, PresetVerdict>();
   for (const evaluation of parsed.evaluations) {
     const presetId = labelToPreset[evaluation.label];
     if (presetId === undefined) continue;
-    verdicts.push({ presetId, score: evaluation.score, reasoning: evaluation.reasoning, errors: evaluation.errors });
+    if (!Number.isInteger(evaluation.score) || evaluation.score < 1 || evaluation.score > 10) {
+      return yield* new JudgeError({ retryable: true, message: `Judge score out of range: ${evaluation.score}` });
+    }
+    verdicts.set(presetId, { presetId, score: evaluation.score, reasoning: evaluation.reasoning, errors: evaluation.errors });
   }
-  if (verdicts.length !== labels.length) {
+  if (verdicts.size !== labels.length) {
     return yield* new JudgeError({ retryable: true, message: "Judge did not score every parse." });
   }
-  return verdicts;
+  return [...verdicts.values()];
 });

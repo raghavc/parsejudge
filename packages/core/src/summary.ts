@@ -27,8 +27,9 @@ export interface PresetSummary {
   readonly highSeverityRate: number | null;
   readonly highSeverityInterval: Interval | null;
   readonly errorCounts: Readonly<Partial<Record<ErrorCategory, number>>>;
-  readonly costUsdPerPage: number;
-  readonly costSource: Cost["source"];
+  readonly listPriceUsdPerPage: number;
+  /** Mean provider-reported cost, or null when any succeeded page lacked one. */
+  readonly observedCostUsdPerPage: number | null;
   readonly latencyMsP50: number | null;
   readonly latencyMsP95: number | null;
 }
@@ -43,7 +44,7 @@ export interface HeadToHead {
 
 export interface TradeoffPoint {
   readonly presetId: string;
-  readonly costUsdPerPage: number;
+  readonly listPriceUsdPerPage: number;
   readonly meanScore: number;
   readonly pareto: boolean;
 }
@@ -76,14 +77,10 @@ export const wilson = (successes: number, total: number, z = 1.96): Interval | n
   return { low: Math.max(0, center - margin), high: Math.min(1, center + margin) };
 };
 
-/** Observed provider cost when every succeeded page reported one; list price otherwise. */
-const costPerPage = (presetId: string, results: ReadonlyArray<PageResult>): Pick<PresetSummary, "costUsdPerPage" | "costSource"> => {
+const observedCost = (results: ReadonlyArray<PageResult>): number | null => {
   const succeeded = results.filter((result) => result.status === "succeeded");
   const reported = succeeded.flatMap((result) => (result.cost?.source === "provider" ? [result.cost.usd] : []));
-  if (succeeded.length > 0 && reported.length === succeeded.length) {
-    return { costUsdPerPage: mean(reported) ?? 0, costSource: "provider" };
-  }
-  return { costUsdPerPage: findPreset(presetId)?.listPriceUsdPerPage ?? 0, costSource: "list_price" };
+  return succeeded.length > 0 && reported.length === succeeded.length ? mean(reported) : null;
 };
 
 const summarizePreset = (presetId: string, results: ReadonlyArray<PageResult>): PresetSummary => {
@@ -105,7 +102,8 @@ const summarizePreset = (presetId: string, results: ReadonlyArray<PageResult>): 
     highSeverityRate: verdicts.length === 0 ? null : withHigh / verdicts.length,
     highSeverityInterval: wilson(withHigh, verdicts.length),
     errorCounts,
-    ...costPerPage(presetId, results),
+    listPriceUsdPerPage: findPreset(presetId)?.listPriceUsdPerPage ?? 0,
+    observedCostUsdPerPage: observedCost(results),
     latencyMsP50: quantile(latencies, 0.5),
     latencyMsP95: quantile(latencies, 0.95),
   };
@@ -138,26 +136,33 @@ const headToHead = (presetIds: ReadonlyArray<string>, results: ReadonlyArray<Pag
   );
 };
 
-/** A point is Pareto-optimal when no other point is at least as cheap and at least as accurate, and better in one. */
+/** List price vs accuracy. A point is Pareto-optimal when no other point is at least as cheap and at least as accurate, and better in one. */
 const tradeoff = (presets: ReadonlyArray<PresetSummary>): Array<TradeoffPoint> => {
   const points = presets.flatMap((preset) =>
-    preset.meanScore === null ? [] : [{ presetId: preset.presetId, costUsdPerPage: preset.costUsdPerPage, meanScore: preset.meanScore }],
+    preset.meanScore === null
+      ? []
+      : [{ presetId: preset.presetId, listPriceUsdPerPage: preset.listPriceUsdPerPage, meanScore: preset.meanScore }],
   );
   return points
     .map((point) => ({
       ...point,
       pareto: !points.some(
         (other) =>
-          other.costUsdPerPage <= point.costUsdPerPage &&
+          other.listPriceUsdPerPage <= point.listPriceUsdPerPage &&
           other.meanScore >= point.meanScore &&
-          (other.costUsdPerPage < point.costUsdPerPage || other.meanScore > point.meanScore),
+          (other.listPriceUsdPerPage < point.listPriceUsdPerPage || other.meanScore > point.meanScore),
       ),
     }))
-    .sort((a, b) => a.costUsdPerPage - b.costUsdPerPage);
+    .sort((a, b) => a.listPriceUsdPerPage - b.listPriceUsdPerPage);
 };
 
 export const summarize = (results: ReadonlyArray<PageResult>): RunSummary => {
   const presetIds = [...new Set(results.map((result) => result.presetId))];
-  const presets = presetIds.map((id) => summarizePreset(id, results.filter((result) => result.presetId === id)));
+  const presets = presetIds.map((id) =>
+    summarizePreset(
+      id,
+      results.filter((result) => result.presetId === id),
+    ),
+  );
   return { presets, headToHead: headToHead(presetIds, results), tradeoff: tradeoff(presets) };
 };

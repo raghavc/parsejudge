@@ -1,6 +1,5 @@
-import { Effect } from "effect";
+import { Data, Effect } from "effect";
 import { PDFDocument } from "pdf-lib";
-import { Data } from "effect";
 
 export class InvalidDocument extends Data.TaggedError("InvalidDocument")<{ readonly message: string }> {}
 

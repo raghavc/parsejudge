@@ -2,7 +2,7 @@ import { Effect, Option } from "effect";
 import { HttpClientRequest } from "effect/http";
 import { sendJson } from "../http.ts";
 import { number, record, string } from "../json.ts";
-import { credential, failure, pending, type ProviderAdapter } from "../provider.ts";
+import { credential, failure, type ProviderAdapter, pending } from "../provider.ts";
 
 const BASE_URL = "https://www.datalab.to";
 
