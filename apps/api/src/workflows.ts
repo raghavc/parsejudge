@@ -6,6 +6,7 @@ import type { RunEvents } from "./events.ts";
 import { documentKey, markdownKey, pageId, pagePdfKey, pagePngKey } from "./keys.ts";
 import { renderFirstPagePng } from "./render.ts";
 import { type Cell, judgePool, type Pool, pollCell, providerPool, runStep, saveFailure, submitCell } from "./run.ts";
+import { MAX_POLLS, pollDelayMs } from "./schedule.ts";
 import type { ProviderSlots } from "./slots.ts";
 
 export interface RunWorkflowParams {
@@ -19,8 +20,6 @@ export interface PageWorkflowParams {
 }
 
 const RETRY: WorkflowStepConfig = { retries: { limit: 5, delay: "5 seconds", backoff: "exponential" }, timeout: "5 minutes" };
-const MAX_POLLS = 40;
-const pollDelaySeconds = (attempt: number) => Math.min(2 ** attempt * 2, 60);
 
 const events = (env: Env, runId: string) =>
   env.RUN_EVENTS.get(env.RUN_EVENTS.idFromName(runId)) as unknown as DurableObjectStub<RunEvents>;
@@ -101,7 +100,7 @@ export class RunWorkflow extends WorkflowEntrypoint<Env, RunWorkflowParams> {
 
   private async summarize(runId: string): Promise<void> {
     const parses = await this.env.DB.prepare(
-      `SELECT p.page_id, p.preset_id, p.status, p.latency_ms, p.cost_usd, p.cost_source, v.score, v.reasoning, v.errors
+      `SELECT p.page_id, p.preset_id, p.status, p.latency_ms, p.queue_ms, p.cost_usd, p.cost_source, v.score, v.reasoning, v.errors
        FROM parses p LEFT JOIN verdicts v USING (run_id, page_id, preset_id) WHERE p.run_id = ?`,
     )
       .bind(runId)
@@ -111,6 +110,7 @@ export class RunWorkflow extends WorkflowEntrypoint<Env, RunWorkflowParams> {
       presetId: String(row.preset_id),
       status: row.status === "succeeded" ? "succeeded" : "failed",
       ...(typeof row.latency_ms === "number" ? { latencyMs: row.latency_ms } : {}),
+      ...(typeof row.queue_ms === "number" ? { queueMs: row.queue_ms } : {}),
       ...(typeof row.cost_usd === "number"
         ? { cost: { usd: row.cost_usd, source: row.cost_source === "provider" ? "provider" : "list_price" } }
         : {}),
@@ -176,14 +176,28 @@ export class PageWorkflow extends WorkflowEntrypoint<Env, PageWorkflowParams> {
 
   /**
    * Runs `body` while holding a slot in `pool`. When the pool is full the workflow sleeps on an
-   * event that the pool sends when a slot frees up. The slot is released even when `body` fails.
+   * event that the pool sends when a slot frees up. `body` gets the time spent waiting for the slot.
+   * The slot is released even when `body` fails.
    */
-  private async withSlot<A>(step: WorkflowStep, instanceId: string, label: string, pool: Pool, body: () => Promise<A>) {
+  private async withSlot<A>(
+    step: WorkflowStep,
+    instanceId: string,
+    label: string,
+    pool: Pool,
+    body: (queueMs: number) => Promise<A>,
+  ) {
     const waiter = { lease: `${instanceId}:${label}`, instanceId, event: `slot-${label}` };
     try {
-      const granted = await step.do(`acquire ${label}`, RETRY, () => slots(this.env, pool.name).acquire(pool.limit, waiter));
-      if (!granted) await step.waitForEvent(`slot ${label}`, { type: waiter.event, timeout: "24 hours" });
-      return await body();
+      const requested = await step.do(`acquire ${label}`, RETRY, async () => ({
+        granted: await slots(this.env, pool.name).acquire(pool.limit, waiter),
+        at: Date.now(),
+      }));
+      let grantedAt = requested.at;
+      if (!requested.granted) {
+        await step.waitForEvent(`slot ${label}`, { type: waiter.event, timeout: "24 hours" });
+        grantedAt = await step.do(`granted ${label}`, async () => Date.now());
+      }
+      return await body(grantedAt - requested.at);
     } finally {
       await step.do(`release ${label}`, RETRY, () => slots(this.env, pool.name).release(waiter.lease));
     }
@@ -194,12 +208,14 @@ export class PageWorkflow extends WorkflowEntrypoint<Env, PageWorkflowParams> {
     const name = cell.presetId;
     try {
       const pool = await step.do(`pool ${name}`, RETRY, () => providerPool(this.env, cell));
-      await this.withSlot(step, instanceId, name, pool, async () => {
-        const { job, startedAt } = await step.do(`submit ${name}`, RETRY, () => submitCell(this.env, cell));
+      await this.withSlot(step, instanceId, name, pool, async (queueMs) => {
+        const { job, startedAt } = await step.do(`submit ${name}`, RETRY, () => submitCell(this.env, cell, queueMs));
         if (job === null) return;
         for (let attempt = 0; attempt < MAX_POLLS; attempt++) {
-          await step.sleep(`wait ${name} ${attempt}`, `${pollDelaySeconds(attempt)} seconds`);
-          if (await step.do(`poll ${name} ${attempt}`, RETRY, () => pollCell(this.env, cell, job, startedAt))) return;
+          await step.sleep(`wait ${name} ${attempt}`, pollDelayMs(attempt));
+          if (await step.do(`poll ${name} ${attempt}`, RETRY, () => pollCell(this.env, cell, job, startedAt, queueMs))) {
+            return;
+          }
         }
         throw new Error("Timed out waiting for the provider");
       });

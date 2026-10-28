@@ -45,6 +45,8 @@ const PageDetail = Schema.Struct({
     Schema.Struct({
       presetId: Schema.String,
       status: Schema.String,
+      latencyMs: Schema.NullOr(Schema.Number),
+      queueMs: Schema.NullOr(Schema.Number),
       markdown: Schema.NullOr(Schema.String),
       error: Schema.NullOr(Schema.String),
       score: Schema.NullOr(Schema.Number),
@@ -263,13 +265,15 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
       Effect.gen(function* () {
         const rows = yield* query(() =>
           cf.DB.prepare(
-            `SELECT p.preset_id, p.status, p.error, v.score, v.reasoning, v.errors
+            `SELECT p.preset_id, p.status, p.latency_ms, p.queue_ms, p.error, v.score, v.reasoning, v.errors
              FROM parses p LEFT JOIN verdicts v USING (run_id, page_id, preset_id) WHERE p.run_id = ? AND p.page_id = ?`,
           )
             .bind(params.runId, params.pageId)
             .all<{
               preset_id: string;
               status: string;
+              latency_ms: number | null;
+              queue_ms: number | null;
               error: string | null;
               score: number | null;
               reasoning: string | null;
@@ -282,6 +286,8 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
             rows.results.map(async (row) => ({
               presetId: row.preset_id,
               status: row.status,
+              latencyMs: row.latency_ms,
+              queueMs: row.queue_ms,
               markdown: (await (await cf.BLOBS.get(markdownKey(params.runId, params.pageId, row.preset_id)))?.text()) ?? null,
               error: row.error,
               score: row.score,

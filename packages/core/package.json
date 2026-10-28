@@ -11,12 +11,13 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "aws4fetch": "^1.0.20",
     "effect": "4.0.7",
-    "pdf-lib": "^1.17.1",
-    "aws4fetch": "^1.0.20"
+    "pdf-lib": "^1.17.1"
   },
   "devDependencies": {
-    "vitest": "^5.0.5",
-    "@effect/vitest": "4.0.7"
+    "@effect/vitest": "4.0.7",
+    "@types/node": "^24.19.2",
+    "vitest": "^5.0.5"
   }
 }

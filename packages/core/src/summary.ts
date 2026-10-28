@@ -6,7 +6,10 @@ export interface PageResult {
   readonly pageId: string;
   readonly presetId: string;
   readonly status: "succeeded" | "failed";
+  /** Submit to result in hand, including vendor queueing and async processing. */
   readonly latencyMs?: number;
+  /** Wait for a parsejudge concurrency slot before submit; not part of `latencyMs`. */
+  readonly queueMs?: number;
   readonly cost?: Cost;
   readonly verdict?: PresetVerdict;
 }
@@ -30,6 +33,7 @@ export interface PresetSummary {
   readonly listPriceUsdPerPage: number;
   /** Mean provider-reported cost, or null when any succeeded page lacked one. */
   readonly observedCostUsdPerPage: number | null;
+  readonly latencyMsMean: number | null;
   readonly latencyMsP50: number | null;
   readonly latencyMsP95: number | null;
 }
@@ -104,6 +108,7 @@ const summarizePreset = (presetId: string, results: ReadonlyArray<PageResult>): 
     errorCounts,
     listPriceUsdPerPage: findPreset(presetId)?.listPriceUsdPerPage ?? 0,
     observedCostUsdPerPage: observedCost(results),
+    latencyMsMean: mean(latencies),
     latencyMsP50: quantile(latencies, 0.5),
     latencyMsP95: quantile(latencies, 0.95),
   };

@@ -57,17 +57,28 @@ export interface Cell {
   readonly presetId: string;
 }
 
-/** Stores a finished parse. Idempotent, so a retried step can call it again. */
-export const saveParse = async (env: Env, cell: Cell, output: ParseOutput, latencyMs: number) => {
+/**
+ * Stores a finished parse. Idempotent, so a retried step can call it again.
+ * `latencyMs` runs from submit to result in hand; `queueMs` is the wait for a concurrency slot before submit.
+ */
+export const saveParse = async (env: Env, cell: Cell, output: ParseOutput, latencyMs: number, queueMs: number) => {
   const { runId, pageId, presetId } = cell;
   const listPrice = findPreset(presetId)?.listPriceUsdPerPage ?? null;
   await env.BLOBS.put(markdownKey(runId, pageId, presetId), output.markdown);
   await env.BLOBS.put(rawKey(runId, pageId, presetId), JSON.stringify(output.raw));
   await env.DB.prepare(
-    `INSERT OR REPLACE INTO parses (run_id, page_id, preset_id, status, latency_ms, cost_usd, cost_source, error)
-     VALUES (?, ?, ?, 'succeeded', ?, ?, ?, NULL)`,
+    `INSERT OR REPLACE INTO parses (run_id, page_id, preset_id, status, latency_ms, queue_ms, cost_usd, cost_source, error)
+     VALUES (?, ?, ?, 'succeeded', ?, ?, ?, ?, NULL)`,
   )
-    .bind(runId, pageId, presetId, latencyMs, output.reportedCost?.usd ?? listPrice, output.reportedCost?.source ?? "list_price")
+    .bind(
+      runId,
+      pageId,
+      presetId,
+      latencyMs,
+      queueMs,
+      output.reportedCost?.usd ?? listPrice,
+      output.reportedCost?.source ?? "list_price",
+    )
     .run();
 };
 
@@ -76,7 +87,11 @@ export const saveFailure = (env: Env, cell: Cell, error: string) =>
     .bind(cell.runId, cell.pageId, cell.presetId, error.slice(0, 1000))
     .run();
 
-export const submitCell = async (env: Env, cell: Cell): Promise<{ readonly job: string | null; readonly startedAt: number }> => {
+export const submitCell = async (
+  env: Env,
+  cell: Cell,
+  queueMs: number,
+): Promise<{ readonly job: string | null; readonly startedAt: number }> => {
   const preset = findPreset(cell.presetId);
   if (preset === undefined) throw new NonRetryableError(`Unknown preset ${cell.presetId}`);
   const credentials = await credentialsFor(env, cell.runId, cell.presetId);
@@ -84,19 +99,19 @@ export const submitCell = async (env: Env, cell: Cell): Promise<{ readonly job: 
   const startedAt = Date.now();
   const submission = await runStep(PROVIDERS[preset.provider].submit(page, preset.config, credentials));
   if (submission._tag === "Pending") return { job: submission.job, startedAt };
-  await saveParse(env, cell, submission.output, Date.now() - startedAt);
+  await saveParse(env, cell, submission.output, Date.now() - startedAt, queueMs);
   return { job: null, startedAt };
 };
 
 /** Returns true when the vendor job finished and the result is stored. */
-export const pollCell = async (env: Env, cell: Cell, job: string, startedAt: number): Promise<boolean> => {
+export const pollCell = async (env: Env, cell: Cell, job: string, startedAt: number, queueMs: number): Promise<boolean> => {
   const preset = findPreset(cell.presetId);
   const poll = preset === undefined ? undefined : PROVIDERS[preset.provider].poll;
   if (preset === undefined || poll === undefined) throw new NonRetryableError(`${cell.presetId} cannot poll`);
   const credentials = await credentialsFor(env, cell.runId, cell.presetId);
   const output = await runStep(poll(job, credentials));
   if (Option.isNone(output)) return false;
-  await saveParse(env, cell, output.value, Date.now() - startedAt);
+  await saveParse(env, cell, output.value, Date.now() - startedAt, queueMs);
   return true;
 };
 

@@ -48,6 +48,7 @@ CREATE TABLE parses (
   preset_id TEXT NOT NULL,
   status TEXT NOT NULL CHECK (status IN ('succeeded', 'failed')),
   latency_ms INTEGER,
+  queue_ms INTEGER,
   cost_usd REAL,
   cost_source TEXT,
   error TEXT,

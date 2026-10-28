@@ -61,4 +61,13 @@ describe("summarize", () => {
     expect(preset?.highSeverityInterval?.high).toBeLessThan(1);
     expect(preset?.errorCounts).toEqual({ content_omission: 1 });
   });
+
+  it("reports latency per preset from succeeded pages only", () => {
+    const summary = summarize([
+      ok("p1", "reducto_r1", 9, { latencyMs: 1000, queueMs: 50_000 }),
+      ok("p2", "reducto_r1", 9, { latencyMs: 3000 }),
+      { pageId: "p3", presetId: "reducto_r1", status: "failed" },
+    ]);
+    expect(summary.presets[0]).toMatchObject({ latencyMsMean: 2000, latencyMsP50: 2000 });
+  });
 });
