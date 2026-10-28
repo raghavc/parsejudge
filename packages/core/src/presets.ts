@@ -83,7 +83,7 @@ export const PRESETS: ReadonlyArray<Preset> = [
         text: { signatureDetectionEnabled: true, agentic: { enabled: true } },
       },
     },
-    listPriceUsdPerPage: 0.02,
+    listPriceUsdPerPage: 0.03,
     hosted: false,
   },
   {

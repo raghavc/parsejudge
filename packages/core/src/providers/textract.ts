@@ -64,6 +64,14 @@ export const textractMarkdown = (raw: unknown): string => {
   return joinNonEmpty(parts);
 };
 
+const headerRecord = (headers: Headers): Record<string, string> => {
+  const result: Record<string, string> = {};
+  headers.forEach((value, key) => {
+    result[key] = value;
+  });
+  return result;
+};
+
 export const textract: ProviderAdapter = {
   id: "aws_textract",
   credentialKeys: ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION"],
@@ -84,7 +92,7 @@ export const textract: ProviderAdapter = {
     const response = yield* sendJson(
       "aws_textract",
       HttpClientRequest.post(url).pipe(
-        HttpClientRequest.setHeaders(Object.fromEntries(signed.headers.entries())),
+        HttpClientRequest.setHeaders(headerRecord(signed.headers)),
         HttpClientRequest.bodyText(body, "application/x-amz-json-1.1"),
       ),
     );

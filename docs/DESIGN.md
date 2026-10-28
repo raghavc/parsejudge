@@ -36,3 +36,5 @@ UI + MCP come later (user will be prescriptive). Auth later (CurrentUser service
 - Extend: POST api.extend.ai/parse_runs (x-extend-api-version 2026-02-09) {file:{url},config} -> {id,status:PROCESSING}; GET /parse_runs/{id} -> status PROCESSED, output.chunks[].content, usage.credits ($0.01/credit; perf = 2 credits/page).
 - Pulse: POST api.runpulse.com/extract_async {file_url} -> {job_id}; GET /job/{id} -> status completed, result.markdown, result.credits_used.
 - Local creds: apps/api/.dev.vars from Doppler benchmarking/prd + reducto-api/dev (AWS, OPENAI). Google DocAI SA for layout processor not available locally.
+- Live smoke (packages/core/scripts/smoke.ts) passed for reducto, azure, textract, mistral, extend (3 credits/page agentic), llamaparse, datalab, pulse. Cohere needs a public PNG URL (untested); Google untested (no layout processor creds).
+- Core status: type-clean (`npx tsc -p packages/core`). Next: apps/api (D1 schema, R2, pdfium render to PNG, RunWorkflow, RunDO websocket, HttpApi).
