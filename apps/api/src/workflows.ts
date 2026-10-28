@@ -1,6 +1,7 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep, type WorkflowStepConfig } from "cloudflare:workers";
 import { JUDGE_VERSION, judgePage, type PageResult, splitPages, summarize } from "@parsejudge/core";
 import { Effect } from "effect";
+import { checkJudgeBudget } from "./budget.ts";
 import type { Env } from "./env.ts";
 import type { RunEvents } from "./events.ts";
 import { documentKey, markdownKey, pageId, pagePdfKey, pagePngKey } from "./keys.ts";
@@ -66,6 +67,11 @@ export class RunWorkflow extends WorkflowEntrypoint<Env, RunWorkflowParams> {
       await step.waitForEvent("pages done", { type: "pages-done", timeout: "6 hours" });
       await step.do("summarize", RETRY, () => this.summarize(runId));
       await step.do("notify done", () => events(this.env, runId).runDone("succeeded"));
+      await step
+        .do("check judge budget", RETRY, () => checkJudgeBudget(this.env))
+        .catch((error: unknown) => {
+          console.error("Judge budget check failed", error);
+        });
     } catch (error) {
       await step.do("record failure", async () => {
         await this.finish(runId, "failed", error instanceof Error ? error.message : String(error));
