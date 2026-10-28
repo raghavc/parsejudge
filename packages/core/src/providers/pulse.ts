@@ -16,7 +16,7 @@ export const pulse: ProviderAdapter = {
       "pulse",
       HttpClientRequest.post(`${BASE_URL}/extract_async`).pipe(
         HttpClientRequest.setHeader("x-api-key", key),
-        HttpClientRequest.bodyJsonUnsafe({ ...config, file_url: page.pdfUrl }),
+        HttpClientRequest.bodyJsonUnsafe({ ...config, file_url: page.imageUrl }),
       ),
     );
     const id = string(record(response.body).job_id);

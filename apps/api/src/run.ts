@@ -1,6 +1,7 @@
 import { NonRetryableError } from "cloudflare:workflows";
 import {
   type Credentials,
+  DEFAULT_MAX_CONCURRENCY,
   findPreset,
   type JudgeError,
   type PageInput,
@@ -13,7 +14,7 @@ import { FetchHttpClient, type HttpClient } from "effect/http";
 import { signedBlobUrl } from "./blobs.ts";
 import { decryptCredentials } from "./credentials.ts";
 import type { Env } from "./env.ts";
-import { markdownKey, pagePdfKey, pagePngKey, rawKey } from "./keys.ts";
+import { markdownKey, pagePngKey, rawKey } from "./keys.ts";
 
 /** Runs an Effect inside a workflow step. Non-retryable errors stop the step's retries. */
 export const runStep = <A>(program: Effect.Effect<A, ProviderError | JudgeError, HttpClient.HttpClient>) =>
@@ -25,10 +26,9 @@ export const runStep = <A>(program: Effect.Effect<A, ProviderError | JudgeError,
   );
 
 export const pageInput = async (env: Env, pageId: string): Promise<PageInput> => ({
-  pdfUrl: await signedBlobUrl(env.PUBLIC_URL, env.BLOB_SIGNING_KEY, pagePdfKey(pageId)),
   imageUrl: await signedBlobUrl(env.PUBLIC_URL, env.BLOB_SIGNING_KEY, pagePngKey(pageId)),
-  pdf: Effect.promise(async () => {
-    const object = await env.BLOBS.get(pagePdfKey(pageId));
+  image: Effect.promise(async () => {
+    const object = await env.BLOBS.get(pagePngKey(pageId));
     if (object === null) throw new Error(`Missing page ${pageId}`);
     return new Uint8Array(await object.arrayBuffer());
   }),
@@ -99,3 +99,36 @@ export const pollCell = async (env: Env, cell: Cell, job: string, startedAt: num
   await saveParse(env, cell, output.value, Date.now() - startedAt);
   return true;
 };
+
+export interface Pool {
+  readonly name: string;
+  readonly limit: number;
+}
+
+const limitFor = (env: Env, pool: string, fallback: number): number => {
+  const overrides = JSON.parse(env.MAX_CONCURRENCY ?? "{}") as Record<string, unknown>;
+  const value = overrides[pool];
+  return typeof value === "number" && value > 0 ? value : fallback;
+};
+
+const fingerprint = async (credentials: Credentials): Promise<string> => {
+  const sorted = Object.keys(credentials)
+    .sort()
+    .map((key) => [key, credentials[key]]);
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(sorted)));
+  return [...new Uint8Array(digest).slice(0, 8)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+};
+
+/** Concurrency pool for a preset: one per provider API key, so hosted and BYOK keys have separate limits. */
+export const providerPool = async (env: Env, cell: Cell): Promise<Pool> => {
+  const preset = findPreset(cell.presetId);
+  if (preset === undefined) throw new NonRetryableError(`Unknown preset ${cell.presetId}`);
+  const adapter = PROVIDERS[preset.provider];
+  const credentials = await credentialsFor(env, cell.runId, cell.presetId);
+  return {
+    name: `${preset.provider}:${await fingerprint(credentials)}`,
+    limit: limitFor(env, preset.provider, adapter.maxConcurrency ?? DEFAULT_MAX_CONCURRENCY),
+  };
+};
+
+export const judgePool = (env: Env): Pool => ({ name: "judge", limit: limitFor(env, "judge", DEFAULT_MAX_CONCURRENCY) });

@@ -80,7 +80,7 @@ export const textract: ProviderAdapter = {
     const accessKeyId = yield* credential("aws_textract", credentials, "AWS_ACCESS_KEY_ID");
     const secretAccessKey = yield* credential("aws_textract", credentials, "AWS_SECRET_ACCESS_KEY");
     const region = credentials.AWS_REGION ?? "us-west-2";
-    const bytes = yield* page.pdf;
+    const bytes = yield* page.image;
     const url = `https://textract.${region}.amazonaws.com/`;
     const body = JSON.stringify({ Document: { Bytes: bytesToBase64(bytes) }, FeatureTypes: config.featureTypes });
     const signed = yield* Effect.promise(() =>

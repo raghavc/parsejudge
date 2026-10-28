@@ -15,7 +15,7 @@ export const llamaparse: ProviderAdapter = {
       "llamaparse",
       HttpClientRequest.post(BASE_URL).pipe(
         HttpClientRequest.bearerToken(key),
-        HttpClientRequest.bodyJsonUnsafe({ ...config, source_url: page.pdfUrl }),
+        HttpClientRequest.bodyJsonUnsafe({ ...config, source_url: page.imageUrl }),
       ),
     );
     const id = string(record(response.body).id);

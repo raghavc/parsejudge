@@ -34,7 +34,7 @@ export const reducto: ProviderAdapter = {
     const response = yield* sendJson(
       "reducto",
       request(key, HttpClientRequest.post(`${BASE_URL}/parse_async`)).pipe(
-        HttpClientRequest.bodyJsonUnsafe({ ...config, input: page.pdfUrl }),
+        HttpClientRequest.bodyJsonUnsafe({ ...config, input: page.imageUrl }),
       ),
     );
     const jobId = string(record(response.body).job_id);

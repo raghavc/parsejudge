@@ -19,7 +19,7 @@ export const extend: ProviderAdapter = {
     const response = yield* sendJson(
       "extend",
       request(key, HttpClientRequest.post(`${BASE_URL}/parse_runs`)).pipe(
-        HttpClientRequest.bodyJsonUnsafe({ file: { url: page.pdfUrl }, config }),
+        HttpClientRequest.bodyJsonUnsafe({ file: { url: page.imageUrl }, config }),
       ),
     );
     const id = string(record(response.body).id);

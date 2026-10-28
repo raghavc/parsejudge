@@ -2,8 +2,8 @@ import { init, type WrappedPdfiumModule } from "@embedpdf/pdfium";
 import pdfiumWasm from "../node_modules/@embedpdf/pdfium/dist/pdfium.wasm";
 import { encodePng } from "./png.ts";
 
-const DPI = 150;
-const MAX_DIMENSION = 2000;
+const DPI = 200;
+const MAX_DIMENSION = 2400;
 const BITMAP_BGRA = 4;
 const RENDER_ANNOTATIONS = 0x01;
 

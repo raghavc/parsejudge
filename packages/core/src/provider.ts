@@ -3,12 +3,13 @@ import type { HttpClient } from "effect/http";
 import type { Cost, ProviderId } from "./domain.ts";
 import { ProviderError } from "./errors.ts";
 
-/** One page of a document, as a single-page PDF and a rendered PNG. URLs are short-lived and public. */
+/** One page rendered to PNG. Every provider gets the same image, whatever the source format. The URL is short-lived and public. */
 export interface PageInput {
-  readonly pdfUrl: string;
   readonly imageUrl: string;
-  readonly pdf: Effect.Effect<Uint8Array, ProviderError>;
+  readonly image: Effect.Effect<Uint8Array, ProviderError>;
 }
+
+export const DEFAULT_MAX_CONCURRENCY = 100;
 
 export interface ParseOutput {
   readonly markdown: string;
@@ -32,6 +33,8 @@ export interface ProviderAdapter {
   readonly id: ProviderId;
   /** Credential names the adapter reads, e.g. `AZURE_DI_KEY`. */
   readonly credentialKeys: ReadonlyArray<string>;
+  /** Most requests in flight per API key. Defaults to `DEFAULT_MAX_CONCURRENCY`. */
+  readonly maxConcurrency?: number;
   readonly submit: (
     page: PageInput,
     config: ProviderConfig,

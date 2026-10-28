@@ -74,7 +74,7 @@ export const googleDocumentAi: ProviderAdapter = {
     const location = credentials.GOOGLE_DOCUMENT_AI_LOCATION ?? "us";
     const version = string(config.processorVersion) ?? "pretrained-layout-parser-v1.6-2026-01-13";
     const token = yield* accessToken(serviceAccount);
-    const bytes = yield* page.pdf;
+    const bytes = yield* page.image;
     const url =
       `https://${location}-documentai.googleapis.com/v1/projects/${project}/locations/${location}` +
       `/processors/${processor}/processorVersions/${version}:process`;
@@ -83,7 +83,7 @@ export const googleDocumentAi: ProviderAdapter = {
       HttpClientRequest.post(url).pipe(
         HttpClientRequest.bearerToken(token),
         HttpClientRequest.bodyJsonUnsafe({
-          rawDocument: { content: bytesToBase64(bytes), mimeType: "application/pdf" },
+          rawDocument: { content: bytesToBase64(bytes), mimeType: "image/png" },
           imagelessMode: true,
           processOptions: {
             layoutConfig: {

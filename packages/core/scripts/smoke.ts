@@ -1,10 +1,10 @@
-/** Live smoke test: runs each preset on one public page. Usage: tsx scripts/smoke.ts <pdfUrl> <pngUrl> [presetId...] */
+/** Live smoke test: runs each preset on one public page. Usage: tsx scripts/smoke.ts <pngUrl> [presetId...] */
 import { readFileSync } from "node:fs";
 import { Effect, Option } from "effect";
 import { FetchHttpClient } from "effect/http";
 import { PRESETS, PROVIDERS } from "../src/index.ts";
 
-const [pdfUrl = "", imageUrl = "", ...only] = process.argv.slice(2);
+const [imageUrl = "", ...only] = process.argv.slice(2);
 const credentials = Object.fromEntries(
   readFileSync(new URL("../../../apps/api/.dev.vars", import.meta.url), "utf8")
     .split("\n")
@@ -13,9 +13,8 @@ const credentials = Object.fromEntries(
     ),
 );
 const page = {
-  pdfUrl,
   imageUrl,
-  pdf: Effect.promise(async () => new Uint8Array(await (await fetch(pdfUrl)).arrayBuffer())),
+  image: Effect.promise(async () => new Uint8Array(await (await fetch(imageUrl)).arrayBuffer())),
 };
 
 const run = Effect.fn("smoke")(function* (presetId: string) {

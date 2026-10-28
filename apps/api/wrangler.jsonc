@@ -12,13 +12,16 @@
     "JUDGE_REASONING_EFFORT": "medium",
     "JUDGE_BASE_URL": "https://api.openai.com/v1",
     "MAX_PAGES_PER_RUN": "50",
+    "MAX_CONCURRENCY": "{}",
     "AWS_REGION": "us-west-2",
     "AUTH_MODE": "dev"
   },
   "d1_databases": [{ "binding": "DB", "database_name": "parsejudge", "database_id": "local", "migrations_dir": "migrations" }],
   "r2_buckets": [{ "binding": "BLOBS", "bucket_name": "parsejudge-blobs" }],
-  "durable_objects": { "bindings": [{ "name": "RUN_EVENTS", "class_name": "RunEvents" }] },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RunEvents"] }],
+  "durable_objects": {
+    "bindings": [{ "name": "RUN_EVENTS", "class_name": "RunEvents" }, { "name": "PROVIDER_SLOTS", "class_name": "ProviderSlots" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RunEvents"] }, { "tag": "v2", "new_sqlite_classes": ["ProviderSlots"] }],
   "workflows": [
     { "name": "parsejudge-run", "binding": "RUN_WORKFLOW", "class_name": "RunWorkflow" },
     { "name": "parsejudge-page", "binding": "PAGE_WORKFLOW", "class_name": "PageWorkflow" }

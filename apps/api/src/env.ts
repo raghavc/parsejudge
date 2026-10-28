@@ -4,6 +4,7 @@ export interface Env {
   readonly DB: D1Database;
   readonly BLOBS: R2Bucket;
   readonly RUN_EVENTS: DurableObjectNamespace;
+  readonly PROVIDER_SLOTS: DurableObjectNamespace;
   readonly RUN_WORKFLOW: Workflow<RunWorkflowParams>;
   readonly PAGE_WORKFLOW: Workflow<PageWorkflowParams>;
   readonly PUBLIC_URL: string;
@@ -11,6 +12,8 @@ export interface Env {
   readonly JUDGE_REASONING_EFFORT: "low" | "medium" | "high";
   readonly JUDGE_BASE_URL: string;
   readonly MAX_PAGES_PER_RUN: string;
+  /** JSON map from provider id or "judge" to max requests in flight per API key, e.g. `{"reducto": 200}`. */
+  readonly MAX_CONCURRENCY?: string;
   readonly BLOB_SIGNING_KEY: string;
   readonly CREDENTIALS_KEY: string;
   readonly OPENAI_API_KEY: string;

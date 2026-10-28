@@ -15,7 +15,7 @@ export const datalab: ProviderAdapter = {
   submit: Effect.fn("datalab.submit")(function* (page, config, credentials) {
     const key = yield* credential("datalab", credentials, "DATALAB_API_KEY");
     const form = new FormData();
-    for (const [name, value] of Object.entries({ ...config, file_url: page.pdfUrl })) form.set(name, formValue(value));
+    for (const [name, value] of Object.entries({ ...config, file_url: page.imageUrl })) form.set(name, formValue(value));
     const response = yield* sendJson(
       "datalab",
       HttpClientRequest.post(`${BASE_URL}/api/v1/convert`).pipe(

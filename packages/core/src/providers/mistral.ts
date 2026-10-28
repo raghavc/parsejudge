@@ -13,7 +13,7 @@ export const mistral: ProviderAdapter = {
       "mistral_ocr",
       HttpClientRequest.post("https://api.mistral.ai/v1/ocr").pipe(
         HttpClientRequest.bearerToken(key),
-        HttpClientRequest.bodyJsonUnsafe({ ...config, document: { type: "document_url", document_url: page.pdfUrl } }),
+        HttpClientRequest.bodyJsonUnsafe({ ...config, document: { type: "image_url", image_url: page.imageUrl } }),
       ),
     );
     const pages = array(record(response.body).pages);

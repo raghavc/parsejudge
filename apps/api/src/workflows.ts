@@ -5,7 +5,8 @@ import type { Env } from "./env.ts";
 import type { RunEvents } from "./events.ts";
 import { documentKey, markdownKey, pageId, pagePdfKey, pagePngKey } from "./keys.ts";
 import { renderFirstPagePng } from "./render.ts";
-import { type Cell, pollCell, runStep, saveFailure, submitCell } from "./run.ts";
+import { type Cell, judgePool, type Pool, pollCell, providerPool, runStep, saveFailure, submitCell } from "./run.ts";
+import type { ProviderSlots } from "./slots.ts";
 
 export interface RunWorkflowParams {
   readonly runId: string;
@@ -24,7 +25,10 @@ const pollDelaySeconds = (attempt: number) => Math.min(2 ** attempt * 2, 60);
 const events = (env: Env, runId: string) =>
   env.RUN_EVENTS.get(env.RUN_EVENTS.idFromName(runId)) as unknown as DurableObjectStub<RunEvents>;
 
-/** One run: render pages, fan out one PageWorkflow per page, wait for all, then summarize. */
+const slots = (env: Env, pool: string) =>
+  env.PROVIDER_SLOTS.get(env.PROVIDER_SLOTS.idFromName(pool)) as unknown as DurableObjectStub<ProviderSlots>;
+
+/** One run: split documents into pages, fan out one PageWorkflow per page, wait for all, then summarize. */
 export class RunWorkflow extends WorkflowEntrypoint<Env, RunWorkflowParams> {
   override async run(event: Readonly<WorkflowEvent<RunWorkflowParams>>, step: WorkflowStep) {
     const { runId } = event.payload;
@@ -71,27 +75,24 @@ export class RunWorkflow extends WorkflowEntrypoint<Env, RunWorkflowParams> {
     }
   }
 
-  /** Splits the document into single-page PDFs and PNGs once; later runs reuse them. */
+  /** Splits the document into single-page PDFs once; later runs reuse them. Pages render in their own workflows. */
   private async preparePages(documentId: string): Promise<Array<string>> {
     const document = await this.env.DB.prepare("SELECT page_count FROM documents WHERE id = ?")
       .bind(documentId)
       .first<{ page_count: number }>();
     const count = document?.page_count ?? 0;
     const ids = Array.from({ length: count }, (_, index) => pageId(documentId, index));
-    const rendered = await this.env.DB.prepare("SELECT COUNT(*) AS n FROM pages WHERE document_id = ? AND rendered = 1")
+    const split = await this.env.DB.prepare("SELECT COUNT(*) AS n FROM pages WHERE document_id = ?")
       .bind(documentId)
       .first<{ n: number }>();
-    if (rendered?.n === count) return ids;
+    if (split?.n === count) return ids;
     const source = await this.env.BLOBS.get(documentKey(documentId));
     if (source === null) throw new Error(`Missing document ${documentId}`);
     const pages = await Effect.runPromise(splitPages(new Uint8Array(await source.arrayBuffer()), count));
     for (const [index, pdf] of pages.entries()) {
       const id = pageId(documentId, index);
       await this.env.BLOBS.put(pagePdfKey(id), pdf);
-      await this.env.BLOBS.put(pagePngKey(id), await renderFirstPagePng(pdf));
-      await this.env.DB.prepare(
-        "INSERT INTO pages (id, document_id, page_index, rendered) VALUES (?, ?, ?, 1) ON CONFLICT (id) DO UPDATE SET rendered = 1",
-      )
+      await this.env.DB.prepare("INSERT OR IGNORE INTO pages (id, document_id, page_index, rendered) VALUES (?, ?, ?, 0)")
         .bind(id, documentId, index)
         .run();
     }
@@ -143,13 +144,18 @@ export class RunWorkflow extends WorkflowEntrypoint<Env, RunWorkflowParams> {
   }
 }
 
-/** One page of one run: parse with every preset in parallel, then judge them together. */
+/**
+ * One page of one run: render it, parse it with every preset in parallel, then judge the parses together.
+ * Every provider call and the judge call hold a slot in their pool, so each pool stays under its limit.
+ */
 export class PageWorkflow extends WorkflowEntrypoint<Env, PageWorkflowParams> {
   override async run(event: Readonly<WorkflowEvent<PageWorkflowParams>>, step: WorkflowStep) {
     const { runId, pageId: page, presetIds } = event.payload;
-    await Promise.all(presetIds.map((presetId) => this.parse(step, { runId, pageId: page, presetId })));
+    await step.do("render", RETRY, () => this.render(page));
+    await Promise.all(presetIds.map((presetId) => this.parse(step, event.instanceId, { runId, pageId: page, presetId })));
     try {
-      await step.do("judge", RETRY, () => this.judge(runId, page));
+      const pool = judgePool(this.env);
+      await this.withSlot(step, event.instanceId, "judge", pool, () => step.do("judge", RETRY, () => this.judge(runId, page)));
     } catch (error) {
       await step.do("record judge failure", async () => {
         await this.env.DB.prepare("INSERT OR REPLACE INTO judge_failures (run_id, page_id, error) VALUES (?, ?, ?)")
@@ -160,17 +166,43 @@ export class PageWorkflow extends WorkflowEntrypoint<Env, PageWorkflowParams> {
     await step.do("report", () => events(this.env, runId).pageDone(page));
   }
 
+  private async render(page: string): Promise<void> {
+    if ((await this.env.BLOBS.head(pagePngKey(page))) !== null) return;
+    const pdf = await this.env.BLOBS.get(pagePdfKey(page));
+    if (pdf === null) throw new Error(`Missing page ${page}`);
+    await this.env.BLOBS.put(pagePngKey(page), await renderFirstPagePng(new Uint8Array(await pdf.arrayBuffer())));
+    await this.env.DB.prepare("UPDATE pages SET rendered = 1 WHERE id = ?").bind(page).run();
+  }
+
+  /**
+   * Runs `body` while holding a slot in `pool`. When the pool is full the workflow sleeps on an
+   * event that the pool sends when a slot frees up. The slot is released even when `body` fails.
+   */
+  private async withSlot<A>(step: WorkflowStep, instanceId: string, label: string, pool: Pool, body: () => Promise<A>) {
+    const waiter = { lease: `${instanceId}:${label}`, instanceId, event: `slot-${label}` };
+    try {
+      const granted = await step.do(`acquire ${label}`, RETRY, () => slots(this.env, pool.name).acquire(pool.limit, waiter));
+      if (!granted) await step.waitForEvent(`slot ${label}`, { type: waiter.event, timeout: "24 hours" });
+      return await body();
+    } finally {
+      await step.do(`release ${label}`, RETRY, () => slots(this.env, pool.name).release(waiter.lease));
+    }
+  }
+
   /** Submit once, then poll with durable sleeps. A failure is recorded, not thrown, so other presets still count. */
-  private async parse(step: WorkflowStep, cell: Cell): Promise<void> {
+  private async parse(step: WorkflowStep, instanceId: string, cell: Cell): Promise<void> {
     const name = cell.presetId;
     try {
-      const { job, startedAt } = await step.do(`submit ${name}`, RETRY, () => submitCell(this.env, cell));
-      if (job === null) return;
-      for (let attempt = 0; attempt < MAX_POLLS; attempt++) {
-        await step.sleep(`wait ${name} ${attempt}`, `${pollDelaySeconds(attempt)} seconds`);
-        if (await step.do(`poll ${name} ${attempt}`, RETRY, () => pollCell(this.env, cell, job, startedAt))) return;
-      }
-      throw new Error("Timed out waiting for the provider");
+      const pool = await step.do(`pool ${name}`, RETRY, () => providerPool(this.env, cell));
+      await this.withSlot(step, instanceId, name, pool, async () => {
+        const { job, startedAt } = await step.do(`submit ${name}`, RETRY, () => submitCell(this.env, cell));
+        if (job === null) return;
+        for (let attempt = 0; attempt < MAX_POLLS; attempt++) {
+          await step.sleep(`wait ${name} ${attempt}`, `${pollDelaySeconds(attempt)} seconds`);
+          if (await step.do(`poll ${name} ${attempt}`, RETRY, () => pollCell(this.env, cell, job, startedAt))) return;
+        }
+        throw new Error("Timed out waiting for the provider");
+      });
     } catch (error) {
       await step.do(`record failure ${name}`, async () => {
         await saveFailure(this.env, cell, error instanceof Error ? error.message : String(error));

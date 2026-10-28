@@ -22,7 +22,7 @@ export const azure: ProviderAdapter = {
       "azure_document_intelligence",
       HttpClientRequest.post(url.toString()).pipe(
         HttpClientRequest.setHeader("Ocp-Apim-Subscription-Key", key),
-        HttpClientRequest.bodyJsonUnsafe({ urlSource: page.pdfUrl }),
+        HttpClientRequest.bodyJsonUnsafe({ urlSource: page.imageUrl }),
       ),
     );
     const operation = response.headers["operation-location"];
