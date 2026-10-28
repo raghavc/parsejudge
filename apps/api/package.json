@@ -2,6 +2,21 @@
   "name": "@evalmydocs/api",
   "private": true,
   "type": "module",
-  "scripts": { "dev": "wrangler dev", "check": "wrangler types --check 2>/dev/null; tsc -p .", "test": "vitest run", "deploy": "wrangler deploy" },
-  "dependencies": { "@evalmydocs/core": "workspace:*", "effect": "4.0.7", "@effect/sql-d1": "4.0.7", "@embedpdf/pdfium": "^2.15.1", "fast-png": "^7.0.0" },
+  "scripts": {
+    "dev": "wrangler dev",
+    "check": "tsc -p .",
+    "test": "vitest run",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@embedpdf/pdfium": "^2.15.1",
+    "@evalmydocs/core": "workspace:*",
+    "effect": "4.0.7"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261028.1",
+    "@types/emscripten": "^1.41.6",
+    "vitest": "^5.0.5",
+    "wrangler": "^4.154.0"
+  }
 }
