@@ -2,9 +2,24 @@ import { DurableObject } from "cloudflare:workers";
 import type { Env } from "./env.ts";
 
 export type RunEvent =
-  | { readonly type: "progress"; readonly done: number; readonly total: number; readonly status: string | null }
+  | {
+      readonly type: "progress";
+      readonly done: number;
+      readonly total: number;
+      readonly status: string | null;
+      readonly cells: ReadonlyArray<CellDone>;
+    }
+  | ({ readonly type: "parse_done" } & CellDone)
   | { readonly type: "page_done"; readonly pageId: string; readonly done: number; readonly total: number }
   | { readonly type: "run_done"; readonly status: "succeeded" | "failed" };
+
+/** One finished (page, preset) parse. `latencyMs` is null when the parse failed. */
+export interface CellDone {
+  readonly presetId: string;
+  readonly pageId: string;
+  readonly ok: boolean;
+  readonly latencyMs: number | null;
+}
 
 /** One instance per run. Counts finished pages, wakes the run workflow, and pushes progress over WebSocket. */
 export class RunEvents extends DurableObject<Env> {
@@ -25,6 +40,14 @@ export class RunEvents extends DurableObject<Env> {
     }
   }
 
+  /** Idempotent: a retried call does not broadcast the cell twice. */
+  async parseDone(cell: CellDone): Promise<void> {
+    const key = `cell:${cell.presetId}:${cell.pageId}`;
+    if ((await this.ctx.storage.get<CellDone>(key)) !== undefined) return;
+    await this.ctx.storage.put(key, cell);
+    this.broadcast({ type: "parse_done", ...cell });
+  }
+
   async runDone(status: "succeeded" | "failed"): Promise<void> {
     await this.ctx.storage.put("status", status);
     this.broadcast({ type: "run_done", status });
@@ -42,7 +65,8 @@ export class RunEvents extends DurableObject<Env> {
   private async progress(): Promise<RunEvent> {
     const total = (await this.ctx.storage.get<number>("total")) ?? 0;
     const done = (await this.ctx.storage.list({ prefix: "page:" })).size;
-    return { type: "progress", done, total, status: (await this.ctx.storage.get<string>("status")) ?? null };
+    const cells = [...(await this.ctx.storage.list<CellDone>({ prefix: "cell:" })).values()];
+    return { type: "progress", done, total, status: (await this.ctx.storage.get<string>("status")) ?? null, cells };
   }
 
   private broadcast(event: RunEvent): void {

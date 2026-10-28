@@ -15,6 +15,7 @@ const PresetInfo = Schema.Struct({
   id: Schema.String,
   provider: Schema.String,
   label: Schema.String,
+  mode: Schema.String,
   listPriceUsdPerPage: Schema.Number,
   hosted: Schema.Boolean,
   default: Schema.Boolean,
@@ -86,6 +87,15 @@ const Run = Schema.Struct({
   judgeVersion: Schema.String,
   judgeModel: Schema.String,
   documents: Schema.Array(DocumentInfo),
+  /** One entry per (page, preset) parse that has finished. */
+  scores: Schema.Array(
+    Schema.Struct({
+      pageId: Schema.String,
+      presetId: Schema.String,
+      status: Schema.String,
+      score: Schema.NullOr(Schema.Number),
+    }),
+  ),
   summary: Schema.NullOr(RunSummary),
   error: Schema.NullOr(Schema.String),
   createdAt: Schema.Number,
@@ -231,11 +241,22 @@ const runDocuments = (runId: string) =>
     );
   });
 
+const runScores = (runId: string) =>
+  query(async () => {
+    const rows = await cf.DB.prepare(
+      `SELECT p.page_id, p.preset_id, p.status, v.score FROM parses p
+       LEFT JOIN verdicts v USING (run_id, page_id, preset_id) WHERE p.run_id = ?`,
+    )
+      .bind(runId)
+      .all<{ page_id: string; preset_id: string; status: string; score: number | null }>();
+    return rows.results.map((row) => ({ pageId: row.page_id, presetId: row.preset_id, status: row.status, score: row.score }));
+  });
+
 const findRun = (column: "id" | "share_id", value: string) =>
   Effect.gen(function* () {
     const row = yield* query(() => cf.DB.prepare(`SELECT * FROM runs WHERE ${column} = ?`).bind(value).first<RunRow>());
     if (row === null) return yield* new HttpApiError.NotFound({});
-    return { ...toRun(row), documents: yield* runDocuments(row.id) };
+    return { ...toRun(row), documents: yield* runDocuments(row.id), scores: yield* runScores(row.id) };
   });
 
 const PresetsLive = HttpApiBuilder.group(Api, "presets", (handlers) =>
@@ -245,6 +266,7 @@ const PresetsLive = HttpApiBuilder.group(Api, "presets", (handlers) =>
         id: preset.id,
         provider: preset.provider,
         label: preset.label,
+        mode: preset.mode,
         listPriceUsdPerPage: preset.listPriceUsdPerPage,
         hosted: preset.hosted,
         default: DEFAULT_PRESET_IDS.includes(preset.id),

@@ -10,6 +10,8 @@ export interface Preset {
   readonly id: string;
   readonly provider: ProviderId;
   readonly label: string;
+  /** The option within the provider, e.g. "Agentic Plus". */
+  readonly mode: string;
   readonly config: ProviderConfig;
   readonly listPriceUsdPerPage: number;
   readonly hosted: boolean;
@@ -28,6 +30,7 @@ export const PRESETS: ReadonlyArray<Preset> = [
     id: "reducto_r1",
     provider: "reducto",
     label: "Reducto R-1",
+    mode: "r-1",
     config: { formatting: { merge_tables: false }, settings: { model: "r-1" } },
     listPriceUsdPerPage: 0.015,
     hosted: true,
@@ -36,6 +39,7 @@ export const PRESETS: ReadonlyArray<Preset> = [
     id: "azure_layout_high_res",
     provider: "azure_document_intelligence",
     label: "Azure Document Intelligence Layout (high-res)",
+    mode: "Layout, high resolution",
     config: { modelId: "prebuilt-layout", features: ["ocrHighResolution"] },
     listPriceUsdPerPage: 0.016,
     hosted: true,
@@ -44,6 +48,7 @@ export const PRESETS: ReadonlyArray<Preset> = [
     id: "aws_textract",
     provider: "aws_textract",
     label: "AWS Textract (layout, tables, forms, signatures)",
+    mode: "Layout, tables, forms, signatures",
     config: { featureTypes: ["LAYOUT", "TABLES", "FORMS", "SIGNATURES"] },
     listPriceUsdPerPage: 0.0685,
     hosted: true,
@@ -52,6 +57,7 @@ export const PRESETS: ReadonlyArray<Preset> = [
     id: "google_layout_v1_6",
     provider: "google_document_ai",
     label: "Google Document AI Layout Parser v1.6",
+    mode: "Layout Parser v1.6",
     config: {
       processorVersion: "pretrained-layout-parser-v1.6-2026-01-13",
       enableTableAnnotation: true,
@@ -64,6 +70,7 @@ export const PRESETS: ReadonlyArray<Preset> = [
     id: "mistral_ocr_4_1",
     provider: "mistral_ocr",
     label: "Mistral OCR 4.1",
+    mode: "OCR 4.1",
     config: { model: "mistral-ocr-4-1", table_format: "html" },
     listPriceUsdPerPage: 0.004,
     hosted: false,
@@ -72,6 +79,7 @@ export const PRESETS: ReadonlyArray<Preset> = [
     id: "extend_performance_agentic",
     provider: "extend",
     label: "Extend Performance (agentic)",
+    mode: "Performance, agentic",
     config: {
       engine: "parse_performance",
       engineVersion: "2.0.0",
@@ -90,6 +98,7 @@ export const PRESETS: ReadonlyArray<Preset> = [
     id: "llamaparse_agentic_plus",
     provider: "llamaparse",
     label: "LlamaParse Agentic Plus",
+    mode: "Agentic Plus",
     config: llamaparse("agentic_plus"),
     listPriceUsdPerPage: 45 * 0.00125,
     hosted: false,
@@ -98,6 +107,7 @@ export const PRESETS: ReadonlyArray<Preset> = [
     id: "llamaparse_agentic",
     provider: "llamaparse",
     label: "LlamaParse Agentic",
+    mode: "Agentic",
     config: llamaparse("agentic"),
     listPriceUsdPerPage: 10 * 0.00125,
     hosted: false,
@@ -106,6 +116,7 @@ export const PRESETS: ReadonlyArray<Preset> = [
     id: "llamaparse_cost_effective",
     provider: "llamaparse",
     label: "LlamaParse Cost Effective",
+    mode: "Cost effective",
     config: llamaparse("cost_effective"),
     listPriceUsdPerPage: 3 * 0.00125,
     hosted: false,
@@ -114,6 +125,7 @@ export const PRESETS: ReadonlyArray<Preset> = [
     id: "datalab_accurate",
     provider: "datalab",
     label: "Datalab Accurate",
+    mode: "Accurate",
     config: datalab("accurate"),
     listPriceUsdPerPage: 0.01,
     hosted: false,
@@ -122,6 +134,7 @@ export const PRESETS: ReadonlyArray<Preset> = [
     id: "datalab_balanced",
     provider: "datalab",
     label: "Datalab Balanced",
+    mode: "Balanced",
     config: datalab("balanced"),
     listPriceUsdPerPage: 0.004,
     hosted: false,
@@ -130,6 +143,7 @@ export const PRESETS: ReadonlyArray<Preset> = [
     id: "datalab_fast",
     provider: "datalab",
     label: "Datalab Fast",
+    mode: "Fast",
     config: datalab("fast"),
     listPriceUsdPerPage: 0.004,
     hosted: false,
@@ -138,6 +152,7 @@ export const PRESETS: ReadonlyArray<Preset> = [
     id: "pulse_ultra_2_refine",
     provider: "pulse",
     label: "Pulse Ultra 2 (refine)",
+    mode: "Ultra 2, refine",
     config: { model: "pulse-ultra-2", refine: true, figure_processing: { description: true } },
     listPriceUsdPerPage: 0.015,
     hosted: false,
@@ -146,6 +161,7 @@ export const PRESETS: ReadonlyArray<Preset> = [
     id: "cohere_parse_v5",
     provider: "cohere",
     label: "Cohere Parse v5",
+    mode: "Parse v5",
     config: { model: "parse-v5.0", output_format: "markdown" },
     listPriceUsdPerPage: 0.0015,
     hosted: false,
