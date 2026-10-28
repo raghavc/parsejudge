@@ -1,15 +1,19 @@
 import { DurableObject } from "cloudflare:workers";
 import type { Env } from "./env.ts";
+import {
+  acquire,
+  dropHead,
+  EMPTY_POOL,
+  expire,
+  nextExpiry,
+  nextWaiter,
+  type PoolState,
+  promote,
+  release,
+  type Waiter,
+} from "./pool.ts";
 
-/** A queued request for a slot. The holder is woken by an event on its workflow instance. */
-export interface Waiter {
-  readonly lease: string;
-  readonly instanceId: string;
-  readonly event: string;
-}
-
-const LEASE_MS = 60 * 60 * 1000;
-const RETRY_GRANT_MS = 5000;
+const RETRY_WAKE_MS = 5000;
 
 /**
  * Counting semaphore for one pool (a provider API key, or the judge). One instance per pool.
@@ -17,81 +21,58 @@ const RETRY_GRANT_MS = 5000;
  * A waiter is woken by `sendEvent` on its PageWorkflow instance; nothing polls.
  */
 export class ProviderSlots extends DurableObject<Env> {
-  /** Returns true when the slot is held now. Otherwise the waiter is queued and gets an event later. */
+  /** Returns true when the slot is held now. Otherwise the waiter is queued and gets its event later. */
   async acquire(limit: number, waiter: Waiter): Promise<boolean> {
     await this.ctx.storage.put("limit", limit);
-    const holders = await this.holders();
-    if (holders.has(waiter.lease)) return true;
-    const queue = await this.queue();
-    if (holders.size < limit && queue.length === 0) {
-      holders.set(waiter.lease, Date.now() + LEASE_MS);
-      await this.save(holders, queue);
-      return true;
-    }
-    if (!queue.some((queued) => queued.lease === waiter.lease)) queue.push(waiter);
-    await this.save(holders, queue);
-    return false;
+    const result = acquire(await this.load(), limit, waiter, Date.now());
+    await this.save(result.state);
+    return result.granted;
   }
 
-  /** Frees a held or queued lease and grants freed slots in FIFO order. Idempotent. */
+  /** Frees a held or queued lease and wakes waiters into the freed slots. Idempotent. */
   async release(lease: string): Promise<void> {
-    const holders = await this.holders();
-    holders.delete(lease);
-    await this.grant(
-      holders,
-      (await this.queue()).filter((queued) => queued.lease !== lease),
-    );
+    await this.wake(release(await this.load(), lease));
   }
 
   override async alarm(): Promise<void> {
-    const holders = await this.holders();
-    const now = Date.now();
-    for (const [lease, expiresAt] of holders) if (expiresAt <= now) holders.delete(lease);
-    await this.grant(holders, await this.queue());
+    await this.wake(expire(await this.load(), Date.now()));
   }
 
-  private async grant(holders: Map<string, number>, queue: Array<Waiter>): Promise<void> {
+  private async wake(initial: PoolState): Promise<void> {
     const limit = (await this.ctx.storage.get<number>("limit")) ?? 0;
-    let retry = false;
-    while (holders.size < limit && queue.length > 0) {
-      const next = queue[0] as Waiter;
+    let state = initial;
+    for (let next = nextWaiter(state, limit); next !== undefined; next = nextWaiter(state, limit)) {
       try {
         await (await this.env.PAGE_WORKFLOW.get(next.instanceId)).sendEvent({ type: next.event, payload: {} });
-        holders.set(next.lease, Date.now() + LEASE_MS);
-        queue.shift();
+        state = promote(state, Date.now());
       } catch (error) {
-        if (await this.instanceGone(next.instanceId, error)) queue.shift();
-        else {
-          retry = true;
-          break;
+        if (!(await this.finished(next.instanceId))) {
+          await this.save(state, Date.now() + RETRY_WAKE_MS);
+          throw error;
         }
+        state = dropHead(state);
       }
     }
-    await this.save(holders, queue, retry);
+    await this.save(state);
   }
 
-  private async instanceGone(instanceId: string, error: unknown): Promise<boolean> {
+  private async finished(instanceId: string): Promise<boolean> {
     try {
       const { status } = await (await this.env.PAGE_WORKFLOW.get(instanceId)).status();
       return status === "complete" || status === "errored" || status === "terminated";
     } catch {
-      return String(error).includes("not_found");
+      return true;
     }
   }
 
-  private async holders(): Promise<Map<string, number>> {
-    return new Map(Object.entries((await this.ctx.storage.get<Record<string, number>>("holders")) ?? {}));
+  private async load(): Promise<PoolState> {
+    return (await this.ctx.storage.get<PoolState>("pool")) ?? EMPTY_POOL;
   }
 
-  private async queue(): Promise<Array<Waiter>> {
-    return (await this.ctx.storage.get<Array<Waiter>>("queue")) ?? [];
-  }
-
-  private async save(holders: Map<string, number>, queue: Array<Waiter>, retrySoon = false): Promise<void> {
-    await this.ctx.storage.put({ holders: Object.fromEntries(holders), queue });
-    const expiries = [...holders.values()];
-    if (retrySoon) expiries.push(Date.now() + RETRY_GRANT_MS);
-    if (expiries.length === 0) await this.ctx.storage.deleteAlarm();
-    else await this.ctx.storage.setAlarm(Math.min(...expiries));
+  private async save(state: PoolState, retryAt?: number): Promise<void> {
+    await this.ctx.storage.put("pool", state);
+    const alarm = [nextExpiry(state), retryAt].filter((t): t is number => t !== undefined);
+    if (alarm.length === 0) await this.ctx.storage.deleteAlarm();
+    else await this.ctx.storage.setAlarm(Math.min(...alarm));
   }
 }
