@@ -1,3 +1,4 @@
+export * from "./document.ts";
 export * from "./domain.ts";
 export * from "./errors.ts";
 export * from "./judge.ts";

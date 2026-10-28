@@ -19,9 +19,22 @@
   "d1_databases": [{ "binding": "DB", "database_name": "parsejudge", "database_id": "local", "migrations_dir": "migrations" }],
   "r2_buckets": [{ "binding": "BLOBS", "bucket_name": "parsejudge-blobs" }],
   "durable_objects": {
-    "bindings": [{ "name": "RUN_EVENTS", "class_name": "RunEvents" }, { "name": "PROVIDER_SLOTS", "class_name": "ProviderSlots" }]
+    "bindings": [
+      { "name": "RUN_EVENTS", "class_name": "RunEvents" },
+      { "name": "PROVIDER_SLOTS", "class_name": "ProviderSlots" },
+      { "name": "CONVERTER", "class_name": "Converter" }
+    ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RunEvents"] }, { "tag": "v2", "new_sqlite_classes": ["ProviderSlots"] }],
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RunEvents", "ProviderSlots", "Converter"] }],
+  // DOCX/PPTX -> PDF. parsejudge.com points `image` at its private Reducto-engine image instead.
+  "containers": [
+    {
+      "class_name": "Converter",
+      "image": "../../containers/libreoffice/Dockerfile",
+      "instance_type": "standard-1",
+      "max_instances": 4
+    }
+  ],
   "workflows": [
     { "name": "parsejudge-run", "binding": "RUN_WORKFLOW", "class_name": "RunWorkflow" },
     { "name": "parsejudge-page", "binding": "PAGE_WORKFLOW", "class_name": "PageWorkflow" }

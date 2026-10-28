@@ -8,6 +8,7 @@ CREATE TABLE documents (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id),
   filename TEXT NOT NULL,
+  format TEXT NOT NULL CHECK (format IN ('pdf', 'docx', 'pptx')),
   sha256 TEXT NOT NULL,
   page_count INTEGER NOT NULL,
   created_at INTEGER NOT NULL

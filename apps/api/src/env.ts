@@ -1,3 +1,4 @@
+import type { Converter } from "./converter.ts";
 import type { PageWorkflowParams, RunWorkflowParams } from "./workflows.ts";
 
 export interface Env {
@@ -5,6 +6,7 @@ export interface Env {
   readonly BLOBS: R2Bucket;
   readonly RUN_EVENTS: DurableObjectNamespace;
   readonly PROVIDER_SLOTS: DurableObjectNamespace;
+  readonly CONVERTER: DurableObjectNamespace<Converter>;
   readonly RUN_WORKFLOW: Workflow<RunWorkflowParams>;
   readonly PAGE_WORKFLOW: Workflow<PageWorkflowParams>;
   readonly PUBLIC_URL: string;

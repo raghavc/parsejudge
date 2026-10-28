@@ -1,11 +1,12 @@
 import { env } from "cloudflare:workers";
-import { DEFAULT_PRESET_IDS, findPreset, JUDGE_VERSION, PRESETS, splitPages } from "@parsejudge/core";
+import { DEFAULT_PRESET_IDS, findPreset, JUDGE_VERSION, PRESETS, sniffFormat, splitPages } from "@parsejudge/core";
 import { Effect, Layer, Schema } from "effect";
 import { HttpRouter, HttpServer, HttpServerRequest } from "effect/http";
 import { HttpApi, HttpApiBuilder, HttpApiEndpoint, HttpApiError, HttpApiGroup } from "effect/http-api";
+import { toPdf } from "./converter.ts";
 import { encryptCredentials } from "./credentials.ts";
 import type { Env } from "./env.ts";
-import { documentKey, markdownKey } from "./keys.ts";
+import { documentKey, markdownKey, sourceKey } from "./keys.ts";
 
 const cf = env as unknown as Env;
 
@@ -60,7 +61,7 @@ export const Api = HttpApi.make("parsejudge")
       HttpApiEndpoint.post("upload", "/v1/documents", {
         query: { filename: Schema.optional(Schema.String) },
         success: Schema.Struct({ documentId: Schema.String, pageCount: Schema.Number }),
-        error: [HttpApiError.BadRequest, HttpApiError.Unauthorized],
+        error: [HttpApiError.BadRequest, HttpApiError.Unauthorized, HttpApiError.ServiceUnavailable],
       }),
     ),
   )
@@ -175,14 +176,23 @@ const DocumentsLive = HttpApiBuilder.group(Api, "documents", (handlers) =>
       const userId = yield* currentUser;
       const request = yield* HttpServerRequest.HttpServerRequest;
       const bytes = new Uint8Array(yield* request.arrayBuffer.pipe(Effect.mapError(() => new HttpApiError.BadRequest({}))));
-      const pages = yield* splitPages(bytes, Number(cf.MAX_PAGES_PER_RUN)).pipe(
+      const format = yield* sniffFormat(bytes).pipe(Effect.mapError(() => new HttpApiError.BadRequest({})));
+      const pdf = yield* toPdf(cf, format, bytes).pipe(
+        Effect.mapError((error) =>
+          error._tag === "InvalidDocument" ? new HttpApiError.BadRequest({}) : new HttpApiError.ServiceUnavailable({}),
+        ),
+      );
+      const pages = yield* splitPages(pdf, Number(cf.MAX_PAGES_PER_RUN)).pipe(
         Effect.mapError(() => new HttpApiError.BadRequest({})),
       );
       const documentId = crypto.randomUUID();
-      yield* query(() => cf.BLOBS.put(documentKey(documentId), bytes));
+      yield* query(() => cf.BLOBS.put(sourceKey(documentId, format), bytes));
+      yield* query(() => cf.BLOBS.put(documentKey(documentId), pdf));
       yield* query(async () =>
-        cf.DB.prepare("INSERT INTO documents (id, user_id, filename, sha256, page_count, created_at) VALUES (?, ?, ?, ?, ?, ?)")
-          .bind(documentId, userId, filename ?? "document.pdf", await sha256(bytes), pages.length, Date.now())
+        cf.DB.prepare(
+          "INSERT INTO documents (id, user_id, filename, format, sha256, page_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        )
+          .bind(documentId, userId, filename ?? `document.${format}`, format, await sha256(bytes), pages.length, Date.now())
           .run(),
       );
       return { documentId, pageCount: pages.length };

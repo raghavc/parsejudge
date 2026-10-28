@@ -1,4 +1,7 @@
 /** R2 object keys. */
+/** The upload as received, in its own format. */
+export const sourceKey = (documentId: string, format: string) => `documents/${documentId}/source.${format}`;
+/** The upload normalized to PDF; pages are split from this. */
 export const documentKey = (documentId: string) => `documents/${documentId}.pdf`;
 export const pagePdfKey = (pageId: string) => `pages/${pageId}.pdf`;
 export const pagePngKey = (pageId: string) => `pages/${pageId}.png`;
