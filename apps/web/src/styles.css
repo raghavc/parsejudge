@@ -278,3 +278,22 @@ body {
     display: none !important;
   }
 }
+
+.tally {
+  border-radius: 3px;
+  color: inherit;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  transition: background-color 150ms ease;
+}
+
+.tally:disabled {
+  cursor: default;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .tally:not(:disabled):hover {
+    background: var(--panel);
+    text-decoration: underline;
+  }
+}

@@ -43,6 +43,7 @@ const documentStatements = (env: Env, documentsSql: string, bind: string) => {
     `DELETE FROM verdicts WHERE page_id IN (${pages})`,
     `DELETE FROM parses WHERE page_id IN (${pages})`,
     `DELETE FROM judge_failures WHERE page_id IN (${pages})`,
+    `DELETE FROM page_notes WHERE page_id IN (${pages})`,
     `DELETE FROM pages WHERE document_id IN (${documentsSql})`,
     `DELETE FROM run_documents WHERE document_id IN (${documentsSql})`,
     `DELETE FROM documents WHERE id IN (${documentsSql})`,
@@ -63,6 +64,7 @@ export const deleteRun = async (env: Env, runId: string, scope: Scope) => {
           "DELETE FROM verdicts WHERE run_id = ?1",
           "DELETE FROM parses WHERE run_id = ?1",
           "DELETE FROM judge_failures WHERE run_id = ?1",
+          "DELETE FROM page_notes WHERE run_id = ?1",
           "DELETE FROM run_credentials WHERE run_id = ?1",
           "DELETE FROM run_documents WHERE run_id = ?1",
           "DELETE FROM runs WHERE id = ?1",
@@ -77,8 +79,5 @@ export const deleteUser = async (env: Env, userId: string) => {
   for (const run of runs.results) await deleteRun(env, run.id, "report");
   const docs = "SELECT id FROM documents WHERE user_id = ?1";
   await removeKeys(env.BLOBS, await documentBlobs(env, docs, userId));
-  await env.DB.batch([
-    ...documentStatements(env, docs, userId),
-    env.DB.prepare("DELETE FROM users WHERE id = ?").bind(userId),
-  ]);
+  await env.DB.batch([...documentStatements(env, docs, userId), env.DB.prepare("DELETE FROM users WHERE id = ?").bind(userId)]);
 };

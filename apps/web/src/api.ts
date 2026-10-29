@@ -39,6 +39,7 @@ export interface PageRef {
   readonly id: string;
   readonly index: number;
   readonly imageUrl: string;
+  readonly note: string | null;
 }
 
 export interface DocumentInfo {

@@ -67,15 +67,17 @@ const Scatter = ({
   const T = 12;
   const B = 28;
   const xs = points.map((p) => p.x);
-  const lo = Math.min(...xs) / 1.8;
-  const hi = Math.max(...xs) * 1.8;
+  const mx = median(xs);
+  const k = Math.max(...xs.map((x) => Math.max(x / mx, mx / x))) * 1.8;
+  const lo = mx / k;
+  const hi = mx * k;
   const sx = (x: number) => L + ((Math.log(x) - Math.log(lo)) / (Math.log(hi) - Math.log(lo) || 1)) * (W - L - R);
   const sy = (y: number) => T + (1 - (y - yMin) / (yMax - yMin || 1)) * (H - B - T);
   const frontier: Array<Point> = [];
   for (const p of [...points].sort((a, b) => a.x - b.x || b.y - a.y))
     if (p.y > (frontier.at(-1)?.y ?? Number.NEGATIVE_INFINITY)) frontier.push(p);
   const onFrontier = new Set(frontier.map((p) => p.id));
-  const qx = sx(median(xs));
+  const qx = sx(mx);
   const qy = sy(median(points.map((p) => p.y)));
   const yTicks = ticks(yMin, yMax, 3);
   return (
@@ -163,6 +165,11 @@ const Dots = ({ scores }: { readonly scores: ReadonlyArray<number | null> }) => 
   );
 };
 
+type Filter =
+  | { readonly kind: "gap" }
+  | { readonly kind: "failed" }
+  | { readonly kind: "h2h"; readonly row: string; readonly col: string; readonly outcome: "win" | "tie" | "loss" };
+
 export const Report = ({
   run,
   presets,
@@ -188,20 +195,40 @@ export const Report = ({
   const pages = run.documents.flatMap((d) =>
     d.pages.map((p) => ({ ...p, label: `${d.filename.replace(/\.[^.]+$/, "")} · p. ${p.index + 1}` })),
   );
-  const disagreements = pages
-    .map((page) => {
-      const cells = run.presetIds.map((id) => run.scores.find((s) => s.pageId === page.id && s.presetId === id));
-      const scores = cells.map((c) => (c?.status === "succeeded" ? (c.score ?? null) : null));
-      const ok = scores.filter((s): s is number => s !== null);
-      const failed = scores.length - ok.length;
-      return { page, scores, failed, gap: ok.length > 1 ? Math.max(...ok) - Math.min(...ok) : 0 };
-    })
-    .filter((d) => d.gap >= 3 || d.failed > 0);
-  const [filter, setFilter] = useState<"gap" | "failed">("gap");
-  const shown = disagreements
-    .filter((d) => filter === "gap" || d.failed > 0)
-    .sort((a, b) => (filter === "gap" ? b.gap - a.gap : b.failed - a.failed))
-    .slice(0, 8);
+  const scoreOf = (pageId: string, presetId: string) => {
+    const cell = run.scores.find((s) => s.pageId === pageId && s.presetId === presetId);
+    return cell?.status === "succeeded" ? (cell.score ?? null) : null;
+  };
+  const pageStats = pages.map((page) => {
+    const cells = run.presetIds.map((id) => run.scores.find((s) => s.pageId === page.id && s.presetId === id));
+    const scores = cells.map((c) => (c?.status === "succeeded" ? (c.score ?? null) : null));
+    const ok = scores.filter((s): s is number => s !== null);
+    const failed = scores.length - ok.length;
+    return { page, scores, failed, gap: ok.length > 1 ? Math.max(...ok) - Math.min(...ok) : 0 };
+  });
+  const disagreements = pageStats.filter((d) => d.gap >= 3 || d.failed > 0);
+  const failedCount = disagreements.filter((d) => d.failed > 0).length;
+  const [filter, setFilter] = useState<Filter>({ kind: "gap" });
+  const versus = (d: (typeof pageStats)[number], f: Extract<Filter, { kind: "h2h" }>) => {
+    const a = scoreOf(d.page.id, f.row);
+    const b = scoreOf(d.page.id, f.col);
+    if (a === null || b === null) return null;
+    const outcome = a > b ? "win" : a === b ? "tie" : "loss";
+    return outcome === f.outcome ? Math.abs(a - b) : null;
+  };
+  const matching =
+    filter.kind === "h2h"
+      ? pageStats.filter((d) => versus(d, filter) !== null).sort((a, b) => (versus(b, filter) ?? 0) - (versus(a, filter) ?? 0))
+      : filter.kind === "failed"
+        ? disagreements.filter((d) => d.failed > 0).sort((a, b) => b.failed - a.failed)
+        : [...disagreements].sort((a, b) => b.gap - a.gap);
+  const shown = matching.slice(0, 8);
+  const pick = (row: string, col: string, outcome: "win" | "tie" | "loss") => {
+    setFilter({ kind: "h2h", row, col, outcome });
+    document.getElementById("pages")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  const filterLabel = (f: Extract<Filter, { kind: "h2h" }>) =>
+    `${name(f.row)} ${f.outcome === "win" ? "beat" : f.outcome === "tie" ? "tied" : "lost to"} ${name(f.col)} · ${matching.length}`;
 
   const [details, setDetails] = useState<ReadonlyMap<string, PageDetail>>(new Map());
   const shownIds = shown.map((d) => d.page.id).join(",");
@@ -418,8 +445,34 @@ export const Report = ({
                   <div key={c.presetId} style={{ color: h ? "var(--ink)" : "#BDBDBD", flex: "1 0 0" }}>
                     {h ? (
                       <>
-                        <span style={{ color: "var(--good)" }}>{h.wins}</span> · {h.ties} ·{" "}
-                        <span style={{ color: "var(--bad)" }}>{h.losses}</span>
+                        <button
+                          type="button"
+                          className="tally"
+                          style={{ color: "var(--good)" }}
+                          disabled={h.wins === 0}
+                          onClick={() => pick(r.presetId, c.presetId, "win")}
+                        >
+                          {h.wins}
+                        </button>{" "}
+                        ·{" "}
+                        <button
+                          type="button"
+                          className="tally"
+                          disabled={h.ties === 0}
+                          onClick={() => pick(r.presetId, c.presetId, "tie")}
+                        >
+                          {h.ties}
+                        </button>{" "}
+                        ·{" "}
+                        <button
+                          type="button"
+                          className="tally"
+                          style={{ color: "var(--bad)" }}
+                          disabled={h.losses === 0}
+                          onClick={() => pick(r.presetId, c.presetId, "loss")}
+                        >
+                          {h.losses}
+                        </button>
                       </>
                     ) : (
                       "—"
@@ -431,7 +484,7 @@ export const Report = ({
           ))}
           <div style={{ color: "var(--muted)", fontSize: 12, paddingTop: 12 }}>
             <span style={{ color: "var(--good)" }}>Wins</span> · ties · <span style={{ color: "var(--bad)" }}>losses</span> for
-            the row provider.
+            the row provider. Click a number to see those pages.
           </div>
         </div>
       </section>
@@ -486,38 +539,42 @@ export const Report = ({
         </section>
       ) : (
         <section
+          id="pages"
           style={{
             borderTop: "1px solid var(--line)",
             display: "flex",
             flexDirection: "column",
             gap: 28,
             padding: "56px var(--gutter) 72px",
+            scrollMarginTop: 16,
           }}
         >
           <div style={{ alignItems: "end", display: "flex", justifyContent: "space-between" }}>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               <div style={h2}>Where providers disagree</div>
               <div style={note}>
-                {disagreements.length} of {pageCount} pages have a gap of 3 or more points between the best and worst score, or a
-                failed parse.
+                {filter.kind === "h2h"
+                  ? `Pages where ${name(filter.row)} scored ${filter.outcome === "win" ? "higher than" : filter.outcome === "tie" ? "the same as" : "lower than"} ${name(filter.col)}. ${matching.length > shown.length ? `Showing the ${shown.length} with the widest margin.` : ""}`
+                  : `${disagreements.length} of ${pageCount} pages have a gap of 3 or more points between the best and worst score, or a failed parse.`}
               </div>
             </div>
             <div style={{ display: "flex", gap: 8 }}>
               {(
                 [
-                  ["gap", "Largest gap"],
-                  ["failed", `Failed · ${disagreements.filter((d) => d.failed > 0).length}`],
-                ] as const
+                  [{ kind: "gap" }, "Largest gap"],
+                  ...(failedCount > 0 ? [[{ kind: "failed" }, `Failed · ${failedCount}`] as const] : []),
+                  ...(filter.kind === "h2h" ? [[filter, `${filterLabel(filter)}  ×`] as const] : []),
+                ] as ReadonlyArray<readonly [Filter, string]>
               ).map(([key, label]) => (
                 <button
-                  key={key}
+                  key={label}
                   type="button"
-                  onClick={() => setFilter(key)}
+                  onClick={() => setFilter(key.kind === "h2h" ? { kind: "gap" } : key)}
                   style={{
-                    background: filter === key ? "var(--ink)" : "#fff",
-                    border: `1px solid ${filter === key ? "var(--ink)" : "var(--line)"}`,
+                    background: filter.kind === key.kind ? "var(--ink)" : "#fff",
+                    border: `1px solid ${filter.kind === key.kind ? "var(--ink)" : "var(--line)"}`,
                     borderRadius: 16,
-                    color: filter === key ? "#fff" : "var(--ink)",
+                    color: filter.kind === key.kind ? "#fff" : "var(--ink)",
                     fontSize: 13,
                     height: 32,
                     padding: "0 12px",
@@ -529,7 +586,9 @@ export const Report = ({
             </div>
           </div>
           {shown.length === 0 ? (
-            <div style={note}>Every provider scored within 3 points of the others on every page.</div>
+            <div style={note}>
+              {filter.kind === "gap" ? "Every provider scored within 3 points of the others on every page." : "No pages match."}
+            </div>
           ) : (
             <div style={{ display: "grid", gap: 24, gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
               {shown.map((d) => {
@@ -570,7 +629,7 @@ export const Report = ({
                       </span>
                     </div>
                     <Dots scores={d.scores} />
-                    <div style={{ ...note, fontSize: 13, lineHeight: "18px" }}>{worst?.reasoning}</div>
+                    <div style={{ ...note, fontSize: 13, lineHeight: "18px" }}>{d.page.note ?? worst?.reasoning}</div>
                   </a>
                 );
               })}

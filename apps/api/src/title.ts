@@ -10,7 +10,7 @@ export const generateTitle = async (env: Env, filenames: ReadonlyArray<string>):
       method: "POST",
       headers: { authorization: `Bearer ${env.JUDGE_API_KEY}`, "content-type": "application/json" },
       body: JSON.stringify({
-        model: env.TITLE_MODEL,
+        model: env.SMALL_MODEL,
         max_tokens: 30,
         messages: [
           { role: "system", content: PROMPT },

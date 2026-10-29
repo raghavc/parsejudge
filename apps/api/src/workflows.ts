@@ -5,6 +5,7 @@ import { checkJudgeBudget } from "./budget.ts";
 import type { Env } from "./env.ts";
 import type { RunEvents } from "./events.ts";
 import { documentKey, markdownKey, pageId, pagePdfKey, pagePngKey } from "./keys.ts";
+import { writePageNote } from "./note.ts";
 import { renderFirstPagePng } from "./render.ts";
 import { type Cell, judgePool, type Pool, pollCell, providerPool, runStep, saveFailure, submitCell } from "./run.ts";
 import { MAX_POLLS, pollDelayMs } from "./schedule.ts";
@@ -168,6 +169,11 @@ export class PageWorkflow extends WorkflowEntrypoint<Env, PageWorkflowParams> {
           .bind(runId, page, error instanceof Error ? error.message : String(error))
           .run();
       });
+    }
+    try {
+      await step.do("note", RETRY, () => writePageNote(this.env, runId, page));
+    } catch (error) {
+      console.error("Page note failed", page, error);
     }
     await step.do("report", () => events(this.env, runId).pageDone(page));
   }

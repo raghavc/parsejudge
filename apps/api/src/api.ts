@@ -73,7 +73,13 @@ const RunSummary = Schema.Struct({
 });
 
 /** `imageUrl` is the rendered page PNG every provider got. It expires after an hour and 404s until the page is rendered. */
-const PageRef = Schema.Struct({ id: Schema.String, index: Schema.Number, imageUrl: Schema.String });
+const PageRef = Schema.Struct({
+  id: Schema.String,
+  index: Schema.Number,
+  imageUrl: Schema.String,
+  /** One sentence on how the providers differ, for pages with a score gap or a failed parse. */
+  note: Schema.NullOr(Schema.String),
+});
 
 const DocumentInfo = Schema.Struct({
   id: Schema.String,
@@ -277,6 +283,10 @@ const runDocuments = (runId: string) =>
     )
       .bind(runId)
       .all<{ id: string; filename: string; format: string; page_count: number }>();
+    const notes = await cf.DB.prepare("SELECT page_id, note FROM page_notes WHERE run_id = ?")
+      .bind(runId)
+      .all<{ page_id: string; note: string }>();
+    const noteOf = new Map(notes.results.map((n) => [n.page_id, n.note]));
     return Promise.all(
       rows.results.map(async (row) => ({
         id: row.id,
@@ -285,7 +295,7 @@ const runDocuments = (runId: string) =>
         pages: await Promise.all(
           Array.from({ length: row.page_count }, async (_, index) => {
             const id = pageIdOf(row.id, index);
-            return { id, index, imageUrl: await pageImageUrl(id) };
+            return { id, index, imageUrl: await pageImageUrl(id), note: noteOf.get(id) ?? null };
           }),
         ),
       })),
