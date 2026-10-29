@@ -185,13 +185,28 @@ export const Api = HttpApi.make("parsejudge")
   )
   .add(HttpApiGroup.make("presets").add(HttpApiEndpoint.get("list", "/v1/presets", { success: Schema.Array(PresetInfo) })))
   .add(
-    HttpApiGroup.make("documents").add(
-      HttpApiEndpoint.post("upload", "/v1/documents", {
-        query: { filename: Schema.optional(Schema.String) },
-        success: Schema.Struct({ documentId: Schema.String, pageCount: Schema.Number }),
-        error: [HttpApiError.BadRequest, HttpApiError.Unauthorized, HttpApiError.ServiceUnavailable],
-      }),
-    ),
+    HttpApiGroup.make("documents")
+      .add(
+        HttpApiEndpoint.post("upload", "/v1/documents", {
+          query: { filename: Schema.optional(Schema.String), upload: Schema.optional(Schema.String) },
+          success: Schema.Struct({ documentId: Schema.String, pageCount: Schema.Number }),
+          error: [HttpApiError.BadRequest, HttpApiError.Unauthorized, HttpApiError.ServiceUnavailable],
+        }),
+      )
+      .add(
+        HttpApiEndpoint.get("uploaded", "/v1/documents", {
+          query: { upload: Schema.String },
+          success: Schema.Array(
+            Schema.Struct({
+              documentId: Schema.String,
+              filename: Schema.String,
+              pageCount: Schema.Number,
+              createdAt: Schema.Number,
+            }),
+          ),
+          error: HttpApiError.Unauthorized,
+        }),
+      ),
   )
   .add(
     HttpApiGroup.make("titles").add(
@@ -438,82 +453,102 @@ const PresetsLive = HttpApiBuilder.group(Api, "presets", (handlers) =>
 );
 
 const DocumentsLive = HttpApiBuilder.group(Api, "documents", (handlers) =>
-  handlers.handle("upload", ({ query: { filename } }) =>
-    Effect.gen(function* () {
-      const { userId, loginId } = yield* uploader;
-      if (loginId !== null) {
-        // Cheap checks before conversion; the insert below re-checks the cap atomically.
-        const limiter = cf.UPLOAD_LIMIT;
-        const allowed = limiter === undefined || (yield* query(() => limiter.limit({ key: loginId }))).success;
-        const held = yield* query(() =>
-          cf.DB.prepare("SELECT COALESCE(SUM(page_count), 0) AS pages FROM documents WHERE login_id = ?")
-            .bind(loginId)
-            .first<{ pages: number }>(),
+  handlers
+    .handle("upload", ({ query: { filename, upload } }) =>
+      Effect.gen(function* () {
+        const { userId, loginId } = yield* uploader;
+        if (loginId !== null) {
+          // Cheap checks before conversion; the insert below re-checks the cap atomically.
+          const limiter = cf.UPLOAD_LIMIT;
+          const allowed = limiter === undefined || (yield* query(() => limiter.limit({ key: loginId }))).success;
+          const held = yield* query(() =>
+            cf.DB.prepare("SELECT COALESCE(SUM(page_count), 0) AS pages FROM documents WHERE login_id = ?")
+              .bind(loginId)
+              .first<{ pages: number }>(),
+          );
+          if (!allowed || (held?.pages ?? 0) >= Number(cf.MAX_PAGES_PER_RUN)) return yield* new HttpApiError.BadRequest({});
+        }
+        const request = yield* HttpServerRequest.HttpServerRequest;
+        const bytes = new Uint8Array(yield* request.arrayBuffer.pipe(Effect.mapError(() => new HttpApiError.BadRequest({}))));
+        const format = yield* sniffFormat(bytes).pipe(Effect.mapError(() => new HttpApiError.BadRequest({})));
+        const pdf = yield* toPdf(cf, format, bytes).pipe(
+          Effect.mapError((error) =>
+            error._tag === "InvalidDocument" ? new HttpApiError.BadRequest({}) : new HttpApiError.ServiceUnavailable({}),
+          ),
         );
-        if (!allowed || (held?.pages ?? 0) >= Number(cf.MAX_PAGES_PER_RUN)) return yield* new HttpApiError.BadRequest({});
-      }
-      const request = yield* HttpServerRequest.HttpServerRequest;
-      const bytes = new Uint8Array(yield* request.arrayBuffer.pipe(Effect.mapError(() => new HttpApiError.BadRequest({}))));
-      const format = yield* sniffFormat(bytes).pipe(Effect.mapError(() => new HttpApiError.BadRequest({})));
-      const pdf = yield* toPdf(cf, format, bytes).pipe(
-        Effect.mapError((error) =>
-          error._tag === "InvalidDocument" ? new HttpApiError.BadRequest({}) : new HttpApiError.ServiceUnavailable({}),
-        ),
-      );
-      const pages = yield* splitPages(pdf, Number(cf.MAX_PAGES_PER_RUN)).pipe(
-        Effect.mapError(() => new HttpApiError.BadRequest({})),
-      );
-      const documentId = crypto.randomUUID();
-      const max = Number(cf.MAX_PAGES_PER_RUN);
-      yield* query(() => cf.BLOBS.put(sourceKey(documentId, format), bytes));
-      yield* query(() => cf.BLOBS.put(documentKey(documentId), pdf));
-      // Before sign-in completes, one check-and-insert caps the pages a login holds (one run) and the pages
-      // waiting under all open logins from its client (two runs), so parallel uploads cannot pass the cap together.
-      const inserted = yield* query(async () =>
-        cf.DB.prepare(
-          // A sign-in that completes while this upload runs has already set logins.user_id; the upload goes to that user.
-          `INSERT INTO documents (id, user_id, login_id, filename, format, sha256, page_count, created_at)
-           SELECT ?1, COALESCE((SELECT user_id FROM logins WHERE id = ?2), ?3), ?2, ?4, ?5, ?6, ?7, ?8
+        const pages = yield* splitPages(pdf, Number(cf.MAX_PAGES_PER_RUN)).pipe(
+          Effect.mapError(() => new HttpApiError.BadRequest({})),
+        );
+        const documentId = crypto.randomUUID();
+        const max = Number(cf.MAX_PAGES_PER_RUN);
+        yield* query(() => cf.BLOBS.put(sourceKey(documentId, format), bytes));
+        yield* query(() => cf.BLOBS.put(documentKey(documentId), pdf));
+        // Before sign-in completes, one check-and-insert caps the pages a login holds (one run) and the pages
+        // waiting under all open logins from its client (two runs), so parallel uploads cannot pass the cap together.
+        const inserted = yield* query(async () =>
+          cf.DB.prepare(
+            // A sign-in that completes while this upload runs has already set logins.user_id; the upload goes to that user.
+            `INSERT INTO documents (id, user_id, login_id, filename, format, sha256, page_count, created_at, upload_id)
+           SELECT ?1, COALESCE((SELECT user_id FROM logins WHERE id = ?2), ?3), ?2, ?4, ?5, ?6, ?7, ?8, ?11
            WHERE ?2 IS NULL OR (
              (SELECT COALESCE(SUM(page_count), 0) FROM documents WHERE login_id = ?2) + ?7 <= ?9 AND
              (SELECT COALESCE(SUM(page_count), 0) FROM documents WHERE user_id = ?10 AND login_id IN
                (SELECT id FROM logins WHERE ip = (SELECT ip FROM logins WHERE id = ?2))) + ?7 <= ?9 * 2
            )`,
-        )
-          .bind(
-            documentId,
-            loginId,
-            userId,
-            filename ?? `document.${format}`,
-            format,
-            await sha256(bytes),
-            pages.length,
-            Date.now(),
-            max,
-            PENDING_USER,
           )
-          .run(),
-      );
-      if (inserted.meta.changes !== 1) {
-        yield* query(() => cf.BLOBS.delete([sourceKey(documentId, format), documentKey(documentId)]));
-        return yield* new HttpApiError.BadRequest({});
-      }
-      yield* query(() => Promise.all(pages.map((page, index) => cf.BLOBS.put(pagePdfKey(pageIdOf(documentId, index)), page))));
-      yield* query(() =>
-        cf.DB.batch(
-          pages.map((_, index) =>
-            cf.DB.prepare("INSERT OR IGNORE INTO pages (id, document_id, page_index, rendered) VALUES (?, ?, ?, 0)").bind(
-              pageIdOf(documentId, index),
+            .bind(
               documentId,
-              index,
+              loginId,
+              userId,
+              filename ?? `document.${format}`,
+              format,
+              await sha256(bytes),
+              pages.length,
+              Date.now(),
+              max,
+              PENDING_USER,
+              loginId === null ? (upload ?? null) : null,
+            )
+            .run(),
+        );
+        if (inserted.meta.changes !== 1) {
+          yield* query(() => cf.BLOBS.delete([sourceKey(documentId, format), documentKey(documentId)]));
+          return yield* new HttpApiError.BadRequest({});
+        }
+        yield* query(() => Promise.all(pages.map((page, index) => cf.BLOBS.put(pagePdfKey(pageIdOf(documentId, index)), page))));
+        yield* query(() =>
+          cf.DB.batch(
+            pages.map((_, index) =>
+              cf.DB.prepare("INSERT OR IGNORE INTO pages (id, document_id, page_index, rendered) VALUES (?, ?, ?, 0)").bind(
+                pageIdOf(documentId, index),
+                documentId,
+                index,
+              ),
             ),
           ),
-        ),
-      );
-      yield* query(() => cf.DOCUMENT_WORKFLOW.create({ id: documentId, params: { documentId, pageCount: pages.length } }));
-      return { documentId, pageCount: pages.length };
-    }),
-  ),
+        );
+        yield* query(() => cf.DOCUMENT_WORKFLOW.create({ id: documentId, params: { documentId, pageCount: pages.length } }));
+        return { documentId, pageCount: pages.length };
+      }),
+    )
+    .handle("uploaded", ({ query: { upload } }) =>
+      Effect.gen(function* () {
+        const userId = yield* requireUser;
+        const rows = yield* query(() =>
+          cf.DB.prepare(
+            "SELECT id, filename, page_count, created_at FROM documents WHERE user_id = ? AND upload_id = ? ORDER BY created_at",
+          )
+            .bind(userId, upload)
+            .all<{ id: string; filename: string; page_count: number; created_at: number }>(),
+        );
+        return rows.results.map((row) => ({
+          documentId: row.id,
+          filename: row.filename,
+          pageCount: row.page_count,
+          createdAt: row.created_at,
+        }));
+      }),
+    ),
 );
 
 const TitlesLive = HttpApiBuilder.group(Api, "titles", (handlers) =>

@@ -14,9 +14,9 @@ const MAX_FETCH_BYTES = 100 * 1024 * 1024;
 const INSTRUCTIONS = `ParseJudge compares document parsers on your documents. A blind judge model scores each parser's output on every page.
 
 To evaluate local files:
-1. Call create_upload_url. PUT each file's bytes to the URL it returns (one request per file, with ?filename=<name>). Each response is JSON with a documentId.
+1. Call create_upload_url. Upload the files with the curl command it returns: one command uploads many files in parallel, and every file goes into the same upload.
    Files on the web: call upload_from_url instead.
-2. Call start_run with the documentIds. Leave presetIds out to run the default hosted parsers (free).
+2. Call start_run with the uploadId. It runs every file the upload received; list_uploaded_files shows them first. Leave presetIds out to run the default hosted parsers (free).
    Parsers that are not hosted need your own key: pass it in credentials (see list_providers for the key names).
 3. Call get_run until status is "succeeded" or "failed". The run's owner also gets an email when it finishes, unless they turned that off.
 4. Read the results with get_run (summary), list_pages and get_page. Share the reportUrl.`;
@@ -105,17 +105,36 @@ const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
     "create_upload_url",
     {
       description:
-        "A URL for uploading local files to your account, valid for 1 hour and for any number of files. PUT each file's raw bytes to <url>?filename=<file name>, one request per file. Accepts PDF, images, DOCX, PPTX and XLSX. Each response is {documentId, pageCount}; pass the documentIds to start_run.",
+        "A URL for uploading local files, valid for 1 hour and for any number of files. PUT each file's raw bytes to <url>/<file name>; the response has the commands. Files can go up in parallel. Accepts PDF, images, DOCX, PPTX and XLSX. Every file is tagged with the uploadId: pass it to start_run to run all of them, without tracking document ids.",
     },
     tool(async () => {
-      const { url, expiresAt } = await signedUploadUrl(env, userId);
+      const { url, uploadId, expiresAt } = await signedUploadUrl(env, userId);
       return {
-        url,
+        uploadId,
+        url: `${url}/`,
         method: "PUT",
         expiresAt: new Date(expiresAt).toISOString(),
-        example: `curl -sS -X PUT --data-binary @report.pdf "${url}?filename=report.pdf"`,
-        next: "Call start_run with the documentId of every file you uploaded.",
+        uploadFiles: `curl -sS --fail-with-body --parallel --parallel-max 16 -T "{a.pdf,b.docx}" "${url}/"`,
+        uploadFolder: `find ./docs -type f -print0 | xargs -0 -P 16 -I{} curl -sS --fail-with-body -T {} "${url}/"`,
+        notes:
+          'curl -T with a URL ending in "/" adds the file name to the URL. Each response is {documentId, pageCount}, or {filename, error} for a file that could not be read.',
+        next: `Call start_run with uploadId "${uploadId}".`,
       };
+    }),
+  );
+
+  server.registerTool(
+    "list_uploaded_files",
+    {
+      description: "The files an upload URL from create_upload_url has received so far, oldest first.",
+      inputSchema: { uploadId: z.string() },
+      annotations: read,
+    },
+    tool(async ({ uploadId }: { uploadId: string }) => {
+      const files = ((await call("GET", `/v1/documents?upload=${encodeURIComponent(uploadId)}`)) ?? []) as unknown as Array<{
+        pageCount: number;
+      }>;
+      return { uploadId, files: files.length, pages: files.reduce((n, f) => n + f.pageCount, 0), documents: files };
     }),
   );
 
@@ -159,6 +178,14 @@ const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
       'Your own keys by provider, e.g. {"llamaparse": {"LLAMA_CLOUD_API_KEY": "llx-..."}}. Stored encrypted with this run only.',
     );
 
+  const uploadedIds = async (uploadId: string) => {
+    const files = ((await call("GET", `/v1/documents?upload=${encodeURIComponent(uploadId)}`)) ?? []) as unknown as Array<{
+      documentId: string;
+    }>;
+    if (files.length === 0) throw new ApiError(`Upload ${uploadId} has no files yet.`);
+    return files.map((f) => f.documentId);
+  };
+
   const startRun = async (args: {
     documentIds: ReadonlyArray<string>;
     presetIds?: ReadonlyArray<string> | undefined;
@@ -185,15 +212,29 @@ const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
     "start_run",
     {
       description:
-        "Start an evaluation of your uploaded documents. Up to 1,000 pages per run. Without presetIds it runs the default hosted parsers. Returns runId and the report URL.",
+        "Start an evaluation. Pass uploadId to run every file sent to that upload URL, or documentIds, or both. Up to 1,000 pages per run. Without presetIds it runs the default hosted parsers. Returns runId and the report URL.",
       inputSchema: {
-        documentIds: z.array(z.string()).min(1),
+        uploadId: z.string().optional().describe("From create_upload_url: runs every file that upload received."),
+        documentIds: z.array(z.string()).optional().describe("From upload_from_url or earlier uploads."),
         presetIds: z.array(z.string()).min(1).optional().describe("Preset ids from list_providers."),
         title: z.string().max(80).optional().describe("Run title. Without one, a title is made from the file names."),
         credentials,
       },
     },
-    tool(startRun),
+    tool(
+      async ({
+        uploadId,
+        documentIds,
+        ...rest
+      }: Omit<Parameters<typeof startRun>[0], "documentIds"> & {
+        uploadId?: string | undefined;
+        documentIds?: Array<string> | undefined;
+      }) => {
+        const ids = [...new Set([...(uploadId === undefined ? [] : await uploadedIds(uploadId)), ...(documentIds ?? [])])];
+        if (ids.length === 0) throw new ApiError("Pass uploadId or documentIds.");
+        return startRun({ ...rest, documentIds: ids });
+      },
+    ),
   );
 
   server.registerTool(

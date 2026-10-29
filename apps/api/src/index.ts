@@ -14,21 +14,28 @@ export { ProviderSlots } from "./slots.ts";
 export { DocumentWorkflow, PageWorkflow, RunWorkflow } from "./workflows.ts";
 
 const EVENTS_PATH = /^\/v1\/runs\/([^/]+)\/events$/;
-const UPLOAD_PATH = /^\/v1\/uploads\/([^/]+)$/;
+const UPLOAD_PATH = /^\/v1\/uploads\/([^/]+)(?:\/([^/]+))?$/;
 
-/** PUT /v1/uploads/<token>?filename=: an upload through a URL from the MCP create_upload_url tool. */
-const signedUpload = async (request: Request, env: Env, token: string) => {
+/** PUT /v1/uploads/<token>/<filename> (or ?filename=): an upload through a URL from the MCP create_upload_url tool. */
+const signedUpload = async (request: Request, env: Env, token: string, name: string | undefined) => {
   if (request.method !== "PUT") return new Response("Method not allowed", { status: 405 });
-  const userId = await uploadUser(env, decodeURIComponent(token));
-  if (userId === null) return Response.json({ error: "This upload URL is invalid or expired." }, { status: 403 });
-  const filename = new URL(request.url).searchParams.get("filename") ?? "document";
-  return handler(
-    new Request(new URL(`/v1/documents?filename=${encodeURIComponent(filename)}`, request.url), {
+  const upload = await uploadUser(env, decodeURIComponent(token));
+  if (upload === null) return Response.json({ error: "This upload URL is invalid or expired." }, { status: 403 });
+  const filename = (name === undefined ? null : decodeURIComponent(name)) ?? new URL(request.url).searchParams.get("filename");
+  const query = new URLSearchParams({ filename: filename ?? "document", upload: upload.uploadId });
+  const response = await handler(
+    new Request(new URL(`/v1/documents?${query}`, request.url), {
       method: "POST",
-      headers: { [INTERNAL_HEADER]: internalHeader(userId), "content-type": "application/octet-stream" },
+      headers: { [INTERNAL_HEADER]: internalHeader(upload.userId), "content-type": "application/octet-stream" },
       body: await request.arrayBuffer(),
     }),
   );
+  if (response.ok) return response;
+  const error =
+    response.status === 400
+      ? "Not a readable PDF, image, DOCX, PPTX or XLSX, or over 1,000 pages."
+      : `ParseJudge returned HTTP ${response.status}.`;
+  return Response.json({ filename, error }, { status: response.status });
 };
 
 const app = {
@@ -46,7 +53,7 @@ const app = {
     // Sign-in codes, links and sessions are HMACs under AUTH_KEY; without a real key, serve nothing.
     if ((env.AUTH_KEY ?? "").length < 32) return new Response("AUTH_KEY is not set", { status: 500 });
     const upload = UPLOAD_PATH.exec(url.pathname);
-    if (upload?.[1] !== undefined) return signedUpload(request, env, upload[1]);
+    if (upload?.[1] !== undefined) return signedUpload(request, env, upload[1], upload[2]);
     if (url.pathname === AUTHORIZE_PATH) return authorize(request, env, env.OAUTH_PROVIDER);
     if (request.method !== "GET" && request.method !== "HEAD" && url.pathname.startsWith("/v1/")) {
       const origin = request.headers.get("origin");
