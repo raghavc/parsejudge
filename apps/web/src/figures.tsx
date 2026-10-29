@@ -1,9 +1,9 @@
 import { wilson } from "@parsejudge/core/summary";
-import { extent, range } from "d3-array";
+import { range } from "d3-array";
 import { randomLcg, randomNormal } from "d3-random";
-import { scaleLinear, scaleLog } from "d3-scale";
-import { area, line, linkHorizontal } from "d3-shape";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { scaleLinear } from "d3-scale";
+import { linkHorizontal } from "d3-shape";
+import { type ReactNode, type RefObject, useEffect, useMemo, useRef, useState } from "react";
 
 const useWidth = (fallback: number) => {
   const box = useRef<HTMLDivElement>(null);
@@ -40,24 +40,48 @@ export const Figure = ({
   </figure>
 );
 
-export const Segmented = <T extends string | number>({
-  options,
-  value,
-  onChange,
-  label,
-}: {
-  readonly options: ReadonlyArray<readonly [T, string]>;
-  readonly value: T;
-  readonly onChange: (value: T) => void;
-  readonly label: string;
-}) => (
-  <fieldset className="seg" aria-label={label}>
-    {options.map(([v, text]) => (
-      <button key={String(v)} type="button" aria-pressed={v === value} onClick={() => onChange(v)}>
-        {text}
-      </button>
+const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+const useInView = (ref: RefObject<HTMLElement | null>) => {
+  const [seen, setSeen] = useState(false);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (el === null) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        const on = entry?.isIntersecting ?? false;
+        setVisible(on);
+        if (on) setSeen(true);
+      },
+      { threshold: 0.4 },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [ref]);
+  return { seen, visible };
+};
+
+/** Advances a step counter on a timer while the element is on screen. Stays at 0 with reduced motion. */
+const useAutoplay = (ref: RefObject<HTMLElement | null>, ms: number) => {
+  const { visible } = useInView(ref);
+  const [step, setStep] = useState(0);
+  useEffect(() => {
+    if (!visible || reducedMotion()) return;
+    const id = window.setInterval(() => document.visibilityState === "visible" && setStep((s) => s + 1), ms);
+    return () => window.clearInterval(id);
+  }, [visible, ms]);
+  return step;
+};
+
+const Steps = ({ items, active }: { readonly items: ReadonlyArray<string>; readonly active: number }) => (
+  <div className="fig-steps" aria-hidden="true">
+    {items.map((item, i) => (
+      <span key={item} className={i === active ? "on" : undefined}>
+        {item}
+      </span>
     ))}
-  </fieldset>
+  </div>
 );
 
 /* Figure 1: one blind request per page. Uses the judge's real ordering rule: labels by sha256(pageId:presetId). */
@@ -140,11 +164,12 @@ const Marks = ({ x, y, errors }: { x: number; y: number; errors: ReadonlyArray<S
 );
 
 export const BlindRequestFigure = () => {
-  const [page, setPage] = useState(0);
-  const [focus, setFocus] = useState(0);
+  const [box, width] = useWidth(720);
+  const step = useAutoplay(box, 2600);
+  const page = step % PAGES.length;
+  const focus = step % PARSERS.length;
   const pageId = PAGES[page] ?? PAGES[0];
   const { hashes, slots } = useBlinding(pageId);
-  const [box, width] = useWidth(720);
   const W = Math.max(320, width);
   const wide = W >= 640;
   const H = 236;
@@ -171,20 +196,7 @@ export const BlindRequestFigure = () => {
   return (
     <Figure
       n={1}
-      controls={
-        <>
-          <Segmented label="Page" options={PAGES.map((_, i) => [i, `Page ${i + 1}`] as const)} value={page} onChange={setPage} />
-          <span className="fig-control">
-            Follow parser
-            <Segmented
-              label="Follow parser"
-              options={PARSERS.map((_, i) => [i, `${i + 1}`] as const)}
-              value={focus}
-              onChange={setFocus}
-            />
-          </span>
-        </>
-      }
+      controls={<Steps items={PAGES} active={page} />}
       caption={
         <>
           Each page is one judge request. Every parser gets the same page image. Their outputs are relabeled <code>parse_a</code>,{" "}
@@ -360,18 +372,19 @@ const ScoreBars = ({ title, pages }: { readonly title: string; readonly pages: R
 
 export const SubsetFigure = () => {
   const pages = useMemo(simulatePages, []);
-  const [mode, setMode] = useState<"advance" | "after">("advance");
-  const [seed, setSeed] = useState(1);
+  const [box, width] = useWidth(720);
+  const step = useAutoplay(box, 3200);
+  const mode = step % 2 === 0 ? "advance" : "after";
+  const seed = Math.floor(step / 2) + 1;
   const chosen = useMemo(() => {
     const pool = mode === "advance" ? pages : pages.filter((p) => p.a >= p.b);
     return sample(pool, 100, seed / 7);
   }, [pages, mode, seed]);
   const picked = useMemo(() => new Set(chosen.map((p) => p.i)), [chosen]);
-  const [box, width] = useWidth(720);
   const W = Math.max(320, width);
   const per = W < 520 ? 4 : 6;
   const r = W < 520 ? 1.9 : 2.3;
-  const step = r * 2 + 1;
+  const pitch = r * 2 + 1;
   const bins = range(-5, 6);
   const x = scaleLinear().domain([-5.5, 5.5]).range([0, W]);
   const binOf = (p: SimPage) => Math.max(-5, Math.min(5, p.a - p.b));
@@ -379,32 +392,18 @@ export const SubsetFigure = () => {
   for (const p of [...pages].sort((m, n) => Number(picked.has(m.i)) - Number(picked.has(n.i)) || m.i - n.i))
     stacks.get(binOf(p))?.push(p);
   const tallest = Math.max(...[...stacks.values()].map((s) => Math.ceil(s.length / per)));
-  const H = tallest * step + 60;
+  const H = tallest * pitch + 60;
   const base = H - 30;
   return (
     <Figure
       n={2}
-      controls={
-        <>
-          <Segmented
-            label="How the 100 pages were chosen"
-            options={[
-              ["advance", "Fixed in advance"],
-              ["after", "Chosen after scoring"],
-            ]}
-            value={mode}
-            onChange={setMode}
-          />
-          <button type="button" className="btn small" onClick={() => setSeed((s) => s + 1)}>
-            Draw again
-          </button>
-        </>
-      }
+      controls={<Steps items={["100 pages fixed in advance", "100 pages chosen after scoring"]} active={step % 2} />}
       caption={
         <>
           Simulated. Each dot is one of 1,000 candidate pages, placed by parser A’s score minus parser B’s. A release keeps 100
-          (blue). Drawn at random, the subset tracks the full set: B is ahead. Drawn only from pages where A did at least as well
-          as B, the same parsers swap places, and nothing in the released pages shows it.
+          (blue). The figure alternates between two ways of choosing them. Drawn at random, the subset tracks the full set: B is
+          ahead. Drawn only from pages where A did at least as well as B, the same parsers swap places, and nothing in the
+          released pages shows it.
         </>
       }
     >
@@ -418,8 +417,8 @@ export const SubsetFigure = () => {
                 <circle
                   key={p.i}
                   className="fig2-dot"
-                  cx={x(b) + (col - (per - 1) / 2) * step}
-                  cy={base - r - row * step}
+                  cx={x(b) + (col - (per - 1) / 2) * pitch}
+                  cy={base - r - row * pitch}
                   r={r}
                   fill={picked.has(p.i) ? "var(--accent)" : "#d9d9d9"}
                 />
@@ -461,120 +460,74 @@ const interval = (p: number, n: number) => wilson(p * n, n) ?? { low: 0, high: 1
 const separated = (n: number) => interval(RATES[0].p, n).high < interval(RATES[1].p, n).low;
 const SEPARATE_AT = range(N_MIN, N_MAX + 1).find(separated) ?? N_MAX;
 
-const pct = (v: number) => `${(v * 100).toFixed(1)}%`;
+const pct = (v: number) => `${Math.round(v * 100)}%`;
+const SIZES = [50, 100, 200, 500, 1000] as const;
+const AXIS = [0, 0.1, 0.2, 0.3] as const;
+const X_MAX = 0.32;
 
 export const SampleSizeFigure = () => {
-  const [n, setN] = useState(100);
-  const [box, width] = useWidth(720);
-  const W = Math.max(320, width);
-  const H = W < 520 ? 220 : 260;
-  const L = 36;
-  const R = 12;
-  const T = 12;
-  const B = 28;
-  const ns = range(0, 81).map((i) => N_MIN * (N_MAX / N_MIN) ** (i / 80));
-  const x = scaleLog()
-    .domain(extent(ns) as [number, number])
-    .range([L, W - R]);
-  const y = scaleLinear()
-    .domain([0, 0.4])
-    .range([H - B, T]);
-  const bandFor = (p: number) =>
-    area<number>()
-      .x((v) => x(v))
-      .y0((v) => y(interval(p, v).low))
-      .y1((v) => y(interval(p, v).high))(ns) ?? "";
-  const mid = (p: number) =>
-    line<number>()
-      .x((v) => x(v))
-      .y(() => y(p))(ns) ?? "";
-  const ok = separated(n);
-  const toSlider = (v: number) => Math.round((Math.log(v / N_MIN) / Math.log(N_MAX / N_MIN)) * 1000);
-  const fromSlider = (s: number) => Math.round(N_MIN * (N_MAX / N_MIN) ** (s / 1000));
+  const box = useRef<HTMLDivElement>(null);
+  const { seen } = useInView(box);
+  const x = scaleLinear().domain([0, X_MAX]).range([0, 100]).clamp(true);
   return (
     <Figure
       n={3}
-      controls={
-        <label className="slider">
-          <span>Scored pages</span>
-          <input
-            type="range"
-            min={0}
-            max={1000}
-            value={toSlider(n)}
-            onChange={(e) => setN(fromSlider(Number(e.target.value)))}
-            aria-valuetext={`${n} pages`}
-          />
-          <span className="mono">{n.toLocaleString("en-US")}</span>
-        </label>
-      }
       caption={
         <>
-          Share of pages with a high-severity error for two parsers whose true rates are 10% and 16%, with 95% Wilson intervals.
-          The intervals stop overlapping at about {SEPARATE_AT} pages. Below that, a run cannot say which parser makes fewer
-          serious errors. A run can include up to 1,000 pages.
+          Share of pages with a high-severity error for two parsers whose true rates are 10% and 16%, with 95% Wilson intervals,
+          at five run sizes. The intervals stop overlapping at about {SEPARATE_AT} pages. Below that, a run cannot say which
+          parser makes fewer serious errors. A run can include up to 1,000 pages.
         </>
       }
     >
-      <div ref={box}>
-        <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} role="img" aria-label="Wilson intervals by sample size">
-          {[0, 0.1, 0.2, 0.3, 0.4].map((v) => (
-            <g key={v}>
-              <line x1={L} x2={W - R} y1={y(v)} y2={y(v)} stroke={v === 0 ? "var(--line)" : "var(--rule)"} />
-              <text x={L - 8} y={y(v) + 4} fontSize={11} fill="var(--faint)" textAnchor="end">
-                {v * 100}%
-              </text>
-            </g>
-          ))}
-          {[20, 50, 100, 200, 500, 1000].map((v) => (
-            <text key={v} x={x(v)} y={H - 8} fontSize={11} fill="var(--faint)" textAnchor="middle">
-              {v.toLocaleString("en-US")}
-            </text>
-          ))}
-          <rect x={x(SEPARATE_AT)} y={T} width={W - R - x(SEPARATE_AT)} height={H - B - T} fill="var(--good)" opacity={0.06} />
-          <text x={W - R - 8} y={T + 14} fontSize={11} fill="var(--good)" textAnchor="end">
-            Separate
-          </text>
+      <div ref={box} className={seen ? "ci in" : "ci"}>
+        <div className="ci-row ci-head">
+          <span>Pages</span>
+          <span className="ci-track">
+            {AXIS.map((v) => (
+              <span key={v} className="ci-tick" style={{ left: `${x(v)}%` }}>
+                {pct(v)}
+              </span>
+            ))}
+          </span>
+          <span />
+        </div>
+        {SIZES.map((n, row) => (
+          <div key={n} className="ci-row">
+            <span className="ci-n">{n.toLocaleString("en-US")}</span>
+            <span className="ci-track">
+              {AXIS.map((v) => (
+                <span key={v} className="ci-grid" style={{ left: `${x(v)}%` }} />
+              ))}
+              {RATES.map((r, k) => {
+                const ci = interval(r.p, n);
+                return (
+                  <span key={r.name} className="ci-bar" style={{ top: 9 + k * 10 }}>
+                    <span
+                      className="ci-span"
+                      style={{
+                        background: r.color,
+                        left: `${x(ci.low)}%`,
+                        transitionDelay: `${row * 140}ms`,
+                        width: `${x(ci.high) - x(ci.low)}%`,
+                      }}
+                    />
+                    <span className="ci-dot" style={{ background: r.color, left: `${x(r.p)}%` }} />
+                  </span>
+                );
+              })}
+            </span>
+            <span className={separated(n) ? "ci-verdict good" : "ci-verdict"}>{separated(n) ? "Separate" : "Overlap"}</span>
+          </div>
+        ))}
+        <div className="readout">
           {RATES.map((r) => (
-            <g key={r.name}>
-              <path d={bandFor(r.p)} fill={r.color} opacity={0.12} />
-              <path d={mid(r.p)} stroke={r.color} strokeWidth={1.5} fill="none" />
-            </g>
-          ))}
-          <line x1={x(n)} x2={x(n)} y1={T} y2={H - B} stroke="var(--ink)" strokeDasharray="2 3" />
-          {RATES.map((r) => {
-            const ci = interval(r.p, n);
-            return (
-              <g key={r.name}>
-                <line
-                  x1={x(n)}
-                  x2={x(n)}
-                  y1={y(ci.low)}
-                  y2={y(ci.high)}
-                  stroke={r.color}
-                  strokeWidth={5}
-                  strokeLinecap="round"
-                  opacity={0.85}
-                />
-              </g>
-            );
-          })}
-        </svg>
-      </div>
-      <div className="readout">
-        {RATES.map((r) => {
-          const ci = interval(r.p, n);
-          return (
             <div key={r.name}>
               <span className="swatch" style={{ background: r.color }} />
-              {r.name} <span className="mono">{pct(r.p)}</span>{" "}
-              <span className="muted">
-                ({pct(ci.low)} to {pct(ci.high)})
-              </span>
+              {r.name}, true rate {pct(r.p)}
             </div>
-          );
-        })}
-        <div className={ok ? "verdict good" : "verdict"}>{ok ? "The intervals do not overlap." : "The intervals overlap."}</div>
+          ))}
+        </div>
       </div>
     </Figure>
   );
