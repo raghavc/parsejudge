@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 export type Route =
   | { readonly name: "landing" }
+  | { readonly name: "account" }
   | { readonly name: "run"; readonly shareId: string }
   | { readonly name: "page"; readonly shareId: string; readonly pageId: string; readonly view: "side" | "all" };
 
@@ -14,6 +15,7 @@ export const parse = (path: string, search: string): Route => {
       pageId: page[2],
       view: new URLSearchParams(search).get("view") === "all" ? "all" : "side",
     };
+  if (path === "/account") return { name: "account" };
   const run = /^\/r\/([^/]+)$/.exec(path);
   if (run?.[1]) return { name: "run", shareId: run[1] };
   return { name: "landing" };

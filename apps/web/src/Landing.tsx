@@ -290,7 +290,7 @@ export const Landing = () => {
 
   return (
     <div>
-      <Nav />
+      <Nav user={currentUser()} />
       {pending && (
         <SignIn
           onDone={() => {

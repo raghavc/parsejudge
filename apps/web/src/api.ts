@@ -62,6 +62,8 @@ export interface Run {
   readonly error: string | null;
   readonly createdAt: number;
   readonly completedAt: number | null;
+  readonly dataDeletedAt: number | null;
+  readonly owned: boolean;
 }
 
 export interface JudgedError {
@@ -119,6 +121,7 @@ const USER_KEY = "parsejudge.user";
 /** Stand-in for email sign-in: the API's dev auth mode trusts this header. */
 export const currentUser = () => localStorage.getItem(USER_KEY);
 export const signIn = (email: string) => localStorage.setItem(USER_KEY, email);
+export const signOut = () => localStorage.removeItem(USER_KEY);
 const userHeaders = (): Record<string, string> => {
   const email = currentUser();
   return email === null ? {} : { "x-parsejudge-user": email };
@@ -127,6 +130,11 @@ const userHeaders = (): Record<string, string> => {
 const json = async <T>(response: Response): Promise<T> => {
   if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
   return (await response.json()) as T;
+};
+
+const ok = async (response: Response) => {
+  if (response.status === 409) throw new Error("A run is still in progress. Try again when it finishes.");
+  if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
 };
 
 export const api = {
@@ -154,7 +162,10 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ filenames }),
     }).then(json<{ title: string | null }>),
-  shared: (shareId: string) => fetch(`/v1/share/${shareId}`).then(json<Run>),
+  shared: (shareId: string) => fetch(`/v1/share/${shareId}`, { headers: userHeaders() }).then(json<Run>),
+  deleteRun: (runId: string, scope: "data" | "report") =>
+    fetch(`/v1/runs/${runId}?scope=${scope}`, { method: "DELETE", headers: userHeaders() }).then(ok),
+  deleteAccount: () => fetch("/v1/account", { method: "DELETE", headers: userHeaders() }).then(ok),
   page: (runId: string, pageId: string) => fetch(`/v1/runs/${runId}/pages/${pageId}`).then(json<PageDetail>),
   events: (runId: string, onEvent: (event: RunEvent) => void) => {
     const socket = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/v1/runs/${runId}/events`);

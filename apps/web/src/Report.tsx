@@ -1,6 +1,7 @@
 import { type CSSProperties, useEffect, useMemo, useState } from "react";
 import { api, type PageDetail, type Preset, type PresetSummary, type Run } from "./api.ts";
 import { CopyButton } from "./CopyButton.tsx";
+import { DeleteRun } from "./DeleteRun.tsx";
 import { perThousand, providerName, seconds, shortName } from "./names.ts";
 import { navigate } from "./router.ts";
 
@@ -272,6 +273,7 @@ export const Report = ({
           >
             Share
           </button>
+          {run.owned && <DeleteRun runId={run.id} dataDeleted={run.dataDeletedAt !== null} />}
           <button type="button" className="btn" style={{ height: 40, padding: "0 16px" }} onClick={exportRun}>
             Export
           </button>
@@ -478,104 +480,118 @@ export const Report = ({
         </div>
       </section>
 
-      <section
-        style={{
-          borderTop: "1px solid var(--line)",
-          display: "flex",
-          flexDirection: "column",
-          gap: 28,
-          padding: "56px var(--gutter) 72px",
-        }}
-      >
-        <div style={{ alignItems: "end", display: "flex", justifyContent: "space-between" }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <div style={h2}>Where providers disagree</div>
-            <div style={note}>
-              {disagreements.length} of {pageCount} pages have a gap of 3 or more points between the best and worst score, or a
-              failed parse.
+      {run.dataDeletedAt !== null ? (
+        <section style={{ ...note, borderTop: "1px solid var(--line)", padding: "40px var(--gutter)" }}>
+          The documents for this run were deleted on {new Date(run.dataDeletedAt).toLocaleDateString()}. Scores and charts remain.
+        </section>
+      ) : (
+        <section
+          style={{
+            borderTop: "1px solid var(--line)",
+            display: "flex",
+            flexDirection: "column",
+            gap: 28,
+            padding: "56px var(--gutter) 72px",
+          }}
+        >
+          <div style={{ alignItems: "end", display: "flex", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={h2}>Where providers disagree</div>
+              <div style={note}>
+                {disagreements.length} of {pageCount} pages have a gap of 3 or more points between the best and worst score, or a
+                failed parse.
+              </div>
             </div>
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            {(
-              [
-                ["gap", "Largest gap"],
-                ["failed", `Failed · ${disagreements.filter((d) => d.failed > 0).length}`],
-              ] as const
-            ).map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setFilter(key)}
-                style={{
-                  background: filter === key ? "var(--ink)" : "#fff",
-                  border: `1px solid ${filter === key ? "var(--ink)" : "var(--line)"}`,
-                  borderRadius: 16,
-                  color: filter === key ? "#fff" : "var(--ink)",
-                  fontSize: 13,
-                  height: 32,
-                  padding: "0 12px",
-                }}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-        {shown.length === 0 ? (
-          <div style={note}>Every provider scored within 3 points of the others on every page.</div>
-        ) : (
-          <div style={{ display: "grid", gap: 24, gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
-            {shown.map((d) => {
-              const detail = details.get(d.page.id);
-              const worst = detail?.parses.filter((p) => p.reasoning !== null).sort((a, b) => (a.score ?? 0) - (b.score ?? 0))[0];
-              return (
-                <a
-                  key={d.page.id}
-                  href={`/r/${run.shareId}/p/${d.page.id}`}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    navigate(`/r/${run.shareId}/p/${d.page.id}`);
+            <div style={{ display: "flex", gap: 8 }}>
+              {(
+                [
+                  ["gap", "Largest gap"],
+                  ["failed", `Failed · ${disagreements.filter((d) => d.failed > 0).length}`],
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setFilter(key)}
+                  style={{
+                    background: filter === key ? "var(--ink)" : "#fff",
+                    border: `1px solid ${filter === key ? "var(--ink)" : "var(--line)"}`,
+                    borderRadius: 16,
+                    color: filter === key ? "#fff" : "var(--ink)",
+                    fontSize: 13,
+                    height: 32,
+                    padding: "0 12px",
                   }}
                 >
-                  <div
-                    style={{ aspectRatio: "4 / 5", background: "var(--panel)", display: "flex", overflow: "hidden", padding: 16 }}
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {shown.length === 0 ? (
+            <div style={note}>Every provider scored within 3 points of the others on every page.</div>
+          ) : (
+            <div style={{ display: "grid", gap: 24, gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
+              {shown.map((d) => {
+                const detail = details.get(d.page.id);
+                const worst = detail?.parses
+                  .filter((p) => p.reasoning !== null)
+                  .sort((a, b) => (a.score ?? 0) - (b.score ?? 0))[0];
+                return (
+                  <a
+                    key={d.page.id}
+                    href={`/r/${run.shareId}/p/${d.page.id}`}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      navigate(`/r/${run.shareId}/p/${d.page.id}`);
+                    }}
                   >
-                    <img
-                      src={d.page.imageUrl}
-                      alt={d.page.label}
-                      style={{ boxShadow: "0 1px 2px #0001", objectFit: "contain", width: "100%" }}
-                    />
-                  </div>
-                  <div style={{ display: "flex", fontSize: 14, gap: 12, justifyContent: "space-between", marginTop: 14 }}>
-                    <span className="clip" title={d.page.label}>
-                      {d.page.label}
-                    </span>
-                    <span style={{ color: d.failed > 0 ? "var(--bad)" : "var(--muted)", flexShrink: 0, fontSize: 13 }}>
-                      {d.failed > 0 ? `${d.failed} failed` : `gap ${d.gap}`}
-                    </span>
-                  </div>
-                  <Dots scores={d.scores} />
-                  <div style={{ ...note, fontSize: 13, lineHeight: "18px" }}>{worst?.reasoning}</div>
-                </a>
-              );
-            })}
-          </div>
-        )}
-        <div style={{ alignItems: "center", display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-          <div style={{ alignItems: "center", color: "var(--muted)", display: "flex", gap: 16 }}>
-            <span>
-              <span style={{ color: "var(--accent)" }}>●</span> best output
-            </span>
-            <span>○ worst output</span>
-            <span>Dots show each provider's score on this page, from 1 to 10.</span>
-          </div>
-          {pages[0] && (
-            <button type="button" style={{ fontSize: 14 }} onClick={() => navigate(`/r/${run.shareId}/p/${pages[0]?.id}`)}>
-              Browse all {pageCount} pages →
-            </button>
+                    <div
+                      style={{
+                        aspectRatio: "4 / 5",
+                        background: "var(--panel)",
+                        display: "flex",
+                        overflow: "hidden",
+                        padding: 16,
+                      }}
+                    >
+                      <img
+                        src={d.page.imageUrl}
+                        alt={d.page.label}
+                        style={{ boxShadow: "0 1px 2px #0001", objectFit: "contain", width: "100%" }}
+                      />
+                    </div>
+                    <div style={{ display: "flex", fontSize: 14, gap: 12, justifyContent: "space-between", marginTop: 14 }}>
+                      <span className="clip" title={d.page.label}>
+                        {d.page.label}
+                      </span>
+                      <span style={{ color: d.failed > 0 ? "var(--bad)" : "var(--muted)", flexShrink: 0, fontSize: 13 }}>
+                        {d.failed > 0 ? `${d.failed} failed` : `gap ${d.gap}`}
+                      </span>
+                    </div>
+                    <Dots scores={d.scores} />
+                    <div style={{ ...note, fontSize: 13, lineHeight: "18px" }}>{worst?.reasoning}</div>
+                  </a>
+                );
+              })}
+            </div>
           )}
-        </div>
-      </section>
+          <div style={{ alignItems: "center", display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+            <div style={{ alignItems: "center", color: "var(--muted)", display: "flex", gap: 16 }}>
+              <span>
+                <span style={{ color: "var(--accent)" }}>●</span> best output
+              </span>
+              <span>○ worst output</span>
+              <span>Dots show each provider's score on this page, from 1 to 10.</span>
+            </div>
+            {pages[0] && (
+              <button type="button" style={{ fontSize: 14 }} onClick={() => navigate(`/r/${run.shareId}/p/${pages[0]?.id}`)}>
+                Browse all {pageCount} pages →
+              </button>
+            )}
+          </div>
+        </section>
+      )}
 
       <section
         style={{

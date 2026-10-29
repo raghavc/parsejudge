@@ -33,7 +33,18 @@ export const Nav = ({ user }: { readonly user?: string | null }) => (
       </a>
       <span className="wide-only">Leaderboard</span>
       <a href="https://github.com/reductoai/parsejudge">Source</a>
-      <span style={{ color: "var(--ink)" }}>{user ?? "Sign in"}</span>
+      {user ? (
+        <button
+          type="button"
+          className="clip"
+          style={{ color: "var(--ink)", maxWidth: 220 }}
+          onClick={() => navigate("/account")}
+        >
+          {user}
+        </button>
+      ) : (
+        <span style={{ color: "var(--ink)" }}>Sign in</span>
+      )}
     </nav>
   </header>
 );
