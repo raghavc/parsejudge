@@ -157,7 +157,12 @@ const post = (path: string, body: unknown) =>
 
 export const auth = {
   start: (email: string, presetIds: ReadonlyArray<string>) => post("/v1/auth/start", { email, presetIds }).then(authJson),
-  verify: (body: { readonly code: string } | { readonly token: string }) =>
+  /** Who the emailed link signs in and which files it carries over, without using it. */
+  link: (token: string) =>
+    post("/v1/auth/link", { token }).then(
+      authJson<{ readonly email: string; readonly documents: ReadonlyArray<DraftDocument>; readonly sameBrowser: boolean }>,
+    ),
+  verify: (body: { readonly code: string } | { readonly token: string; readonly discard?: boolean }) =>
     post("/v1/auth/verify", body)
       .then(authJson<{ readonly email: string; readonly draft: Draft }>)
       .then((result) => {

@@ -22,6 +22,8 @@ export default {
       if (object === null) return new Response("Not found", { status: 404 });
       return new Response(object.body, { headers: { "content-type": key.endsWith(".png") ? "image/png" : "application/pdf" } });
     }
+    // Sign-in codes, links and sessions are HMACs under AUTH_KEY; without a real key, serve nothing.
+    if ((env.AUTH_KEY ?? "").length < 32) return new Response("AUTH_KEY is not set", { status: 500 });
     if (request.method !== "GET" && request.method !== "HEAD" && url.pathname.startsWith("/v1/")) {
       const origin = request.headers.get("origin");
       if (origin !== null && origin !== url.origin) return new Response("Forbidden", { status: 403 });

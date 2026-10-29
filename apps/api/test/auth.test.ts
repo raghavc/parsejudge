@@ -37,7 +37,7 @@ beforeEach(() => {
   sent = [];
   env = {
     DB: d1(db),
-    AUTH_KEY: "test-key",
+    AUTH_KEY: "test-key-test-key-test-key-test-key",
     PUBLIC_URL: "https://parsejudge.test",
     EMAIL_FROM: "noreply@parsejudge.test",
     EMAIL: { send: async (m: { to: string; subject: string; text: string }) => void sent.push(m) },
@@ -67,7 +67,7 @@ const startLogin = async (email = "Ada@Example.com") => {
   if (mail === undefined) throw new Error("no email");
   const code = /\b(\d{6})\b/.exec(mail.subject)?.[1] ?? "";
   const token = /token=([^\s]+)/.exec(mail.text)?.[1] ?? "";
-  return { login: cookiePair(started.setCookies, "pj_login"), code, token, mail };
+  return { login: cookiePair(started.setCookies, "__Host-pj_login"), code, token, mail };
 };
 
 describe("email sign-in", () => {
@@ -75,7 +75,7 @@ describe("email sign-in", () => {
     const { login, code, token, mail } = await startLogin();
     expect(mail.to).toBe("ada@example.com");
     expect(code).toMatch(/^\d{6}$/);
-    expect(login).toMatch(/^pj_login=[\w-]+\.[\w-]+$/);
+    expect(login).toMatch(/^__Host-pj_login=[\w-]+\.[\w-]+$/);
     const row = JSON.stringify(db.prepare("SELECT * FROM logins").get());
     expect(row).not.toContain(code);
     expect(row).not.toContain(token.split(".")[1]);
@@ -86,11 +86,11 @@ describe("email sign-in", () => {
     const verified = await call("/v1/auth/verify", { code }, login);
     expect(verified.status).toBe(200);
     expect(verified.body.email).toBe("ada@example.com");
-    const session = verified.setCookies.find((c) => c.startsWith("pj_session="));
+    const session = verified.setCookies.find((c) => c.startsWith("__Host-pj_session="));
     expect(session).toContain("HttpOnly");
     expect(session).toContain("Secure");
     expect(session).toContain("SameSite=Lax");
-    const me = await call("/v1/me", undefined, cookiePair(verified.setCookies, "pj_session"));
+    const me = await call("/v1/me", undefined, cookiePair(verified.setCookies, "__Host-pj_session"));
     expect(me.body.email).toBe("ada@example.com");
   });
 
@@ -113,7 +113,7 @@ describe("email sign-in", () => {
       const r = await call("/v1/auth/verify", { code: wrong }, login);
       expect(r.body.error).toContain(`${i} ${i === 1 ? "try" : "tries"} left`);
     }
-    expect((await call("/v1/auth/verify", { code: wrong }, login)).body.error).toContain("expired");
+    expect((await call("/v1/auth/verify", { code: wrong }, login)).body.error).toContain("Too many wrong codes");
     expect((await call("/v1/auth/verify", { code }, login)).status).toBe(400);
   });
 
@@ -123,11 +123,78 @@ describe("email sign-in", () => {
     expect((await call("/v1/auth/verify", { code }, login)).status).toBe(400);
   });
 
-  it("limits sign-in emails per address and per IP", async () => {
+  it("limits sign-in emails per address and IP, per address, and per IP", async () => {
     for (let i = 0; i < 5; i++) await startLogin();
-    expect((await call("/v1/auth/start", { email: "ada@example.com" }, "", "2.2.2.2")).status).toBe(429);
+    expect((await call("/v1/auth/start", { email: "ada@example.com" })).status).toBe(429);
+    // Another client can still sign the address in: one attacker cannot lock the owner out.
+    expect((await call("/v1/auth/start", { email: "ada@example.com" }, "", "2.2.2.2")).status).toBe(200);
     for (let i = 0; i < 15; i++) await call("/v1/auth/start", { email: `u${i}@example.com` });
     expect((await call("/v1/auth/start", { email: "new@example.com" })).status).toBe(429);
+  });
+
+  it("counts gmail dots and +tags, and an IPv6 /64, as one", async () => {
+    for (let i = 0; i < 5; i++) {
+      expect((await call("/v1/auth/start", { email: `v.ic.tim+${i}@gmail.com` }, "", `2001:db8:1:2::${i}`)).status).toBe(200);
+    }
+    expect((await call("/v1/auth/start", { email: "victim@gmail.com" }, "", "2001:db8:1:2:ffff::1")).status).toBe(429);
+    expect(sent.at(-1)?.to).toBe("v.ic.tim+4@gmail.com");
+  });
+
+  it("refuses reserved addresses, including the pending-upload owner", async () => {
+    for (const email of ["pending@parsejudge.invalid", "a@b.test", "a@b.localhost"]) {
+      expect((await call("/v1/auth/start", { email })).status).toBe(400);
+    }
+  });
+
+  it("stops codes for an address after 10 wrong ones across its logins", async () => {
+    for (let i = 0; i < 2; i++) {
+      const { login, code } = await startLogin();
+      const wrong = code === "000000" ? "111111" : "000000";
+      for (let j = 0; j < 5; j++) await call("/v1/auth/verify", { code: wrong }, login, `9.9.9.${i}`);
+    }
+    const { login, code, token } = await startLogin();
+    expect((await call("/v1/auth/verify", { code }, login)).body.error).toContain("Use the link");
+    expect((await call("/v1/auth/verify", { token })).status).toBe(200);
+  });
+
+  it("reading the link does not use it", async () => {
+    const { login, token } = await startLogin();
+    const peek = await call("/v1/auth/link", { token });
+    expect(peek.body).toEqual({ email: "ada@example.com", documents: [], sameBrowser: false });
+    expect((await call("/v1/auth/link", { token }, login)).body.sameBrowser).toBe(true);
+    expect((await call("/v1/auth/link", { token: `${token}x` })).status).toBe(400);
+    expect((await call("/v1/auth/verify", { token })).status).toBe(200);
+    expect((await call("/v1/auth/link", { token })).status).toBe(400);
+  });
+
+  it("discard signs in and leaves the carried-over files behind", async () => {
+    const { login, token } = await startLogin();
+    db.prepare(
+      "INSERT INTO documents (id, user_id, login_id, filename, format, sha256, page_count, created_at) VALUES ('d1', 'pending', ?, 'a.pdf', 'pdf', 'x', 1, 1)",
+    ).run(await pendingLogin(env, login));
+    const verified = await call("/v1/auth/verify", { token, discard: true });
+    expect(verified.status).toBe(200);
+    expect((verified.body.draft as { documents: unknown[] }).documents).toEqual([]);
+    expect(db.prepare("SELECT user_id FROM documents WHERE id = 'd1'").get()).toEqual({ user_id: "pending" });
+  });
+
+  it("a new email from the same browser takes over the earlier sign-in's files", async () => {
+    const first = await startLogin("a@example.com");
+    db.prepare(
+      "INSERT INTO documents (id, user_id, login_id, filename, format, sha256, page_count, created_at) VALUES ('d1', 'pending', ?, 'a.pdf', 'pdf', 'x', 1, 1)",
+    ).run(await pendingLogin(env, first.login));
+    const again = await call("/v1/auth/start", { email: "b@example.com" }, first.login);
+    const second = cookiePair(again.setCookies, "__Host-pj_login");
+    expect(await pendingLogin(env, first.login)).toBeNull();
+    expect((await call("/v1/auth/verify", { token: first.token })).status).toBe(400);
+    const verified = await call("/v1/auth/verify", { code: /\b(\d{6})\b/.exec(sent.at(-1)?.subject ?? "")?.[1] }, second);
+    expect((verified.body.draft as { documents: unknown[] }).documents).toHaveLength(1);
+  });
+
+  it("tells the asking browser when the link was used elsewhere", async () => {
+    const { login, code, token } = await startLogin();
+    await call("/v1/auth/verify", { token });
+    expect((await call("/v1/auth/verify", { code }, login)).body.error).toContain("already signed in");
   });
 
   it("the link in another browser keeps the files uploaded before sign-in", async () => {
@@ -143,7 +210,7 @@ describe("email sign-in", () => {
       presetIds: ["reducto_r1"],
       documents: [{ documentId: "d1", filename: "a.pdf", format: "pdf", pageCount: 3 }],
     });
-    const user = await sessionUser(env, cookiePair(verified.setCookies, "pj_session"));
+    const user = await sessionUser(env, cookiePair(verified.setCookies, "__Host-pj_session"));
     expect(db.prepare("SELECT user_id FROM documents WHERE id = 'd1'").get()).toEqual({ user_id: user?.id });
     expect(await pendingLogin(env, login)).toBeNull();
   });
@@ -162,7 +229,7 @@ describe("email sign-in", () => {
 
   it("sign out ends the session", async () => {
     const { login, code } = await startLogin();
-    const session = cookiePair((await call("/v1/auth/verify", { code }, login)).setCookies, "pj_session");
+    const session = cookiePair((await call("/v1/auth/verify", { code }, login)).setCookies, "__Host-pj_session");
     await call("/v1/auth/signout", {}, session);
     expect(await sessionUser(env, session)).toBeNull();
   });

@@ -198,6 +198,7 @@ export const Landing = () => {
   const [starting, setStarting] = useState(false);
   const [pending, setPending] = useState<ReadonlyArray<File> | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const uploadedPending = useRef(false);
   // Set by the sign-in link page: the files uploaded and presets chosen before sign-in.
   const [draft] = useState(() => JSON.parse(sessionStorage.getItem(DRAFT_KEY) ?? "null") as Draft | null);
 
@@ -259,8 +260,10 @@ export const Landing = () => {
   const add = (files: FileList | null) => {
     const list = Array.from(files ?? []);
     if (list.length === 0) return;
-    if (currentUser() === null) setPending(list);
-    else upload(list);
+    if (currentUser() === null) {
+      uploadedPending.current = false;
+      setPending(list);
+    } else upload(list);
   };
 
   const ready = uploads.filter((u) => u.documentId !== undefined);
@@ -320,7 +323,9 @@ export const Landing = () => {
         <SignIn
           onEmail={async (email) => {
             await auth.start(email, [...selected]);
-            upload(pending);
+            // A resend or a new address moves the files on the server; upload them only once.
+            if (!uploadedPending.current) upload(pending);
+            uploadedPending.current = true;
           }}
           onDone={() => setPending(null)}
           onCancel={() => setPending(null)}

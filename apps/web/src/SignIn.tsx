@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { AUTH_CHANNEL, auth, DRAFT_KEY, setUser } from "./api.ts";
+import { useEffect, useRef, useState } from "react";
+import { AUTH_CHANNEL, auth, currentUser, DRAFT_KEY, type DraftDocument, setUser } from "./api.ts";
 import { Nav } from "./Nav.tsx";
 
 const field = { height: 44, padding: "0 14px", border: "1px solid var(--line)", borderRadius: 4 } as const;
@@ -26,14 +26,18 @@ export const SignIn = ({
   const [error, setError] = useState<string | null>(null);
   const valid = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email);
 
+  const done = useRef(onDone);
+  done.current = onDone;
+  const checking = useRef(false);
+
   useEffect(() => {
     const channel = new BroadcastChannel(AUTH_CHANNEL);
     channel.onmessage = (event: MessageEvent<{ readonly email: string }>) => {
       setUser(event.data.email);
-      onDone();
+      done.current();
     };
     return () => channel.close();
-  }, [onDone]);
+  }, []);
 
   const send = async () => {
     setBusy(true);
@@ -47,6 +51,8 @@ export const SignIn = ({
     setBusy(false);
   };
   const check = async (value: string) => {
+    if (checking.current) return;
+    checking.current = true;
     setBusy(true);
     setError(null);
     try {
@@ -57,6 +63,7 @@ export const SignIn = ({
       setCode("");
       setBusy(false);
     }
+    checking.current = false;
   };
   return (
     <div
@@ -94,7 +101,7 @@ export const SignIn = ({
             placeholder="6-digit code"
             maxLength={6}
             value={code}
-            disabled={busy}
+            readOnly={busy}
             onChange={(e) => {
               const value = e.target.value.replace(/\D/g, "");
               setCode(value);
@@ -138,6 +145,11 @@ export const SignIn = ({
         >
           {sent ? "Use a different email" : "Cancel"}
         </button>
+        {sent && (
+          <button type="button" className="btn" disabled={busy} onClick={send} style={{ justifySelf: "center" }}>
+            Send a new email
+          </button>
+        )}
         <div style={{ color: "var(--faint)", fontSize: 12, lineHeight: "18px" }}>
           By continuing you agree that ParseJudge keeps the documents you upload and the results, and may publish them by share
           link.
@@ -147,34 +159,87 @@ export const SignIn = ({
   );
 };
 
-const verifying = new Map<string, ReturnType<typeof auth.verify>>();
+type LinkState =
+  | { readonly step: "loading" }
+  | { readonly step: "confirm"; readonly email: string; readonly documents: ReadonlyArray<DraftDocument> }
+  | { readonly step: "signing-in" }
+  | { readonly step: "error"; readonly error: string };
 
-/** The emailed link (/auth?token=…): signs in, then opens the landing page with the files uploaded before sign-in. */
+/**
+ * The emailed link (/auth?token=…). Mail scanners open links, and anyone can send you a link to their own account,
+ * so the page shows the account and its carried-over files and signs in only on a click. The browser that asked
+ * for the email skips the question.
+ */
 export const SignInLink = ({ token }: { readonly token: string }) => {
-  const [error, setError] = useState<string | null>(null);
+  const [state, setState] = useState<LinkState>({ step: "loading" });
+  const fail = (e: unknown) => {
+    if (currentUser() !== null) {
+      history.replaceState(null, "", "/");
+      dispatchEvent(new PopStateEvent("popstate"));
+    } else setState({ step: "error", error: message(e) });
+  };
+  const signIn = (discard: boolean) => {
+    setState({ step: "signing-in" });
+    auth.verify({ token, discard }).then(({ email, draft }) => {
+      sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+      const channel = new BroadcastChannel(AUTH_CHANNEL);
+      channel.postMessage({ email });
+      channel.close();
+      history.replaceState(null, "", "/");
+      dispatchEvent(new PopStateEvent("popstate"));
+    }, fail);
+  };
+  const started = useRef(false);
   useEffect(() => {
-    const result = verifying.get(token) ?? auth.verify({ token });
-    verifying.set(token, result);
-    result.then(
-      ({ email, draft }) => {
-        sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
-        const channel = new BroadcastChannel(AUTH_CHANNEL);
-        channel.postMessage({ email });
-        channel.close();
-        history.replaceState(null, "", "/");
-        dispatchEvent(new PopStateEvent("popstate"));
-      },
-      (e: unknown) => setError(message(e)),
-    );
-  }, [token]);
+    if (started.current) return;
+    started.current = true;
+    auth.link(token).then(({ email, documents, sameBrowser }) => {
+      if (sameBrowser) signIn(false);
+      else setState({ step: "confirm", email, documents });
+    }, fail);
+  });
   return (
     <div>
       <Nav user={null} />
       <section style={{ display: "grid", gap: 16, maxWidth: 560, padding: "112px var(--gutter)" }}>
-        <div style={{ fontSize: 24, fontWeight: 500 }}>{error === null ? "Signing you in…" : "Could not sign you in"}</div>
-        {error !== null && (
+        {state.step === "confirm" ? (
           <>
-            <div style={{ color: "var(--muted)", fontSize: 14, lineHeight: "22px" }}>{error}</div>
+            <div style={{ fontSize: 24, fontWeight: 500, overflowWrap: "anywhere" }}>Continue as {state.email}?</div>
+            {state.documents.length > 0 && (
+              <div style={{ color: "var(--muted)", fontSize: 14, lineHeight: "22px" }}>
+                These files were added before sign-in and will be in your account:
+                <ul style={{ margin: "8px 0 0", paddingLeft: 20 }}>
+                  {state.documents.slice(0, 10).map((d) => (
+                    <li key={d.documentId} className="clip" style={{ color: "var(--ink)" }}>
+                      {d.filename}
+                    </li>
+                  ))}
+                  {state.documents.length > 10 && <li>and {state.documents.length - 10} more</li>}
+                </ul>
+              </div>
+            )}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+              <button type="button" className="btn primary" onClick={() => signIn(false)} style={wide}>
+                Continue
+              </button>
+              {state.documents.length > 0 && (
+                <button type="button" className="btn" onClick={() => signIn(true)} style={wide}>
+                  Continue without these files
+                </button>
+              )}
+            </div>
+            <div style={{ color: "var(--faint)", fontSize: 12, lineHeight: "18px" }}>
+              If you did not ask to sign in to ParseJudge, close this page.
+            </div>
+          </>
+        ) : (
+          <div style={{ fontSize: 24, fontWeight: 500 }}>
+            {state.step === "error" ? "Could not sign you in" : state.step === "signing-in" ? "Signing you in…" : "Loading…"}
+          </div>
+        )}
+        {state.step === "error" && (
+          <>
+            <div style={{ color: "var(--muted)", fontSize: 14, lineHeight: "22px" }}>{state.error}</div>
             <a className="btn" href="/" style={{ justifySelf: "start" }}>
               Back to ParseJudge
             </a>

@@ -4,10 +4,14 @@ import type { Env } from "./env.ts";
 const LOGIN_TTL_MS = 15 * 60_000;
 const SESSION_TTL_MS = 30 * 24 * 3_600_000;
 const MAX_ATTEMPTS = 5;
-const PER_EMAIL_PER_HOUR = 5;
+/** Wrong codes per address across all its logins in 24 hours; after that only the link works. */
+const MAX_FAILED_CODES_PER_DAY = 10;
+const PER_EMAIL_AND_IP_PER_HOUR = 5;
+const PER_EMAIL_PER_HOUR = 20;
 const PER_IP_PER_HOUR = 20;
-const LOGIN_COOKIE = "pj_login";
-const SESSION_COOKIE = "pj_session";
+const ALL_PER_HOUR = 500;
+const LOGIN_COOKIE = "__Host-pj_login";
+const SESSION_COOKIE = "__Host-pj_session";
 /** Owner of uploads made before sign-in completes. */
 export const PENDING_USER = "pending";
 
@@ -62,15 +66,44 @@ export const sessionUser = async (env: Env, cookies: string | null | undefined) 
     .first<{ id: string; email: string }>();
 };
 
-/** The open sign-in this browser started (its `pj_login` cookie), if any. */
-export const pendingLogin = async (env: Env, cookies: string | null | undefined): Promise<string | null> => {
+/** The sign-in this browser started (its login cookie), open or not. */
+const browserLogin = async (env: Env, cookies: string | null | undefined) => {
   const [id, secret] = (cookieValue(cookies, LOGIN_COOKIE) ?? "").split(".");
   if (!id || !secret) return null;
-  const row = await env.DB.prepare("SELECT secret_hash FROM logins WHERE id = ? AND used_at IS NULL AND expires_at > ?")
-    .bind(id, Date.now())
-    .first<{ secret_hash: string }>();
-  return row !== null && sameHash(row.secret_hash, await hmac(env, `secret:${id}:${secret}`)) ? id : null;
+  const row = await env.DB.prepare("SELECT id, secret_hash, used_at, expires_at, attempts FROM logins WHERE id = ?")
+    .bind(id)
+    .first<{ id: string; secret_hash: string; used_at: number | null; expires_at: number; attempts: number }>();
+  return row !== null && sameHash(row.secret_hash, await hmac(env, `secret:${id}:${secret}`)) ? row : null;
 };
+
+/** The open sign-in this browser started, if any. */
+export const pendingLogin = async (env: Env, cookies: string | null | undefined): Promise<string | null> => {
+  const login = await browserLogin(env, cookies);
+  return login !== null && login.used_at === null && login.expires_at > Date.now() ? login.id : null;
+};
+
+/** The address the rate limits count: no +tag, and no dots for gmail. Not used for identity. */
+export const emailKey = (email: string) => {
+  const [local = "", domain = ""] = email.split("@");
+  const base = local.split("+")[0] ?? "";
+  const gmail = domain === "gmail.com" || domain === "googlemail.com";
+  return `${gmail ? base.replace(/\./g, "") : base}@${gmail ? "gmail.com" : domain}`;
+};
+
+/** The client the rate limits count: the IPv4 address, or the /64 of an IPv6 address. */
+export const ipKey = (ip: string) => {
+  if (!ip.includes(":")) return ip;
+  const [head = "", tail = ""] = ip.split("::");
+  const left = head === "" ? [] : head.split(":");
+  const right = tail === "" ? [] : tail.split(":");
+  const groups = ip.includes("::") ? [...left, ...Array(8 - left.length - right.length).fill("0"), ...right] : left;
+  return `${groups
+    .slice(0, 4)
+    .map((g) => g.toLowerCase().replace(/^0+(?=.)/, ""))
+    .join(":")}::/64`;
+};
+
+const RESERVED = /\.(invalid|test|example|localhost|local)$/;
 
 const readBody = async (request: Request) => {
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
@@ -78,31 +111,44 @@ const readBody = async (request: Request) => {
 };
 
 const emailText = (code: string, link: string) =>
-  `Your ParseJudge sign-in code is ${code}.\n\nOr sign in with this link:\n${link}\n\nThe code and link work once and expire in 15 minutes. If you did not ask to sign in, ignore this email.`;
+  `Your ParseJudge sign-in code is ${code}.\n\nOr sign in with this link:\n${link}\n\nThe code and link work once and expire in 15 minutes. Files you added before signing in will be in your account. If you did not ask to sign in, ignore this email.`;
 const emailHtml = (code: string, link: string) => `<div style="font-family:Inter,Arial,sans-serif;color:#0a0a0a;max-width:440px">
 <p style="font-size:15px">Your ParseJudge sign-in code:</p>
 <p style="font-size:32px;letter-spacing:6px;font-weight:600;margin:8px 0 24px">${code}</p>
 <p><a href="${link}" style="display:inline-block;background:#0a0a0a;color:#fff;padding:12px 20px;border-radius:4px;text-decoration:none">Sign in to ParseJudge</a></p>
-<p style="font-size:13px;color:#6b6b6b">The code and link work once and expire in 15 minutes. If you did not ask to sign in, ignore this email.</p>
+<p style="font-size:13px;color:#6b6b6b">The code and link work once and expire in 15 minutes. Files you added before signing in will be in your account. If you did not ask to sign in, ignore this email.</p>
 </div>`;
 
 /** POST /v1/auth/start: emails a code and a link, and sets `pj_login` so this browser can upload before sign-in completes. */
 const start = async (env: Env, request: Request) => {
   const body = await readBody(request);
   const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
-  if (email.length > 254 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return fail(400, "Enter a valid email address.");
+  if (email.length > 254 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || RESERVED.test(email)) {
+    return fail(400, "Enter a valid email address.");
+  }
   const presetIds = Array.isArray(body.presetIds)
     ? body.presetIds.filter((id): id is string => typeof id === "string" && id.length <= 100).slice(0, 50)
     : [];
-  const ip = request.headers.get("cf-connecting-ip") ?? "";
+  const ip = ipKey(request.headers.get("cf-connecting-ip") ?? "");
+  const key = emailKey(email);
   const now = Date.now();
   const recent = await env.DB.prepare(
-    `SELECT (SELECT COUNT(*) FROM logins WHERE email = ?1 AND created_at > ?3) AS email,
-            (SELECT COUNT(*) FROM logins WHERE ip = ?2 AND created_at > ?3) AS ip`,
+    `SELECT (SELECT COUNT(*) FROM logins WHERE email_key = ?1 AND ip = ?2 AND created_at > ?3) AS pair,
+            (SELECT COUNT(*) FROM logins WHERE email_key = ?1 AND created_at > ?3) AS email,
+            (SELECT COUNT(*) FROM logins WHERE ip = ?2 AND created_at > ?3) AS ip,
+            (SELECT COUNT(*) FROM logins WHERE created_at > ?3) AS total`,
   )
-    .bind(email, ip, now - 3_600_000)
-    .first<{ email: number; ip: number }>();
-  if ((recent?.email ?? 0) >= PER_EMAIL_PER_HOUR || (recent?.ip ?? 0) >= PER_IP_PER_HOUR) {
+    .bind(key, ip, now - 3_600_000)
+    .first<{ pair: number; email: number; ip: number; total: number }>();
+  if ((recent?.total ?? 0) >= ALL_PER_HOUR) {
+    console.error(JSON.stringify({ event: "auth_global_limit", total: recent?.total }));
+    return fail(429, "Sign-in is busy. Try again in a few minutes.");
+  }
+  if (
+    (recent?.pair ?? 0) >= PER_EMAIL_AND_IP_PER_HOUR ||
+    (recent?.email ?? 0) >= PER_EMAIL_PER_HOUR ||
+    (recent?.ip ?? 0) >= PER_IP_PER_HOUR
+  ) {
     return fail(429, "Too many sign-in emails. Try again in an hour.");
   }
   const id = crypto.randomUUID();
@@ -110,12 +156,13 @@ const start = async (env: Env, request: Request) => {
   const link = randomToken();
   const code = randomCode();
   await env.DB.prepare(
-    `INSERT INTO logins (id, email, secret_hash, code_hash, link_hash, preset_ids, ip, created_at, expires_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO logins (id, email, email_key, secret_hash, code_hash, link_hash, preset_ids, ip, created_at, expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
       id,
       email,
+      key,
       await hmac(env, `secret:${id}:${secret}`),
       await hmac(env, `code:${id}:${code}`),
       await hmac(env, `link:${id}:${link}`),
@@ -138,32 +185,96 @@ const start = async (env: Env, request: Request) => {
     console.error(JSON.stringify({ event: "auth_email_failed", error: String(error) }));
     return fail(502, "We could not send the email. Try again.");
   }
+  // A new email from the same browser (resend, or a different address) takes over the files of its earlier sign-in.
+  const earlier = await browserLogin(env, request.headers.get("cookie"));
+  if (earlier !== null && earlier.used_at === null) {
+    await env.DB.batch([
+      env.DB.prepare("UPDATE documents SET login_id = ? WHERE login_id = ? AND user_id = ?").bind(id, earlier.id, PENDING_USER),
+      env.DB.prepare("UPDATE logins SET expires_at = ? WHERE id = ?").bind(now, earlier.id),
+    ]);
+  }
   return reply({ ok: true }, 200, [setCookie(LOGIN_COOKIE, `${id}.${secret}`, LOGIN_TTL_MS)]);
 };
 
+const linkLogin = (token: unknown) => {
+  if (typeof token !== "string") return null;
+  const dot = token.indexOf(".");
+  return dot > 0 ? { id: token.slice(0, dot), value: token.slice(dot + 1) } : null;
+};
+
+const pendingDocuments = (env: Env, loginId: string, userId: string) =>
+  env.DB.prepare(
+    `SELECT id AS documentId, filename, format, page_count AS pageCount FROM documents
+     WHERE login_id = ? AND user_id = ? ORDER BY created_at`,
+  )
+    .bind(loginId, userId)
+    .all();
+
+const EXPIRED = "This sign-in has expired. Request a new email.";
+
 /**
- * POST /v1/auth/verify with `{ code }` (needs this browser's `pj_login`) or `{ token }` (the emailed link, any browser).
- * Each try counts against the login; it works once. On success the login's uploads move to the user.
+ * POST /v1/auth/link with `{ token }`: who the emailed link signs in and which files it carries over, without using it.
+ * The link page shows this and signs in only on a click, so a link opened by a mail scanner or sent by someone else
+ * signs no one in. `sameBrowser` is true when this browser started the sign-in.
+ */
+const peek = async (env: Env, request: Request) => {
+  const link = linkLogin((await readBody(request)).token);
+  if (link === null) return fail(400, EXPIRED);
+  const login = await env.DB.prepare(
+    "SELECT email, link_hash FROM logins WHERE id = ? AND used_at IS NULL AND expires_at > ? AND attempts < ?",
+  )
+    .bind(link.id, Date.now(), MAX_ATTEMPTS)
+    .first<{ email: string; link_hash: string }>();
+  if (login === null || !sameHash(login.link_hash, await hmac(env, `link:${link.id}:${link.value}`))) {
+    return fail(400, EXPIRED);
+  }
+  const documents = await pendingDocuments(env, link.id, PENDING_USER);
+  const sameBrowser = (await pendingLogin(env, request.headers.get("cookie"))) === link.id;
+  return reply({ email: login.email, documents: documents.results, sameBrowser });
+};
+
+/** Why a login cookie's code can no longer be used. */
+const closedReason = (login: { used_at: number | null; attempts: number }) =>
+  login.used_at !== null
+    ? "You already signed in with the link in the email, maybe in another browser. Request a new email to sign in here."
+    : login.attempts >= MAX_ATTEMPTS
+      ? "Too many wrong codes. Use the link in the email, or request a new email."
+      : EXPIRED;
+
+/**
+ * POST /v1/auth/verify with `{ code }` (needs this browser's login cookie) or `{ token }` (the emailed link, any browser).
+ * Each try counts against the login; it works once. On success the login's uploads move to the user,
+ * or stay behind (deleted by the hourly clean-up) when `discard` is true.
  */
 const verify = async (env: Env, request: Request) => {
   const body = await readBody(request);
-  let id: string | null;
+  let id: string;
   let kind: "code" | "link";
   let value: string;
-  if (typeof body.token === "string") {
+  const link = linkLogin(body.token);
+  if (link !== null) {
     kind = "link";
-    const dot = body.token.indexOf(".");
-    id = dot > 0 ? body.token.slice(0, dot) : null;
-    value = body.token.slice(dot + 1);
+    id = link.id;
+    value = link.value;
   } else if (typeof body.code === "string") {
     kind = "code";
-    id = await pendingLogin(env, request.headers.get("cookie"));
+    const mine = await browserLogin(env, request.headers.get("cookie"));
+    if (mine === null) return fail(400, EXPIRED);
+    if (mine.used_at !== null || mine.attempts >= MAX_ATTEMPTS) return fail(400, closedReason(mine));
+    id = mine.id;
     value = body.code.replace(/\s/g, "");
+    const failed = await env.DB.prepare(
+      `SELECT COALESCE(SUM(attempts - (used_at IS NOT NULL)), 0) AS n FROM logins
+       WHERE email_key = (SELECT email_key FROM logins WHERE id = ?) AND created_at > ?`,
+    )
+      .bind(id, Date.now() - 24 * 3_600_000)
+      .first<{ n: number }>();
+    if ((failed?.n ?? 0) >= MAX_FAILED_CODES_PER_DAY) {
+      return fail(400, "Too many wrong codes for this address today. Use the link in the email.");
+    }
   } else {
     return fail(400, "Missing code.");
   }
-  const expired = "This sign-in has expired. Request a new email.";
-  if (id === null) return fail(400, expired);
   const now = Date.now();
   const login = await env.DB.prepare(
     `UPDATE logins SET attempts = attempts + 1 WHERE id = ? AND used_at IS NULL AND expires_at > ? AND attempts < ?
@@ -171,24 +282,27 @@ const verify = async (env: Env, request: Request) => {
   )
     .bind(id, now, MAX_ATTEMPTS)
     .first<{ email: string; code_hash: string; link_hash: string; preset_ids: string; attempts: number }>();
-  if (login === null) return fail(400, expired);
+  if (login === null) return fail(400, EXPIRED);
   if (!sameHash(kind === "code" ? login.code_hash : login.link_hash, await hmac(env, `${kind}:${id}:${value}`))) {
     const left = MAX_ATTEMPTS - login.attempts;
-    if (kind === "link" || left === 0) return fail(400, expired);
+    if (kind === "link") return fail(400, EXPIRED);
+    if (left === 0) return fail(400, closedReason({ used_at: null, attempts: login.attempts }));
     return fail(400, `That code is not right. ${left} ${left === 1 ? "try" : "tries"} left.`);
   }
   await env.DB.prepare("INSERT INTO users (id, email, created_at) VALUES (?, ?, ?) ON CONFLICT (email) DO NOTHING")
     .bind(crypto.randomUUID(), login.email, now)
     .run();
   const user = await env.DB.prepare("SELECT id FROM users WHERE email = ?").bind(login.email).first<{ id: string }>();
-  if (user === null) return fail(500, "Sign-in failed. Try again.");
+  if (user === null || user.id === PENDING_USER) return fail(500, "Sign-in failed. Try again.");
   const claimed = await env.DB.prepare("UPDATE logins SET used_at = ?, user_id = ? WHERE id = ? AND used_at IS NULL")
-    .bind(now, user.id, id)
+    .bind(now, body.discard === true ? null : user.id, id)
     .run();
-  if (claimed.meta.changes !== 1) return fail(400, expired);
+  if (claimed.meta.changes !== 1) return fail(400, EXPIRED);
   const session = randomToken();
   await env.DB.batch([
-    env.DB.prepare("UPDATE documents SET user_id = ? WHERE login_id = ? AND user_id = ?").bind(user.id, id, PENDING_USER),
+    ...(body.discard === true
+      ? []
+      : [env.DB.prepare("UPDATE documents SET user_id = ? WHERE login_id = ? AND user_id = ?").bind(user.id, id, PENDING_USER)]),
     env.DB.prepare("INSERT INTO sessions (id_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)").bind(
       await hmac(env, `session:${session}`),
       user.id,
@@ -196,12 +310,7 @@ const verify = async (env: Env, request: Request) => {
       now + SESSION_TTL_MS,
     ),
   ]);
-  const documents = await env.DB.prepare(
-    `SELECT id AS documentId, filename, format, page_count AS pageCount FROM documents
-     WHERE login_id = ? AND user_id = ? ORDER BY created_at`,
-  )
-    .bind(id, user.id)
-    .all();
+  const documents = body.discard === true ? { results: [] } : await pendingDocuments(env, id, user.id);
   return reply(
     { email: login.email, draft: { presetIds: JSON.parse(login.preset_ids) as Array<string>, documents: documents.results } },
     200,
@@ -228,6 +337,7 @@ export const handleAuth = (env: Env, request: Request): Promise<Response> | null
   const { pathname } = new URL(request.url);
   const post = request.method === "POST";
   if (pathname === "/v1/auth/start" && post) return start(env, request);
+  if (pathname === "/v1/auth/link" && post) return peek(env, request);
   if (pathname === "/v1/auth/verify" && post) return verify(env, request);
   if (pathname === "/v1/auth/signout" && post) return signOut(env, request);
   if (pathname === "/v1/me" && request.method === "GET") return me(env, request);

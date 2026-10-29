@@ -166,7 +166,7 @@ export const Api = HttpApi.make("parsejudge")
       HttpApiEndpoint.post("generate", "/v1/titles", {
         payload: Schema.Struct({ filenames: Schema.Array(Schema.String) }),
         success: Schema.Struct({ title: Schema.NullOr(Schema.String) }),
-        error: [HttpApiError.BadRequest],
+        error: [HttpApiError.BadRequest, HttpApiError.Unauthorized],
       }),
     ),
   )
@@ -211,16 +211,23 @@ export const Api = HttpApi.make("parsejudge")
 
 const query = <A>(promise: () => Promise<A>) => Effect.promise(promise);
 
+/** The x-parsejudge-user header, trusted only in dev auth mode on localhost. */
+const devHeaderEmail = Effect.gen(function* () {
+  const request = yield* HttpServerRequest.HttpServerRequest;
+  const host = (request.headers.host ?? "").replace(/:\d+$/, "");
+  const email = request.headers["x-parsejudge-user"];
+  if (cf.AUTH_MODE !== "dev" || (host !== "localhost" && host !== "127.0.0.1") || email === undefined) return null;
+  return email.toLowerCase();
+});
+
 /** The signed-in user's id (session cookie; the x-parsejudge-user header too in dev auth mode), without creating a user. */
 const signedInUser = Effect.gen(function* () {
   const request = yield* HttpServerRequest.HttpServerRequest;
   const session = yield* query(() => sessionUser(cf, request.headers.cookie));
   if (session !== null) return session.id;
-  const email = request.headers["x-parsejudge-user"];
-  if (cf.AUTH_MODE !== "dev" || email === undefined) return null;
-  const user = yield* query(() =>
-    cf.DB.prepare("SELECT id FROM users WHERE email = ?").bind(email.toLowerCase()).first<{ id: string }>(),
-  );
+  const email = yield* devHeaderEmail;
+  if (email === null) return null;
+  const user = yield* query(() => cf.DB.prepare("SELECT id FROM users WHERE email = ?").bind(email).first<{ id: string }>());
   return user?.id ?? null;
 });
 
@@ -234,20 +241,15 @@ const requireUser = Effect.gen(function* () {
 const currentUser = Effect.gen(function* () {
   const id = yield* signedInUser;
   if (id !== null) return id;
-  const request = yield* HttpServerRequest.HttpServerRequest;
-  const email = request.headers["x-parsejudge-user"];
-  if (cf.AUTH_MODE !== "dev" || email === undefined || !email.includes("@")) {
-    return yield* new HttpApiError.Unauthorized({});
-  }
+  const email = yield* devHeaderEmail;
+  if (email === null || !email.includes("@")) return yield* new HttpApiError.Unauthorized({});
   const newId = crypto.randomUUID();
   yield* query(() =>
     cf.DB.prepare("INSERT INTO users (id, email, created_at) VALUES (?, ?, ?) ON CONFLICT (email) DO NOTHING")
-      .bind(newId, email.toLowerCase(), Date.now())
+      .bind(newId, email, Date.now())
       .run(),
   );
-  const user = yield* query(() =>
-    cf.DB.prepare("SELECT id FROM users WHERE email = ?").bind(email.toLowerCase()).first<{ id: string }>(),
-  );
+  const user = yield* query(() => cf.DB.prepare("SELECT id FROM users WHERE email = ?").bind(email).first<{ id: string }>());
   return user?.id ?? newId;
 });
 
@@ -381,36 +383,41 @@ const DocumentsLive = HttpApiBuilder.group(Api, "documents", (handlers) =>
       const pages = yield* splitPages(pdf, Number(cf.MAX_PAGES_PER_RUN)).pipe(
         Effect.mapError(() => new HttpApiError.BadRequest({})),
       );
-      if (loginId !== null) {
-        const held = yield* query(() =>
-          cf.DB.prepare("SELECT COALESCE(SUM(page_count), 0) AS pages FROM documents WHERE login_id = ?")
-            .bind(loginId)
-            .first<{ pages: number }>(),
-        );
-        if ((held?.pages ?? 0) + pages.length > Number(cf.MAX_PAGES_PER_RUN)) return yield* new HttpApiError.BadRequest({});
-      }
       const documentId = crypto.randomUUID();
+      const max = Number(cf.MAX_PAGES_PER_RUN);
       yield* query(() => cf.BLOBS.put(sourceKey(documentId, format), bytes));
       yield* query(() => cf.BLOBS.put(documentKey(documentId), pdf));
-      yield* query(async () =>
+      // Before sign-in completes, one check-and-insert caps the pages a login holds (one run) and the pages
+      // waiting under all open logins from its client (two runs), so parallel uploads cannot pass the cap together.
+      const inserted = yield* query(async () =>
         cf.DB.prepare(
           // A sign-in that completes while this upload runs has already set logins.user_id; the upload goes to that user.
           `INSERT INTO documents (id, user_id, login_id, filename, format, sha256, page_count, created_at)
-           VALUES (?, COALESCE((SELECT user_id FROM logins WHERE id = ?), ?), ?, ?, ?, ?, ?, ?)`,
+           SELECT ?1, COALESCE((SELECT user_id FROM logins WHERE id = ?2), ?3), ?2, ?4, ?5, ?6, ?7, ?8
+           WHERE ?2 IS NULL OR (
+             (SELECT COALESCE(SUM(page_count), 0) FROM documents WHERE login_id = ?2) + ?7 <= ?9 AND
+             (SELECT COALESCE(SUM(page_count), 0) FROM documents WHERE user_id = ?10 AND login_id IN
+               (SELECT id FROM logins WHERE ip = (SELECT ip FROM logins WHERE id = ?2))) + ?7 <= ?9 * 2
+           )`,
         )
           .bind(
             documentId,
             loginId,
             userId,
-            loginId,
             filename ?? `document.${format}`,
             format,
             await sha256(bytes),
             pages.length,
             Date.now(),
+            max,
+            PENDING_USER,
           )
           .run(),
       );
+      if (inserted.meta.changes !== 1) {
+        yield* query(() => cf.BLOBS.delete([sourceKey(documentId, format), documentKey(documentId)]));
+        return yield* new HttpApiError.BadRequest({});
+      }
       return { documentId, pageCount: pages.length };
     }),
   ),
@@ -420,6 +427,12 @@ const TitlesLive = HttpApiBuilder.group(Api, "titles", (handlers) =>
   handlers.handle("generate", ({ payload }) =>
     Effect.gen(function* () {
       const { filenames } = payload;
+      if ((yield* signedInUser) === null) {
+        const request = yield* HttpServerRequest.HttpServerRequest;
+        if ((yield* query(() => pendingLogin(cf, request.headers.cookie))) === null) {
+          return yield* new HttpApiError.Unauthorized({});
+        }
+      }
       if (filenames.length === 0 || filenames.length > 1000) return yield* new HttpApiError.BadRequest({});
       return {
         title: yield* query(() =>
