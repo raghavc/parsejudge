@@ -352,7 +352,15 @@ export const Landing = () => {
           <Tick>Blind judging, provider names hidden</Tick>
           <Tick>Judge prompt and scoring code are public</Tick>
           <Tick>Every run is reproducible on your own hardware</Tick>
-          <a className="u" style={{ fontSize: 14 }} href="https://github.com/reductoai/parsejudge/blob/main/docs/DESIGN.md">
+          <a
+            className="u"
+            style={{ fontSize: 14 }}
+            href="/methodology"
+            onClick={(e) => {
+              e.preventDefault();
+              navigate("/methodology");
+            }}
+          >
             Read the methodology
           </a>
         </div>

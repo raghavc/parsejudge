@@ -710,7 +710,18 @@ export const Report = ({
         <div style={{ display: "flex", flexDirection: "column", gap: 6, width: 280 }}>
           <div style={{ fontSize: 14, fontWeight: 500 }}>How this was scored</div>
           <div style={{ ...note, fontSize: 13, lineHeight: "20px" }}>
-            Read the methodology and the judge prompt, or reproduce this run on your own hardware.
+            Read the{" "}
+            <a
+              className="u"
+              href="/methodology"
+              onClick={(e) => {
+                e.preventDefault();
+                navigate("/methodology");
+              }}
+            >
+              methodology and the judge prompt
+            </a>
+            , or reproduce this run on your own hardware.
           </div>
         </div>
         {[

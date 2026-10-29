@@ -1,6 +1,6 @@
 import { navigate } from "./router.ts";
 
-export const Nav = ({ user, active }: { readonly user?: string | null; readonly active?: "runs" }) => (
+export const Nav = ({ user, active }: { readonly user?: string | null; readonly active?: "runs" | "methodology" }) => (
   <header
     style={{
       alignItems: "center",
@@ -34,7 +34,15 @@ export const Nav = ({ user, active }: { readonly user?: string | null; readonly 
           Runs
         </button>
       )}
-      <a className="wide-only" href="https://github.com/reductoai/parsejudge/blob/main/docs/DESIGN.md">
+      <a
+        className="wide-only"
+        href="/methodology"
+        style={{ color: active === "methodology" ? "var(--ink)" : undefined }}
+        onClick={(e) => {
+          e.preventDefault();
+          navigate("/methodology");
+        }}
+      >
         Methodology
       </a>
       <a href="https://github.com/reductoai/parsejudge">Source</a>

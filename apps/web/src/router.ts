@@ -4,6 +4,7 @@ export type Route =
   | { readonly name: "landing" }
   | { readonly name: "account" }
   | { readonly name: "runs" }
+  | { readonly name: "methodology" }
   | { readonly name: "signin"; readonly next: string }
   | { readonly name: "auth"; readonly token: string }
   | { readonly name: "run"; readonly shareId: string }
@@ -20,6 +21,7 @@ export const parse = (path: string, search: string): Route => {
     };
   if (path === "/account") return { name: "account" };
   if (path === "/runs") return { name: "runs" };
+  if (path === "/methodology") return { name: "methodology" };
   if (path === "/signin") return { name: "signin", next: new URLSearchParams(search).get("next") ?? "/" };
   if (path === "/auth") return { name: "auth", token: new URLSearchParams(search).get("token") ?? "" };
   const run = /^\/r\/([^/]+)$/.exec(path);
