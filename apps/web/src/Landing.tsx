@@ -16,7 +16,7 @@ interface Upload {
   readonly error?: string;
 }
 
-const section: CSSProperties = { borderTop: "1px solid var(--line)", display: "flex", gap: 80, padding: "48px 120px" };
+const section: CSSProperties = { borderTop: "1px solid var(--line)", display: "flex", gap: 80, padding: "48px var(--gutter)" };
 const aside: CSSProperties = { display: "flex", flexDirection: "column", flexShrink: 0, gap: 8, width: 280 };
 const h2: CSSProperties = { fontSize: 20, fontWeight: 500, letterSpacing: "-0.015em", lineHeight: "24px" };
 const note: CSSProperties = { color: "var(--muted)", fontSize: 14, lineHeight: "22px" };
@@ -86,7 +86,7 @@ const ProviderRow = (props: {
             for (const p of on ? chosen : [first]) toggle(p.id);
           }}
         />
-        <div style={{ flexShrink: 0, fontSize: 15, lineHeight: "18px", width: 240 }}>{providerName(provider)}</div>
+        <div style={{ flex: "0 1 240px", fontSize: 15, lineHeight: "18px", minWidth: 0 }}>{providerName(provider)}</div>
         <div style={{ display: "flex", flexGrow: 1 }}>
           <button
             type="button"
@@ -300,15 +300,24 @@ export const Landing = () => {
           onCancel={() => setPending(null)}
         />
       )}
-      <section style={{ display: "flex", flexDirection: "column", gap: 20, padding: "112px 120px 72px" }}>
-        <h1 style={{ fontSize: 64, fontWeight: 300, letterSpacing: "-0.035em", lineHeight: "70px", margin: 0, maxWidth: 900 }}>
+      <section style={{ display: "flex", flexDirection: "column", gap: 20, padding: "112px var(--gutter) 72px" }}>
+        <h1
+          style={{
+            fontSize: "clamp(40px, 6vw, 64px)",
+            fontWeight: 300,
+            letterSpacing: "-0.035em",
+            lineHeight: 1.1,
+            margin: 0,
+            maxWidth: 900,
+          }}
+        >
           Compare document parsers on your own documents.
         </h1>
         <p style={{ color: "var(--muted)", fontSize: 17, lineHeight: "27px", margin: 0, maxWidth: 620 }}>
           Every page is rendered to the same image and sent to each provider. A blind judge scores the outputs. The method and
           code are open source.
         </p>
-        <div style={{ alignItems: "center", display: "flex", gap: 28, paddingTop: 20 }}>
+        <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 28, paddingTop: 20 }}>
           <Tick>Blind judging, provider names hidden</Tick>
           <Tick>Judge prompt and scoring code are public</Tick>
           <Tick>Every run is reproducible on your own hardware</Tick>
@@ -318,7 +327,7 @@ export const Landing = () => {
         </div>
       </section>
 
-      <section style={section}>
+      <section className="split" style={section}>
         <div style={aside}>
           <div style={h2}>Documents</div>
           <div style={note}>PDF, DOCX or PPTX. Up to {MAX_PAGES_PER_RUN} pages per run.</div>
@@ -349,7 +358,9 @@ export const Landing = () => {
           <div style={{ display: "flex", flexDirection: "column", paddingTop: 12 }}>
             {uploads.map((u) => (
               <div key={u.id} className="row enter" style={{ padding: "16px 0", fontSize: 14 }}>
-                <div style={{ flexGrow: 1, fontSize: 15 }}>{u.name}</div>
+                <div className="clip" style={{ flexGrow: 1, fontSize: 15 }}>
+                  {u.name}
+                </div>
                 <div style={{ color: "var(--muted)", width: 100 }}>{u.format}</div>
                 <div style={{ color: u.error ? "var(--bad)" : "var(--muted)", textAlign: "right", width: 100 }}>
                   {u.error ? "Failed" : u.pageCount === undefined ? "Reading…" : `${u.pageCount} pages`}
@@ -367,7 +378,7 @@ export const Landing = () => {
         </div>
       </section>
 
-      <section style={section}>
+      <section className="split" style={section}>
         <div style={aside}>
           <div style={h2}>Providers</div>
           <div style={note}>
@@ -412,8 +423,10 @@ export const Landing = () => {
           alignItems: "center",
           borderTop: "1px solid var(--line)",
           display: "flex",
+          flexWrap: "wrap",
+          gap: 24,
           justifyContent: "space-between",
-          padding: "36px 120px 72px",
+          padding: "36px var(--gutter) 72px",
         }}
       >
         <div style={{ display: "flex", gap: 44 }}>

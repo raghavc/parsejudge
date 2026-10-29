@@ -28,56 +28,95 @@ interface Point {
   readonly accent: boolean;
 }
 
-/** A 560×300 scatter. `frontier` is drawn as a dashed accent line through those points, then flat to the edge. */
+const median = (xs: ReadonlyArray<number>) => {
+  const sorted = [...xs].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? (sorted[mid] ?? 0) : ((sorted[mid - 1] ?? 0) + (sorted[mid] ?? 0)) / 2;
+};
+
+const logTicks = (lo: number, hi: number) => {
+  const out: Array<number> = [];
+  for (let e = Math.floor(Math.log10(lo)); e <= Math.ceil(Math.log10(hi)); e++)
+    for (const m of [1, 2, 5]) {
+      const v = m * 10 ** e;
+      if (v >= lo && v <= hi) out.push(v);
+    }
+  return out;
+};
+
+/**
+ * Score against a log-scaled cost-like x axis, where lower x is better. The shaded quadrant is better than the
+ * median on both axes; the dotted line is the Pareto frontier (best score at or below each x).
+ */
 const Scatter = ({
   points,
+  xTick,
   yMin,
   yMax,
-  yTick,
-  frontier = [],
 }: {
   readonly points: ReadonlyArray<Point>;
+  readonly xTick: (x: number) => string;
   readonly yMin: number;
   readonly yMax: number;
-  readonly yTick: (y: number) => string;
-  readonly frontier?: ReadonlyArray<Point>;
 }) => {
   const W = 560;
   const H = 300;
-  const L = 40;
-  const B = 32;
-  const xMax = Math.max(1, ...points.map((p) => p.x)) * 1.15;
-  const sx = (x: number) => L + (x / xMax) * (W - L - 10);
-  const sy = (y: number) => 10 + (1 - (y - yMin) / (yMax - yMin || 1)) * (H - B - 20);
-  const xTicks = ticks(0, xMax, 5);
+  const L = 32;
+  const R = 16;
+  const T = 12;
+  const B = 28;
+  const xs = points.map((p) => p.x);
+  const lo = Math.min(...xs) / 1.8;
+  const hi = Math.max(...xs) * 1.8;
+  const sx = (x: number) => L + ((Math.log(x) - Math.log(lo)) / (Math.log(hi) - Math.log(lo) || 1)) * (W - L - R);
+  const sy = (y: number) => T + (1 - (y - yMin) / (yMax - yMin || 1)) * (H - B - T);
+  const frontier: Array<Point> = [];
+  for (const p of [...points].sort((a, b) => a.x - b.x || b.y - a.y))
+    if (p.y > (frontier.at(-1)?.y ?? Number.NEGATIVE_INFINITY)) frontier.push(p);
+  const onFrontier = new Set(frontier.map((p) => p.id));
+  const qx = sx(median(xs));
+  const qy = sy(median(points.map((p) => p.y)));
   const yTicks = ticks(yMin, yMax, 3);
-  const path = frontier.map((p, i) => `${i === 0 ? "M" : "L"}${sx(p.x)},${sy(p.y)}`).join(" ");
-  const last = frontier.at(-1);
   return (
-    <svg width={W} height={H} style={{ overflow: "visible" }} role="img" aria-label="chart">
-      <line x1={L} x2={W} y1={H - B} y2={H - B} stroke="var(--ink)" />
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: "block", overflow: "visible" }} role="img" aria-label="chart">
+      {points.length > 1 && (
+        <>
+          <rect x={L} y={T} width={Math.max(0, qx - L)} height={Math.max(0, qy - T)} fill="var(--good)" opacity={0.07} />
+          <text x={L + 8} y={T + 16} fontSize={11} fill="var(--good)" letterSpacing="0.04em">
+            MOST ATTRACTIVE
+          </text>
+        </>
+      )}
+      <line x1={L} x2={W - R} y1={H - B} y2={H - B} stroke="var(--line)" />
       {yTicks.map((y) => (
-        <text key={y} x={L - 12} y={sy(y) + 4} fontSize={12} fill="var(--faint)" textAnchor="end">
-          {yTick(y)}
+        <text key={y} x={L - 10} y={sy(y) + 4} fontSize={11} fill="var(--faint)" textAnchor="end">
+          {Math.round(y)}
         </text>
       ))}
-      {xTicks.map((x, i) => (
-        <text key={x} x={sx(x)} y={H - 10} fontSize={12} fill="var(--faint)" textAnchor="middle">
-          {`${+(x / 1000).toFixed(1)} s${i === xTicks.length - 1 ? " · p50" : ""}`}
+      {logTicks(lo, hi).map((x) => (
+        <text key={x} x={sx(x)} y={H - 8} fontSize={11} fill="var(--faint)" textAnchor="middle">
+          {xTick(x)}
         </text>
       ))}
-      {last && (
-        <path d={`${path} L${W},${sy(last.y)}`} fill="none" stroke="var(--accent)" strokeDasharray="4 4" strokeWidth={1.5} />
+      {frontier.length > 1 && (
+        <path
+          d={frontier.map((p, i) => `${i === 0 ? "M" : "L"}${sx(p.x)},${sy(p.y)}`).join(" ")}
+          fill="none"
+          stroke="var(--ink)"
+          strokeDasharray="1 4"
+          strokeLinecap="round"
+          strokeWidth={1.5}
+        />
       )}
       {points.map((p) => {
-        const right = sx(p.x) > W - 140;
+        const right = sx(p.x) > W - 150;
         return (
           <g key={p.id}>
-            <circle cx={sx(p.x)} cy={sy(p.y)} r={5} fill={p.accent ? "var(--accent)" : "var(--ink)"} />
+            <circle cx={sx(p.x)} cy={sy(p.y)} r={4.5} fill={onFrontier.has(p.id) ? "var(--accent)" : "var(--ink)"} />
             <text
-              x={sx(p.x) + (right ? -10 : 10)}
+              x={sx(p.x) + (right ? -9 : 9)}
               y={sy(p.y) - 8}
-              fontSize={13}
+              fontSize={12}
               fill="var(--ink)"
               textAnchor={right ? "end" : "start"}
             >
@@ -90,7 +129,6 @@ const Scatter = ({
   );
 };
 
-/** Each provider's score on one page, on a 1–10 strip. */
 const Dots = ({ scores }: { readonly scores: ReadonlyArray<number | null> }) => {
   const ok = scores.filter((s): s is number => s !== null);
   const best = Math.max(...ok);
@@ -175,36 +213,20 @@ export const Report = ({
     }
   }, [run.id, shownIds]);
 
-  if (summary === null) return <div style={{ ...note, padding: "72px 120px" }}>This run failed: {run.error}</div>;
+  if (summary === null) return <div style={{ ...note, padding: "72px var(--gutter)" }}>This run failed: {run.error}</div>;
 
   const scored = ranked.filter(
     (p): p is PresetSummary & { meanScore: number; latencyMsP50: number } => p.meanScore !== null && p.latencyMsP50 !== null,
   );
-  const byLatency = [...scored].sort((a, b) => a.latencyMsP50 - b.latencyMsP50);
-  const frontierIds = new Set<string>();
-  let bestSoFar = -1;
-  for (const p of byLatency) {
-    if (p.meanScore > bestSoFar) {
-      frontierIds.add(p.presetId);
-      bestSoFar = p.meanScore;
-    }
-  }
-  const scorePoints: ReadonlyArray<Point> = byLatency.map((p) => ({
-    id: p.presetId,
-    label: `${name(p.presetId)} · ${p.meanScore.toFixed(1)}`,
-    x: p.latencyMsP50,
-    y: p.meanScore,
-    accent: frontierIds.has(p.presetId),
-  }));
-  const costPoints: ReadonlyArray<Point> = byLatency.map((p) => ({
-    id: p.presetId,
-    label: `${name(p.presetId)} · ${perThousand(p.listPriceUsdPerPage)}`,
-    x: p.latencyMsP50,
-    y: p.listPriceUsdPerPage * 1000,
-    accent: false,
-  }));
-  const minScore = Math.floor(Math.min(10, ...scored.map((p) => p.meanScore)) - 1);
-  const maxCost = Math.max(10, ...costPoints.map((p) => p.y)) * 1.15;
+  const scorePoints = (x: (p: (typeof scored)[number]) => number): ReadonlyArray<Point> =>
+    scored.map((p) => ({
+      id: p.presetId,
+      label: `${name(p.presetId)} · ${p.meanScore.toFixed(1)}`,
+      x: x(p),
+      y: p.meanScore,
+      accent: false,
+    }));
+  const minScore = Math.max(0, Math.floor(Math.min(10, ...scored.map((p) => p.meanScore)) - 1));
   const pageCount = pages.length;
   const date = new Date(run.createdAt).toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" });
   const mcp = `claude mcp add parsejudge ${location.origin}/mcp`;
@@ -217,12 +239,23 @@ export const Report = ({
 
   return (
     <div className="stagger">
-      <section style={{ alignItems: "end", display: "flex", justifyContent: "space-between", padding: "72px 120px 56px" }}>
+      <section
+        className="head"
+        style={{ alignItems: "end", display: "flex", justifyContent: "space-between", padding: "72px var(--gutter) 56px" }}
+      >
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <div className="eyebrow" style={{ fontSize: 13 }}>
             Evaluation report · {date}
           </div>
-          <div style={{ fontSize: 56, fontWeight: 300, letterSpacing: "-0.035em", lineHeight: "62px", maxWidth: 820 }}>
+          <div
+            style={{
+              fontSize: "clamp(36px, 5vw, 56px)",
+              fontWeight: 300,
+              letterSpacing: "-0.035em",
+              lineHeight: 1.1,
+              maxWidth: 820,
+            }}
+          >
             {title}
           </div>
           <div style={{ color: "var(--muted)", fontSize: 15 }}>
@@ -253,7 +286,7 @@ export const Report = ({
         </div>
       </section>
 
-      <section style={{ display: "flex", flexDirection: "column", padding: "0 120px 72px" }}>
+      <section className="scroll-x" style={{ display: "flex", flexDirection: "column", padding: "0 var(--gutter) 72px" }}>
         <div
           className="eyebrow"
           style={{
@@ -313,34 +346,52 @@ export const Report = ({
         })}
       </section>
 
-      <section style={{ borderTop: "1px solid var(--line)", display: "flex", gap: 80, padding: "56px 120px 64px" }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 20, width: 560 }}>
+      <section
+        style={{
+          borderTop: "1px solid var(--line)",
+          display: "flex",
+          flexWrap: "wrap",
+          gap: "48px 80px",
+          padding: "56px var(--gutter) 64px",
+        }}
+      >
+        <div style={{ display: "flex", flex: "1 1 420px", flexDirection: "column", gap: 20, minWidth: 0 }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <div style={h2}>Latency vs. score</div>
+            <div style={h2}>Score vs. price</div>
             <div style={{ ...note, fontSize: 13, lineHeight: "16px" }}>
-              Up and to the left is better. The line marks the best score at each latency.
+              Mean score against list price per 1k pages, log scale.
             </div>
           </div>
           <Scatter
-            points={scorePoints}
+            points={scorePoints((p) => p.listPriceUsdPerPage * 1000)}
+            xTick={(x) => `$${+x.toPrecision(2)}`}
             yMin={minScore}
             yMax={10}
-            yTick={(y) => String(Math.round(y))}
-            frontier={scorePoints.filter((p) => p.accent)}
           />
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 20, width: 560 }}>
+        <div style={{ display: "flex", flex: "1 1 420px", flexDirection: "column", gap: 20, minWidth: 0 }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <div style={h2}>Latency vs. cost</div>
-            <div style={{ ...note, fontSize: 13, lineHeight: "16px" }}>
-              Down and to the left is better. List prices per 1k pages.
-            </div>
+            <div style={h2}>Score vs. latency</div>
+            <div style={{ ...note, fontSize: 13, lineHeight: "16px" }}>Mean score against p50 latency per page, log scale.</div>
           </div>
-          <Scatter points={costPoints} yMin={0} yMax={maxCost} yTick={(y) => (y === 0 ? "" : `$${Math.round(y)}`)} />
+          <Scatter
+            points={scorePoints((p) => p.latencyMsP50)}
+            xTick={(x) => `${+(x / 1000).toPrecision(2)} s`}
+            yMin={minScore}
+            yMax={10}
+          />
         </div>
       </section>
 
-      <section style={{ borderTop: "1px solid var(--line)", display: "flex", gap: 80, padding: "56px 120px" }}>
+      <section
+        style={{
+          borderTop: "1px solid var(--line)",
+          display: "flex",
+          flexWrap: "wrap",
+          gap: "32px 80px",
+          padding: "56px var(--gutter)",
+        }}
+      >
         <div style={{ display: "flex", flexDirection: "column", gap: 6, width: 280 }}>
           <div style={h2}>Head to head</div>
           <div style={note}>
@@ -391,7 +442,7 @@ export const Report = ({
           display: "flex",
           gap: 40,
           justifyContent: "space-between",
-          margin: "0 120px 72px",
+          margin: "0 var(--gutter) 72px",
           padding: "28px 32px",
         }}
       >
@@ -433,7 +484,7 @@ export const Report = ({
           display: "flex",
           flexDirection: "column",
           gap: 28,
-          padding: "56px 120px 72px",
+          padding: "56px var(--gutter) 72px",
         }}
       >
         <div style={{ alignItems: "end", display: "flex", justifyContent: "space-between" }}>
@@ -473,7 +524,7 @@ export const Report = ({
         {shown.length === 0 ? (
           <div style={note}>Every provider scored within 3 points of the others on every page.</div>
         ) : (
-          <div style={{ display: "grid", gap: 24, gridTemplateColumns: "repeat(4, 1fr)" }}>
+          <div style={{ display: "grid", gap: 24, gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
             {shown.map((d) => {
               const detail = details.get(d.page.id);
               const worst = detail?.parses.filter((p) => p.reasoning !== null).sort((a, b) => (a.score ?? 0) - (b.score ?? 0))[0];
@@ -495,9 +546,11 @@ export const Report = ({
                       style={{ boxShadow: "0 1px 2px #0001", objectFit: "contain", width: "100%" }}
                     />
                   </div>
-                  <div style={{ display: "flex", fontSize: 14, justifyContent: "space-between", marginTop: 14 }}>
-                    <span>{d.page.label}</span>
-                    <span style={{ color: d.failed > 0 ? "var(--bad)" : "var(--muted)", fontSize: 13 }}>
+                  <div style={{ display: "flex", fontSize: 14, gap: 12, justifyContent: "space-between", marginTop: 14 }}>
+                    <span className="clip" title={d.page.label}>
+                      {d.page.label}
+                    </span>
+                    <span style={{ color: d.failed > 0 ? "var(--bad)" : "var(--muted)", flexShrink: 0, fontSize: 13 }}>
                       {d.failed > 0 ? `${d.failed} failed` : `gap ${d.gap}`}
                     </span>
                   </div>
@@ -529,8 +582,9 @@ export const Report = ({
           background: "#FAFAFA",
           borderTop: "1px solid var(--line)",
           display: "flex",
-          gap: 80,
-          padding: "48px 120px 64px",
+          flexWrap: "wrap",
+          gap: "24px 80px",
+          padding: "48px var(--gutter) 64px",
         }}
       >
         <div style={{ display: "flex", flexDirection: "column", gap: 6, width: 280 }}>

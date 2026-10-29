@@ -173,13 +173,21 @@ export const PageCompare = ({
     <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
       <header
         className="flex"
-        style={{ borderBottom: "1px solid var(--rule)", gap: 24, justifyContent: "space-between", padding: "14px 24px" }}
+        style={{
+          borderBottom: "1px solid var(--rule)",
+          flexWrap: "wrap",
+          gap: "12px 24px",
+          justifyContent: "space-between",
+          padding: "14px 24px",
+        }}
       >
         <button type="button" className="plain" onClick={() => navigate(`/r/${shareId}`)}>
           Parse Judge <span style={{ color: "var(--faint)" }}>/</span> <span style={{ color: "var(--muted)" }}>Report</span>
         </button>
-        <div className="flex" style={{ gap: 16 }}>
-          <span style={{ color: "var(--muted)" }}>{current.filename}</span>
+        <div className="flex" style={{ gap: 16, minWidth: 0 }}>
+          <span className="clip" style={{ color: "var(--muted)", maxWidth: 320 }} title={current.filename}>
+            {current.filename}
+          </span>
           <button type="button" className="plain" disabled={position <= 0} onClick={() => go(pages[position - 1]?.id)}>
             ‹
           </button>
@@ -215,9 +223,12 @@ export const PageCompare = ({
           </div>
         </div>
       </header>
-      <div style={{ display: "flex", flex: 1 }}>
+      <div className="split" style={{ display: "flex", flex: 1 }}>
         {view === "side" && (
-          <aside style={{ borderRight: "1px solid var(--rule)", padding: "24px 0", width: 230 }}>
+          <aside
+            className="wide-only"
+            style={{ borderRight: "1px solid var(--rule)", flexShrink: 0, padding: "24px 0", width: 230 }}
+          >
             <div className="eyebrow" style={{ padding: "0 20px 12px" }}>
               Flagged · all documents
             </div>
@@ -272,7 +283,7 @@ export const PageCompare = ({
                   );
                 })}
               </div>
-              <div style={{ display: "grid", gap: 32, gridTemplateColumns: "1fr 1fr" }}>
+              <div style={{ display: "grid", gap: 32, gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))" }}>
                 {picked.map((presetId, slot) => {
                   const parse = parses.find((p) => p.presetId === presetId);
                   if (parse === undefined) return null;
@@ -311,7 +322,7 @@ export const PageCompare = ({
                   borderTop: "1px solid var(--ink)",
                   display: "grid",
                   gap: 16,
-                  gridTemplateColumns: `repeat(${Math.max(parses.length, 1)}, minmax(0, 1fr))`,
+                  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
                   paddingTop: 24,
                 }}
               >

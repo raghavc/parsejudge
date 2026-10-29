@@ -80,7 +80,10 @@ const Progress = ({
 
   return (
     <div className="stagger">
-      <section style={{ alignItems: "end", display: "flex", justifyContent: "space-between", padding: "72px 120px 40px" }}>
+      <section
+        className="head"
+        style={{ alignItems: "end", display: "flex", justifyContent: "space-between", padding: "72px var(--gutter) 40px" }}
+      >
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <div style={{ alignItems: "center", display: "flex", gap: 10 }}>
             <div style={{ background: "var(--accent)", borderRadius: 4, height: 8, width: 8 }} />
@@ -89,13 +92,15 @@ const Progress = ({
               elapsed
             </div>
           </div>
-          <div style={{ fontSize: 48, fontWeight: 300, letterSpacing: "-0.03em", lineHeight: "54px" }}>{runTitle(run)}</div>
+          <div style={{ fontSize: "clamp(32px, 4.5vw, 48px)", fontWeight: 300, letterSpacing: "-0.03em", lineHeight: 1.1 }}>
+            {runTitle(run)}
+          </div>
           <div style={{ color: "var(--muted)", fontSize: 15 }}>
             {run.documents.length} documents · {pages} pages · {run.presetIds.length} providers · started {started}
           </div>
         </div>
         <div style={{ alignItems: "end", display: "flex", flexDirection: "column", gap: 6 }}>
-          <div style={{ fontSize: 64, fontWeight: 300, letterSpacing: "-0.04em", lineHeight: "64px" }}>
+          <div style={{ fontSize: "clamp(40px, 6vw, 64px)", fontWeight: 300, letterSpacing: "-0.04em", lineHeight: 1 }}>
             {Math.floor(progress * 100)}%
           </div>
           <div style={{ color: "var(--muted)", fontSize: 14 }}>
@@ -103,10 +108,10 @@ const Progress = ({
           </div>
         </div>
       </section>
-      <div style={{ display: "flex", padding: "0 120px" }}>
+      <div style={{ display: "flex", padding: "0 var(--gutter)" }}>
         <Bar value={progress} />
       </div>
-      <section style={{ display: "flex", flexDirection: "column", padding: "48px 120px 0" }}>
+      <section className="scroll-x" style={{ display: "flex", flexDirection: "column", padding: "48px var(--gutter) 0" }}>
         <div className="eyebrow" style={{ borderBottom: "1px solid var(--line)", display: "flex", gap: 24, paddingBottom: 12 }}>
           <div style={{ width: 260 }}>Provider</div>
           <div style={{ flexGrow: 1 }}>Pages</div>
@@ -152,7 +157,16 @@ const Progress = ({
             {judgeDone ? "Done" : judged > 0 ? "Judging" : "Waiting"}
           </div>
         </div>
-        <div style={{ alignItems: "center", display: "flex", justifyContent: "space-between", padding: "40px 0 72px" }}>
+        <div
+          style={{
+            alignItems: "center",
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 16,
+            justifyContent: "space-between",
+            padding: "40px 0 72px",
+          }}
+        >
           <div style={{ color: "var(--muted)", fontSize: 14 }}>
             You can close this tab.
             {user ? ` We'll email ${user} when the report is ready.` : " The link below opens the report when it is ready."}
@@ -185,9 +199,9 @@ export const RunPage = ({ shareId }: { readonly shareId: string }) => {
   return (
     <div>
       <Nav user={currentUser()} />
-      {error && <div style={{ color: "var(--bad)", padding: "72px 120px" }}>{error}</div>}
+      {error && <div style={{ color: "var(--bad)", padding: "72px var(--gutter)" }}>{error}</div>}
       {run?.status === "failed" && run.summary === null && (
-        <div style={{ color: "var(--bad)", padding: "72px 120px" }}>This run failed: {run.error ?? "unknown error"}</div>
+        <div style={{ color: "var(--bad)", padding: "72px var(--gutter)" }}>This run failed: {run.error ?? "unknown error"}</div>
       )}
       {run &&
         run.status !== "failed" &&

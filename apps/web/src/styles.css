@@ -236,3 +236,45 @@ button:active:not(:disabled) {
     animation-name: fade;
   }
 }
+
+/* Layout: one gutter that shrinks with the viewport; side-by-side sections stack on narrow screens. */
+:root {
+  --gutter: clamp(16px, 7vw, 120px);
+}
+body {
+  overflow-x: hidden;
+}
+.mono {
+  overflow-wrap: anywhere;
+}
+.clip {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.head {
+  flex-wrap: wrap;
+  gap: 24px;
+}
+.scroll-x {
+  overflow-x: auto;
+}
+.scroll-x > * {
+  min-width: 640px;
+}
+.split > * {
+  min-width: 0;
+}
+@media (max-width: 900px) {
+  .split {
+    flex-direction: column;
+    gap: 24px !important;
+  }
+  .split > * {
+    width: auto !important;
+  }
+  .wide-only {
+    display: none !important;
+  }
+}
