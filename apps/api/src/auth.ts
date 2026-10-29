@@ -219,7 +219,7 @@ const CHAIN = `WITH RECURSIVE chain(id) AS (SELECT ?1 UNION SELECT logins.id FRO
 
 /** Cloudflare Turnstile, when the deployment sets TURNSTILE_SECRET. */
 const human = async (env: Env, request: Request, token: unknown) => {
-  if (!env.TURNSTILE_SECRET) return true;
+  if (!env.TURNSTILE_SECRET) return !env.TURNSTILE_SITEKEY;
   const form = new FormData();
   form.set("secret", env.TURNSTILE_SECRET);
   form.set("response", typeof token === "string" ? token : "");
@@ -307,7 +307,13 @@ const verify = async (env: Env, request: Request) => {
   )
     .bind(id, now, MAX_ATTEMPTS, kind, now - 24 * 3_600_000, MAX_FAILED_CODES_PER_DAY)
     .first<{ email: string; code_hash: string; link_hash: string; preset_ids: string; attempts: number }>();
-  if (login === null) return fail(400, kind === "code" ? TOO_MANY_TODAY : EXPIRED);
+  if (login === null) {
+    const closed = await env.DB.prepare("SELECT used_at, attempts, expires_at FROM logins WHERE id = ?")
+      .bind(id)
+      .first<{ used_at: number | null; attempts: number; expires_at: number }>();
+    const open = closed !== null && closed.used_at === null && closed.attempts < MAX_ATTEMPTS && closed.expires_at > now;
+    return fail(400, closed === null ? EXPIRED : open ? TOO_MANY_TODAY : closedReason(closed));
+  }
   if (!sameHash(kind === "code" ? login.code_hash : login.link_hash, await hmac(env, `${kind}:${id}:${value}`))) {
     const left = MAX_ATTEMPTS - login.attempts;
     if (kind === "link") return fail(400, EXPIRED);
