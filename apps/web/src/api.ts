@@ -71,7 +71,8 @@ export interface JudgedError {
   readonly category: string;
   readonly severity: "not_error" | "low" | "medium" | "high";
   readonly description: string;
-  readonly quotes?: ReadonlyArray<string>;
+  /** Excerpts of the output this error is about; `occurrence` picks which match of `text` (1-based). */
+  readonly quotes?: ReadonlyArray<{ readonly text: string; readonly occurrence: number }>;
 }
 
 export interface PageParse {

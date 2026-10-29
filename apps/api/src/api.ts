@@ -118,6 +118,14 @@ const Run = Schema.Struct({
   owned: Schema.Boolean,
 });
 
+/** The judge's errors, each with the excerpts the locate step found for it. Errors that were not located have no quotes. */
+const withQuotes = (errors: string | null, quotes: string | null): ReadonlyArray<unknown> => {
+  const located = JSON.parse(quotes ?? "[]") as ReadonlyArray<unknown>;
+  return (JSON.parse(errors ?? "[]") as ReadonlyArray<Record<string, unknown>>).map(({ quotes: _, ...error }, i) =>
+    located[i] === undefined ? error : { ...error, quotes: located[i] },
+  );
+};
+
 const PageDetail = Schema.Struct({
   pageId: Schema.String,
   imageUrl: Schema.String,
@@ -482,8 +490,9 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
       Effect.gen(function* () {
         const rows = yield* query(() =>
           cf.DB.prepare(
-            `SELECT p.preset_id, p.status, p.latency_ms, p.queue_ms, p.error, v.score, v.reasoning, v.errors
-             FROM parses p LEFT JOIN verdicts v USING (run_id, page_id, preset_id) WHERE p.run_id = ? AND p.page_id = ?`,
+            `SELECT p.preset_id, p.status, p.latency_ms, p.queue_ms, p.error, v.score, v.reasoning, v.errors, l.quotes
+             FROM parses p LEFT JOIN verdicts v USING (run_id, page_id, preset_id)
+             LEFT JOIN page_locations l USING (run_id, page_id, preset_id) WHERE p.run_id = ? AND p.page_id = ?`,
           )
             .bind(params.runId, params.pageId)
             .all<{
@@ -495,6 +504,7 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
               score: number | null;
               reasoning: string | null;
               errors: string | null;
+              quotes: string | null;
             }>(),
         );
         if (rows.results.length === 0) return yield* new HttpApiError.NotFound({});
@@ -509,7 +519,7 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
               error: row.error,
               score: row.score,
               reasoning: row.reasoning,
-              errors: row.errors === null ? [] : (JSON.parse(row.errors) as unknown),
+              errors: withQuotes(row.errors, row.quotes),
             })),
           ),
         );

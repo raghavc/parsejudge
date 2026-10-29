@@ -5,6 +5,7 @@ import { checkJudgeBudget } from "./budget.ts";
 import type { Env } from "./env.ts";
 import type { RunEvents } from "./events.ts";
 import { documentKey, markdownKey, pageId, pagePdfKey, pagePngKey } from "./keys.ts";
+import { writeLocations } from "./locate.ts";
 import { writePageNote } from "./note.ts";
 import { renderFirstPagePng } from "./render.ts";
 import { type Cell, judgePool, type Pool, pollCell, providerPool, runStep, saveFailure, submitCell } from "./run.ts";
@@ -170,6 +171,13 @@ export class PageWorkflow extends WorkflowEntrypoint<Env, PageWorkflowParams> {
           .run();
       });
     }
+    await Promise.all(
+      presetIds.map((presetId) =>
+        step
+          .do(`locate ${presetId}`, RETRY, () => writeLocations(this.env, runId, page, presetId))
+          .catch((error: unknown) => console.error("Locating errors failed", page, presetId, error)),
+      ),
+    );
     try {
       await step.do("note", RETRY, () => writePageNote(this.env, runId, page));
     } catch (error) {

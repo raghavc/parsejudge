@@ -24,8 +24,6 @@ interface PageStat {
 
 const FLAG_GAP = 3;
 const BLOCKS = "p,li,td,th,h1,h2,h3,h4,h5,h6,blockquote,pre";
-/** A shorter quote only marks a block (e.g. a table cell) whose whole text it is. */
-const MIN_QUOTE = 12;
 const RANK: Record<Severity, number> = { high: 0, medium: 1, low: 2, not_error: 3 };
 
 const isFlagged = (page: PageStat) => page.failed || page.gap >= FLAG_GAP;
@@ -81,21 +79,22 @@ const useDismiss = (open: boolean, close: () => void) => {
   return ref;
 };
 
-/** Wraps each quote the judge gave in a numbered mark and returns the marks per flag. */
+/** Wraps each located excerpt in a numbered mark and returns the marks per flag. */
 const markQuotes = (root: HTMLElement, flags: ReadonlyArray<JudgedError>): Array<Array<HTMLElement>> =>
   flags.map((flag, i) => {
     const marks: Array<HTMLElement> = [];
     for (const quote of flag.quotes ?? []) {
-      const q = quote.trim();
-      if (q.length < 3) continue;
+      const q = quote.text;
       const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-      const nodes: Array<Text> = [];
-      for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) nodes.push(node as Text);
-      for (const node of nodes) {
-        const at = node.data.indexOf(q);
-        if (at === -1 || node.parentElement?.closest(".flag-badges")) continue;
-        const cell = node.parentElement?.closest(BLOCKS);
-        if (q.length < MIN_QUOTE && cell?.textContent?.trim() !== q) continue;
+      const matches: Array<{ node: Text; at: number }> = [];
+      for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+        const text = node as Text;
+        if (text.parentElement?.closest(".flag-badges")) continue;
+        for (let at = text.data.indexOf(q); at !== -1; at = text.data.indexOf(q, at + 1)) matches.push({ node: text, at });
+      }
+      const match = matches[quote.occurrence - 1];
+      if (match !== undefined) {
+        const { node, at } = match;
         const range = document.createRange();
         range.setStart(node, at);
         range.setEnd(node, at + q.length);

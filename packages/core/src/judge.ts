@@ -4,7 +4,7 @@ import { ErrorCategory, type PresetVerdict, Severity } from "./domain.ts";
 import { JudgeError } from "./errors.ts";
 import { comparePrompt } from "./prompt.ts";
 
-export const JUDGE_VERSION = "compare-v2";
+export const JUDGE_VERSION = "compare-v1";
 
 export interface JudgeConfig {
   readonly apiKey: string;
@@ -38,14 +38,7 @@ const Verdicts = Schema.Struct({
   evaluations: Schema.Array(
     Schema.Struct({
       label: Schema.String,
-      errors: Schema.Array(
-        Schema.Struct({
-          category: ErrorCategory,
-          severity: Severity,
-          description: Schema.String,
-          quotes: Schema.Array(Schema.String),
-        }),
-      ),
+      errors: Schema.Array(Schema.Struct({ category: ErrorCategory, severity: Severity, description: Schema.String })),
       reasoning: Schema.String,
       score: Schema.Number,
     }),
@@ -75,12 +68,11 @@ const responseFormat = (labels: ReadonlyArray<string>) => ({
                 items: {
                   type: "object",
                   additionalProperties: false,
-                  required: ["category", "severity", "description", "quotes"],
+                  required: ["category", "severity", "description"],
                   properties: {
                     category: { type: "string", enum: ErrorCategory.literals },
                     severity: { type: "string", enum: Severity.literals },
                     description: { type: "string" },
-                    quotes: { type: "array", items: { type: "string" } },
                   },
                 },
               },
