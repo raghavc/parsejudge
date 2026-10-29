@@ -1282,3 +1282,16 @@ mark.flag.medium {
     transition: none;
   }
 }
+
+.hero-split {
+  align-items: center;
+  display: grid;
+  gap: 96px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 520px);
+}
+@media (max-width: 900px) {
+  .hero-split {
+    gap: 48px;
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

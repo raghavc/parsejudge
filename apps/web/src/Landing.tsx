@@ -46,12 +46,71 @@ const Check = ({ on, onClick }: { readonly on: boolean; readonly onClick: () => 
   </button>
 );
 
-const Tick = ({ children }: { readonly children: string }) => (
-  <div style={{ alignItems: "center", display: "flex", gap: 8, fontSize: 14, lineHeight: "18px" }}>
-    <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
-      <path d="M2.5 7.5l3 3 6-7" fill="none" stroke="#0A0A0A" strokeWidth="1.4" />
-    </svg>
-    {children}
+const EXAMPLE = {
+  shareId: "1b48bf779d584fab",
+  label: "Example report · 150 documents · 188 pages",
+  rows: [
+    { name: "Reducto", mode: "r-1", score: 9.87 },
+    { name: "Reducto", mode: "r-1 mini", score: 9.85 },
+    { name: "Azure", mode: "Layout, high-res", score: 8.72 },
+    { name: "AWS Textract", mode: "Layout, tables", score: 8.36 },
+  ],
+} as const;
+
+const Scoreboard = () => (
+  <div style={{ fontSize: 15, minWidth: 0 }}>
+    <div
+      style={{
+        borderBottom: "1px solid var(--ink)",
+        color: "var(--muted)",
+        display: "flex",
+        fontSize: 12,
+        justifyContent: "space-between",
+        paddingBottom: 10,
+      }}
+    >
+      <a
+        className="u"
+        href={`/r/${EXAMPLE.shareId}`}
+        onClick={(e) => {
+          e.preventDefault();
+          navigate(`/r/${EXAMPLE.shareId}`);
+        }}
+      >
+        {EXAMPLE.label}
+      </a>
+      <span>mean score</span>
+    </div>
+    {EXAMPLE.rows.map((r, i) => {
+      const top = i === 0;
+      return (
+        <div
+          key={`${r.name} ${r.mode}`}
+          style={{
+            alignItems: "center",
+            borderBottom: "1px solid var(--line)",
+            display: "grid",
+            gap: 12,
+            gridTemplateColumns: "20px minmax(0, 1fr) minmax(40px, 0.8fr) 44px",
+            minHeight: 60,
+          }}
+        >
+          <span style={{ color: "var(--muted)" }}>{i + 1}</span>
+          <span style={{ display: "grid", minWidth: 0 }}>
+            <span className="clip">{r.name}</span>
+            <span className="clip" style={{ color: "var(--muted)", fontSize: 13 }}>
+              {r.mode}
+            </span>
+          </span>
+          <span style={{ background: "#eee", height: 4 }}>
+            <span
+              style={{ background: top ? "var(--accent)" : "var(--ink)", display: "block", height: 4, width: `${r.score * 10}%` }}
+            />
+          </span>
+          <span style={{ color: top ? "var(--accent)" : undefined, textAlign: "right" }}>{r.score.toFixed(2)}</span>
+        </div>
+      );
+    })}
   </div>
 );
 
@@ -331,39 +390,35 @@ export const Landing = () => {
           onCancel={() => setPending(null)}
         />
       )}
-      <section style={{ display: "flex", flexDirection: "column", gap: 20, padding: "112px var(--gutter) 72px" }}>
-        <h1
-          style={{
-            fontSize: "clamp(40px, 6vw, 64px)",
-            fontWeight: 300,
-            letterSpacing: "-0.035em",
-            lineHeight: 1.1,
-            margin: 0,
-            maxWidth: 900,
-          }}
-        >
-          Compare document parsers on your own documents.
-        </h1>
-        <p style={{ color: "var(--muted)", fontSize: 17, lineHeight: "27px", margin: 0, maxWidth: 620 }}>
-          Every page is rendered to the same image and sent to each provider. A blind judge scores the outputs. The method and
-          code are open source.
-        </p>
-        <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 28, paddingTop: 20 }}>
-          <Tick>Blind judging, provider names hidden</Tick>
-          <Tick>Judge prompt and scoring code are public</Tick>
-          <Tick>Every run is reproducible on your own hardware</Tick>
-          <a
-            className="u"
-            style={{ fontSize: 14 }}
-            href="/methodology"
-            onClick={(e) => {
-              e.preventDefault();
-              navigate("/methodology");
-            }}
+      <section className="hero-split" style={{ padding: "112px var(--gutter) 72px" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          <h1
+            style={{ fontSize: "clamp(40px, 5vw, 56px)", fontWeight: 300, letterSpacing: "-0.035em", lineHeight: 1.1, margin: 0 }}
           >
-            Read the methodology
-          </a>
+            Compare document parsers on your own documents.
+          </h1>
+          <p style={{ color: "var(--muted)", fontSize: 17, lineHeight: "27px", margin: 0, maxWidth: 560 }}>
+            Every page is rendered to the same image and sent to each provider. A blind judge scores the outputs. The method and
+            code are open source.
+          </p>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 12, paddingTop: 12 }}>
+            <button type="button" className="btn primary" style={{ height: 44 }} onClick={() => fileInput.current?.click()}>
+              Upload documents
+            </button>
+            <a
+              className="btn"
+              style={{ height: 44 }}
+              href="/methodology"
+              onClick={(e) => {
+                e.preventDefault();
+                navigate("/methodology");
+              }}
+            >
+              Read the methodology
+            </a>
+          </div>
         </div>
+        <Scoreboard />
       </section>
 
       <section className="split" style={section}>
