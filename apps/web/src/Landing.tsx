@@ -191,7 +191,7 @@ const ProviderRow = (props: {
         </div>
       </div>
       {open && (
-        <div className="enter" style={{ alignItems: "center", display: "flex", gap: 8, paddingLeft: 24 }}>
+        <div className="enter" style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 8, paddingLeft: 24 }}>
           {presets.map((p) => {
             const active = selected.has(p.id);
             return (
@@ -206,8 +206,10 @@ const ProviderRow = (props: {
                   display: "flex",
                   fontSize: 12,
                   gap: 6,
+                  flexShrink: 0,
                   height: 24,
                   padding: "0 9px",
+                  whiteSpace: "nowrap",
                 }}
               >
                 {active && (
@@ -221,7 +223,7 @@ const ProviderRow = (props: {
             );
           })}
           {presets.length > 1 && (
-            <span style={{ color: "var(--muted)", fontSize: 12, marginLeft: 8 }}>Each mode is scored as its own entry.</span>
+            <span style={{ color: "var(--muted)", fontSize: 12, marginLeft: 4 }}>Each mode is scored as its own entry.</span>
           )}
         </div>
       )}
