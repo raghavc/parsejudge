@@ -1,6 +1,6 @@
 import DOMPurify from "dompurify";
 import { marked } from "marked";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api, type JudgedError, type PageDetail, type PageParse, type Preset, type Run } from "./api.ts";
 import { CopyButton } from "./CopyButton.tsx";
 import { providerName, SHORT_NAMES } from "./names.ts";
@@ -19,15 +19,37 @@ interface PageStat {
   readonly gap: number;
   readonly failed: boolean;
   readonly high: number;
-  readonly lowest: { readonly presetId: string; readonly score: number } | null;
+  /** Score per preset; null when the parse failed, absent while it runs. */
+  readonly scores: Readonly<Record<string, number | null>>;
+}
+
+type PageFilter = "all" | "flagged" | "high";
+interface PageSort {
+  readonly key: string;
+  readonly desc: boolean;
 }
 
 const FLAG_GAP = 3;
 const BLOCKS = "p,li,td,th,h1,h2,h3,h4,h5,h6,blockquote,pre";
 const RANK: Record<Severity, number> = { high: 0, medium: 1, low: 2, not_error: 3 };
 
-const isFlagged = (page: PageStat) => page.failed || page.gap >= FLAG_GAP;
-const byGap = (a: PageStat, b: PageStat) => Number(b.failed) - Number(a.failed) || b.gap - a.gap || a.order - b.order;
+const isFlagged = (page: PageStat) => page.failed || page.gap >= FLAG_GAP || page.high > 0;
+const FILTERS: ReadonlyArray<readonly [PageFilter, string]> = [
+  ["all", "All pages"],
+  ["flagged", "Flagged"],
+  ["high", "High severity"],
+];
+const inFilter = (filter: PageFilter) => (p: PageStat) => filter === "all" || (filter === "flagged" ? isFlagged(p) : p.high > 0);
+const sortValue = (p: PageStat, key: string) => {
+  if (key === "order") return p.order;
+  if (key === "gap") return p.failed ? Number.POSITIVE_INFINITY : p.gap;
+  const score = p.scores[key];
+  return score === undefined ? -2 : score === null ? -1 : score;
+};
+const bySort =
+  ({ key, desc }: PageSort) =>
+  (a: PageStat, b: PageStat) =>
+    (sortValue(a, key) - sortValue(b, key)) * (desc ? -1 : 1) || a.order - b.order;
 const byScore = (a: PageParse, b: PageParse) => (b.score ?? -1) - (a.score ?? -1);
 const flagsOf = (parse: PageParse) =>
   (parse.errors ?? []).filter((e) => e.severity !== "not_error").sort((a, b) => RANK[a.severity] - RANK[b.severity]);
@@ -40,10 +62,7 @@ const pageStats = (run: Run): ReadonlyArray<PageStat> => {
     .flatMap((doc) => doc.pages.map((page) => ({ doc, page })))
     .map(({ doc, page }, order) => {
       const own = cells.get(page.id) ?? [];
-      const scored = own.flatMap((c) =>
-        c.status === "succeeded" && c.score !== null ? [{ presetId: c.presetId, score: c.score }] : [],
-      );
-      const values = scored.map((c) => c.score);
+      const values = own.flatMap((c) => (c.status === "succeeded" && c.score !== null ? [c.score] : []));
       return {
         id: page.id,
         filename: doc.filename,
@@ -54,7 +73,16 @@ const pageStats = (run: Run): ReadonlyArray<PageStat> => {
         gap: values.length > 1 ? Math.max(...values) - Math.min(...values) : 0,
         failed: own.some((c) => c.status === "failed"),
         high: own.reduce((n, c) => n + c.high, 0),
-        lowest: scored.reduce<PageStat["lowest"]>((low, c) => (low === null || c.score < low.score ? c : low), null),
+        scores: Object.fromEntries(
+          own.flatMap(
+            (c): Array<[string, number | null]> =>
+              c.status === "failed"
+                ? [[c.presetId, null]]
+                : c.status === "succeeded" && c.score !== null
+                  ? [[c.presetId, c.score]]
+                  : [],
+          ),
+        ),
       };
     });
 };
@@ -123,12 +151,58 @@ const markQuotes = (root: HTMLElement, flags: ReadonlyArray<JudgedError>): Array
     return marks;
   });
 
+const LINK_BLOCKS = "p,li,h1,h2,h3,h4,h5,h6,blockquote,pre,table";
+const WORDS = new WeakMap<Element, ReadonlySet<string>>();
+const wordsOf = (text: string): ReadonlySet<string> =>
+  new Set((text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter((w) => w.length > 1));
+const overlap = (a: ReadonlySet<string>, b: ReadonlySet<string>) => {
+  if (a.size === 0 || b.size === 0) return 0;
+  let shared = 0;
+  for (const w of a) if (b.has(w)) shared++;
+  return (2 * shared) / (a.size + b.size);
+};
+
+/** Tags the top-level blocks of one output so a hover can find its counterpart in the other column. */
+const tagBlocks = (root: HTMLElement, column: number) => {
+  for (const el of root.querySelectorAll<HTMLElement>(LINK_BLOCKS)) {
+    if (el.tagName !== "TABLE" && el.closest("table")) continue;
+    if (el.tagName === "P" && el.closest("li,blockquote")) continue;
+    if (el.tagName === "LI" && el.querySelector("li")) continue;
+    el.classList.add("lb");
+    el.dataset.col = String(column);
+    WORDS.set(el, wordsOf(el.textContent ?? ""));
+  }
+};
+
+const LINK_MIN = 0.3;
+const linkBlocks = (root: HTMLElement, target: EventTarget | null) => {
+  const block = target instanceof Element ? target.closest<HTMLElement>(".lb") : null;
+  if (block?.classList.contains("linked")) return;
+  for (const el of root.querySelectorAll(".lb.linked")) el.classList.remove("linked");
+  const mine = block === null ? undefined : WORDS.get(block);
+  if (block === null || mine === undefined) return;
+  let match: Element | null = null;
+  let top = LINK_MIN;
+  for (const other of root.querySelectorAll(`.lb[data-col="${block.dataset.col === "0" ? 1 : 0}"]`)) {
+    const score = overlap(mine, WORDS.get(other) ?? new Set());
+    if (score >= top) {
+      top = score;
+      match = other;
+    }
+  }
+  if (match === null) return;
+  block.classList.add("linked");
+  match.classList.add("linked");
+};
+
 const FlaggedOutput = ({
   markdown,
   flags,
+  column,
   onFound,
 }: {
   readonly markdown: string;
+  readonly column: number;
   readonly flags: ReadonlyArray<JudgedError>;
   readonly onFound: (marks: Array<Array<HTMLElement>>) => void;
 }) => {
@@ -137,8 +211,9 @@ const FlaggedOutput = ({
   useLayoutEffect(() => {
     if (ref.current === null) return;
     ref.current.innerHTML = html;
+    tagBlocks(ref.current, column);
     onFound(markQuotes(ref.current, flags));
-  }, [html, flags, onFound]);
+  }, [html, flags, column, onFound]);
   return <div ref={ref} className="markdown flagged-output" />;
 };
 
@@ -212,8 +287,10 @@ const ProviderMenu = ({
   const ref = useDismiss(open, close);
   return (
     <div ref={ref} style={{ position: "relative" }}>
-      <button type="button" className="plain provider-trigger" aria-expanded={open} onClick={() => setOpen(!open)}>
-        {name(current)} <span className="caret">▾</span>
+      <button type="button" className="provider-trigger" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <span className="slot">{otherSlot === "B" ? "A" : "B"}</span>
+        <span className="clip">{name(current)}</span>
+        <span className="caret">⌄</span>
       </button>
       {open && (
         <div className="popover menu">
@@ -254,47 +331,101 @@ const Score = ({ score, best }: { readonly score: number | null; readonly best: 
   </span>
 );
 
+const Issues = ({
+  parse,
+  flags,
+  found,
+}: {
+  readonly parse: PageParse;
+  readonly flags: ReadonlyArray<JudgedError>;
+  readonly found: ReadonlyArray<ReadonlyArray<HTMLElement>>;
+}) => {
+  const [open, setOpen] = useState(false);
+  const close = useMemo(() => () => setOpen(false), []);
+  const ref = useDismiss(open, close);
+  if (parse.status !== "succeeded")
+    return (
+      <p className="issues-line clip" style={{ color: "var(--bad)" }} title={parse.error ?? undefined}>
+        {parse.error ?? "Parse failed."}
+      </p>
+    );
+  const counts = (["high", "medium", "low"] as const)
+    .map((sev) => [sev, flags.filter((f) => f.severity === sev).length] as const)
+    .filter(([, n]) => n > 0);
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button type="button" className="issues-line issues-trigger" aria-expanded={open} onClick={() => setOpen(!open)}>
+        {counts.length === 0 ? (
+          <span style={{ color: "var(--good)" }}>✓ No errors</span>
+        ) : (
+          counts.map(([sev, n]) => (
+            <span key={sev} className={`sev ${sev}`}>
+              {n} {sev.toUpperCase()}
+            </span>
+          ))
+        )}
+        <span className="issues-more">
+          {flags.length === 0 ? "Judge's note" : `${flags.length} issue${flags.length === 1 ? "" : "s"}`}{" "}
+          <span className="caret">⌄</span>
+        </span>
+      </button>
+      {open && (
+        <div className="popover issues-pop">
+          {flags.length === 0 ? (
+            <p className="reasoning" style={{ margin: 0 }}>
+              {parse.reasoning}
+            </p>
+          ) : (
+            <div className="flag-list">
+              {flags.map((flag, i) => (
+                <FlagCard key={`${flag.category}:${flag.description}`} flag={flag} n={i + 1} marks={found[i] ?? []} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const Column = ({
-  slot,
+  column,
   parse,
   best,
   menu,
+  focus,
 }: {
-  readonly slot: string;
+  readonly column: number;
   readonly parse: PageParse;
   readonly best: boolean;
   readonly menu: React.ReactNode;
+  /** Index of a flag to scroll to when the column opens. */
+  readonly focus: number | null;
 }) => {
   const flags = useMemo(() => flagsOf(parse), [parse]);
   const [found, setFound] = useState<Array<Array<HTMLElement>>>([]);
+  useEffect(() => {
+    const marks = focus === null ? undefined : found[focus];
+    if (marks === undefined || marks.length === 0) return;
+    marks[0]?.scrollIntoView({ behavior: "smooth", block: "center" });
+    for (const mark of marks) mark.classList.add("pulse");
+    const timer = setTimeout(() => {
+      for (const mark of marks) mark.classList.remove("pulse");
+    }, 1600);
+    return () => clearTimeout(timer);
+  }, [focus, found]);
   return (
     <article className="pc-col">
       <div className="pc-col-head">
-        <div className="flex" style={{ alignItems: "flex-start", justifyContent: "space-between" }}>
-          <div style={{ minWidth: 0 }}>
-            <div className="slot">{slot}</div>
-            {menu}
-          </div>
+        <div className="flex" style={{ gap: 16, justifyContent: "space-between" }}>
+          <div style={{ flex: 1, minWidth: 0 }}>{menu}</div>
           <Score score={parse.score} best={best} />
         </div>
-        {parse.status !== "succeeded" ? (
-          <p style={{ color: "var(--bad)" }}>{parse.error ?? "Parse failed."}</p>
-        ) : flags.length === 0 ? (
-          <>
-            <span className="ok-pill">✓ No errors</span>
-            <p className="reasoning">{parse.reasoning}</p>
-          </>
-        ) : (
-          <div className="flag-list">
-            {flags.map((flag, i) => (
-              <FlagCard key={`${flag.category}:${flag.description}`} flag={flag} n={i + 1} marks={found[i] ?? []} />
-            ))}
-          </div>
-        )}
+        <Issues parse={parse} flags={flags} found={found} />
       </div>
       {parse.status === "succeeded" && parse.markdown !== null && (
         <div className="pc-col-body">
-          <FlaggedOutput markdown={parse.markdown} flags={flags} onFound={setFound} />
+          <FlaggedOutput markdown={parse.markdown} flags={flags} column={column} onFound={setFound} />
         </div>
       )}
     </article>
@@ -303,34 +434,52 @@ const Column = ({
 
 const DocPicker = ({
   stats,
+  rows: sequence,
   current,
-  short,
+  presetIds,
+  label,
+  filter,
+  sort,
+  onFilter,
+  onSort,
   onPick,
 }: {
   readonly stats: ReadonlyArray<PageStat>;
+  readonly rows: ReadonlyArray<PageStat>;
   readonly current: PageStat;
-  readonly short: (presetId: string) => string;
+  readonly presetIds: ReadonlyArray<string>;
+  readonly label: (presetId: string) => string;
+  readonly filter: PageFilter;
+  readonly sort: PageSort;
+  readonly onFilter: (filter: PageFilter) => void;
+  readonly onSort: (sort: PageSort) => void;
   readonly onPick: (pageId: string) => void;
 }) => {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<"flagged" | "all" | "high">(isFlagged(current) ? "flagged" : "all");
-  const [sort, setSort] = useState<"gap" | "order">("gap");
   const [cursor, setCursor] = useState(0);
   const close = useMemo(() => () => setOpen(false), []);
   const ref = useDismiss(open, close);
-  const counts = { flagged: stats.filter(isFlagged).length, all: stats.length, high: stats.filter((p) => p.high > 0).length };
   const needle = query.trim().toLowerCase();
-  const rows = stats
-    .filter((p) => filter === "all" || (filter === "flagged" ? isFlagged(p) : p.high > 0))
-    .filter((p) => p.filename.toLowerCase().includes(needle))
-    .sort(sort === "gap" ? byGap : (a, b) => a.order - b.order)
-    .slice(0, 200);
+  const rows = sequence.filter((p) => p.filename.toLowerCase().includes(needle)).slice(0, 200);
+  const grid = `minmax(0, 1fr) repeat(${presetIds.length}, 64px) 44px`;
   const pick = (id: string | undefined) => {
     if (id === undefined) return;
     setOpen(false);
     onPick(id);
   };
+  const head = (key: string, text: string, title?: string) => (
+    <button
+      type="button"
+      className={`plain sort-head${sort.key === key ? " on" : ""}`}
+      style={{ justifyContent: key === "order" ? "flex-start" : "flex-end" }}
+      title={title}
+      onClick={() => onSort({ key, desc: sort.key === key ? !sort.desc : key === "gap" })}
+    >
+      <span className="clip">{text}</span>
+      {sort.key === key && <span aria-hidden="true">{sort.desc ? "↓" : "↑"}</span>}
+    </button>
+  );
   return (
     <div ref={ref} className="picker-wrap" style={{ minWidth: 0, position: "relative" }}>
       <button type="button" className="picker-trigger" aria-expanded={open} onClick={() => setOpen(!open)}>
@@ -341,7 +490,7 @@ const DocPicker = ({
         <span className="caret">⌄</span>
       </button>
       {open && (
-        <div className="popover picker">
+        <div className="popover picker" style={{ width: `min(${380 + presetIds.length * 72}px, calc(100vw - 32px))` }}>
           <div style={{ padding: 16 }}>
             <input
               className="search"
@@ -362,69 +511,79 @@ const DocPicker = ({
               }}
             />
             <div className="flex" style={{ gap: 6, marginTop: 12 }}>
-              {(
-                [
-                  ["flagged", `Flagged · ${counts.flagged}`],
-                  ["all", `All pages · ${counts.all}`],
-                  ["high", `High severity · ${counts.high}`],
-                ] as const
-              ).map(([key, label]) => (
-                <button
-                  key={key}
-                  type="button"
-                  className={`chip-sm${filter === key ? " on" : ""}`}
-                  onClick={() => setFilter(key)}
-                >
-                  {label}
-                </button>
+              {FILTERS.map(([key, text], i) => (
+                <Fragment key={key}>
+                  {i > 0 && (
+                    <span className="caret" aria-hidden="true">
+                      ›
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    className={`chip-sm${filter === key ? " on" : ""}`}
+                    onClick={() => {
+                      onFilter(key);
+                      setCursor(0);
+                    }}
+                  >
+                    {text} · {stats.filter(inFilter(key)).length}
+                  </button>
+                </Fragment>
               ))}
-              <select className="sort" value={sort} onChange={(e) => setSort(e.target.value as "gap" | "order")}>
-                <option value="gap">Sort: largest gap</option>
-                <option value="order">Sort: document order</option>
-              </select>
             </div>
           </div>
-          <div className="picker-row picker-head">
-            <span>Document · page</span>
-            <span>Lowest</span>
-            <span>Gap</span>
+          <div className="picker-row picker-head" style={{ gridTemplateColumns: grid }}>
+            {head("order", "Document · page")}
+            {presetIds.map((id) => (
+              <Fragment key={id}>{head(id, label(id), label(id))}</Fragment>
+            ))}
+            {head("gap", "Gap", "Best score minus worst score")}
           </div>
           <div className="picker-rows">
             {rows.length === 0 && <p style={{ color: "var(--muted)", padding: "12px 16px" }}>No pages match.</p>}
-            {rows.map((p, i) => (
-              <button
-                key={p.id}
-                type="button"
-                className={`picker-row${p.id === current.id ? " viewing" : ""}${i === cursor ? " cursor" : ""}`}
-                onMouseEnter={() => setCursor(i)}
-                onClick={() => pick(p.id)}
-              >
-                <span style={{ minWidth: 0 }}>
-                  <span className="clip" style={{ display: "block" }} title={p.filename}>
-                    {p.filename}
+            {rows.map((p, i) => {
+              const low = Math.min(...Object.values(p.scores).filter((v): v is number => v !== null));
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  className={`picker-row${p.id === current.id ? " viewing" : ""}${i === cursor ? " cursor" : ""}`}
+                  style={{ gridTemplateColumns: grid }}
+                  onMouseEnter={() => setCursor(i)}
+                  onClick={() => pick(p.id)}
+                >
+                  <span style={{ minWidth: 0 }}>
+                    <span className="clip" style={{ display: "block" }} title={p.filename}>
+                      {p.filename}
+                    </span>
+                    <span className="menu-sub">
+                      Page {p.index + 1} of {p.pageCount}
+                      {p.id === current.id && " · viewing"}
+                    </span>
                   </span>
-                  <span className="menu-sub">
-                    Page {p.index + 1} of {p.pageCount}
-                    {p.id === current.id && " · viewing"}
+                  {presetIds.map((id) => {
+                    const score = p.scores[id];
+                    return (
+                      <span
+                        key={id}
+                        className="num"
+                        style={{
+                          color: score === null ? "var(--bad)" : score === low && p.gap > 0 ? "var(--ink)" : "var(--muted)",
+                          textAlign: "right",
+                        }}
+                      >
+                        {score === undefined ? "–" : score === null ? "failed" : score}
+                      </span>
+                    );
+                  })}
+                  <span className="num" style={{ textAlign: "right" }}>
+                    {p.failed ? "–" : p.gap}
                   </span>
-                </span>
-                <span className="flex" style={{ gap: 6 }}>
-                  {p.failed ? (
-                    <span style={{ color: "var(--bad)" }}>failed</span>
-                  ) : p.lowest === null ? (
-                    "–"
-                  ) : (
-                    <>
-                      <span className={`dot${p.high > 0 ? " high" : ""}`} />
-                      {short(p.lowest.presetId)} {p.lowest.score}
-                    </>
-                  )}
-                </span>
-                <span style={{ color: p.id === current.id ? "var(--accent)" : undefined, textAlign: "right" }}>{p.gap}</span>
-              </button>
-            ))}
+                </button>
+              );
+            })}
           </div>
-          <div className="picker-foot">J / K next and previous flagged page · ↑↓ to browse</div>
+          <div className="picker-foot">J / K next and previous page in this list · ↑↓ to browse</div>
         </div>
       )}
     </div>
@@ -465,21 +624,29 @@ export const PageCompare = ({
     api.page(run.id, pageId).then(setDetail);
   }, [run, pageId]);
 
+  const [chosenFilter, setFilter] = useState<PageFilter | null>(null);
+  const [sort, setSort] = useState<PageSort>({ key: "gap", desc: true });
+  const [focus, setFocus] = useState<{ readonly presetId: string; readonly flag: number } | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new page clears the focused flag.
+  useEffect(() => setFocus(null), [pageId]);
+
   const stats = useMemo(() => (run === null ? [] : pageStats(run)), [run]);
-  const flagged = useMemo(() => stats.filter(isFlagged).sort(byGap), [stats]);
   const position = stats.findIndex((p) => p.id === pageId);
   const current = stats[position];
-  const at = flagged.findIndex((p) => p.id === pageId);
-  const prevFlagged = at === -1 ? flagged.at(-1) : flagged[at - 1];
-  const nextFlagged = at === -1 ? flagged[0] : flagged[at + 1];
+  const filter = chosenFilter ?? (current !== undefined && isFlagged(current) ? "flagged" : "all");
+  const sequence = useMemo(() => stats.filter(inFilter(filter)).sort(bySort(sort)), [stats, filter, sort]);
+  const at = sequence.findIndex((p) => p.id === pageId);
+  const prev = at === -1 ? sequence.at(-1) : sequence[at - 1];
+  const next = at === -1 ? sequence[0] : sequence[at + 1];
+  const filterName = FILTERS.find(([key]) => key === filter)?.[1] ?? "";
   const go = (id: string | undefined, nextView: View = view) => id !== undefined && navigate(pageUrl(shareId, id, nextView));
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement) return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
-      if (event.key === "j") go(nextFlagged?.id);
-      if (event.key === "k") go(prevFlagged?.id);
+      if (event.key === "j") go(next?.id);
+      if (event.key === "k") go(prev?.id);
       if (event.key === "ArrowLeft") go(stats[position - 1]?.id);
       if (event.key === "ArrowRight") go(stats[position + 1]?.id);
     };
@@ -498,8 +665,10 @@ export const PageCompare = ({
     return siblings > 1 ? `${providerName(preset.provider)} · ${preset.mode}` : providerName(preset.provider);
   };
   const short = (id: string) => {
-    const provider = presetOf(id)?.provider;
-    return provider === undefined ? id : (SHORT_NAMES[provider] ?? provider);
+    const preset = presetOf(id);
+    if (preset === undefined) return id;
+    const siblings = runProviders.filter((p) => p === preset.provider).length;
+    return siblings > 1 ? preset.mode : (SHORT_NAMES[preset.provider] ?? preset.provider);
   };
 
   const parses = detail?.parses ?? [];
@@ -517,6 +686,15 @@ export const PageCompare = ({
     localStorage.setItem(pairKey(shareId), JSON.stringify(next));
   };
   const issues = parses.reduce((n, p) => n + flagsOf(p).length, 0);
+  const openSide = (presetId: string, flag: number | null) => {
+    const top = ranked[0]?.presetId;
+    const other = presetId === top ? ranked[1]?.presetId : top;
+    const pairNext = presetId === top ? [presetId, other ?? ""] : [other ?? "", presetId];
+    setPair(pairNext);
+    localStorage.setItem(pairKey(shareId), JSON.stringify(pairNext));
+    setFocus(flag === null ? null : { presetId, flag });
+    go(pageId, "side");
+  };
 
   return (
     <div className="pc">
@@ -526,26 +704,27 @@ export const PageCompare = ({
             Parse Judge
           </button>
           <span style={{ color: "var(--faint)" }}>/</span>
-          <DocPicker stats={stats} current={current} short={short} onPick={(id) => go(id)} />
+          <DocPicker
+            stats={stats}
+            rows={sequence}
+            current={current}
+            presetIds={run.presetIds}
+            label={short}
+            filter={filter}
+            sort={sort}
+            onFilter={setFilter}
+            onSort={setSort}
+            onPick={(id) => go(id)}
+          />
         </div>
         <div className="flex" style={{ gap: 12 }}>
-          {flagged.length > 0 && (
+          {sequence.length > 0 && (
             <div className="seg">
-              <button
-                type="button"
-                aria-label="Previous flagged page"
-                disabled={prevFlagged === undefined}
-                onClick={() => go(prevFlagged?.id)}
-              >
+              <button type="button" aria-label="Previous page in list" disabled={prev === undefined} onClick={() => go(prev?.id)}>
                 ‹
               </button>
-              <span>{at === -1 ? `${flagged.length} flagged` : `Flagged ${at + 1} of ${flagged.length}`}</span>
-              <button
-                type="button"
-                aria-label="Next flagged page"
-                disabled={nextFlagged === undefined}
-                onClick={() => go(nextFlagged?.id)}
-              >
+              <span>{at === -1 ? `${filterName} · ${sequence.length}` : `${filterName} · ${at + 1} of ${sequence.length}`}</span>
+              <button type="button" aria-label="Next page in list" disabled={next === undefined} onClick={() => go(next?.id)}>
                 ›
               </button>
             </div>
@@ -567,14 +746,20 @@ export const PageCompare = ({
         </aside>
         {detail === null && <p style={{ padding: 24 }}>Loading…</p>}
         {detail !== null && view === "side" && (
-          <div className="pc-cols">
+          // biome-ignore lint/a11y/noStaticElementInteractions: hover only highlights matching blocks.
+          <div
+            className="pc-cols"
+            onMouseMove={(e) => linkBlocks(e.currentTarget, e.target)}
+            onMouseLeave={(e) => linkBlocks(e.currentTarget, null)}
+          >
             {([a, b] as const).map((id, slot) => {
               const parse = parses.find((p) => p.presetId === id);
               if (parse === undefined) return null;
               return (
                 <Column
                   key={parse.presetId}
-                  slot={"AB"[slot] ?? ""}
+                  column={slot}
+                  focus={focus?.presetId === parse.presetId ? focus.flag : null}
                   parse={parse}
                   best={parse.score === best}
                   menu={
@@ -612,6 +797,7 @@ export const PageCompare = ({
                     <th>Provider</th>
                     <th>Score</th>
                     <th>Issues the judge found</th>
+                    <th />
                   </tr>
                 </thead>
                 <tbody>
@@ -620,8 +806,15 @@ export const PageCompare = ({
                     return (
                       <tr key={parse.presetId}>
                         <td>
-                          <div>{providerName(presetOf(parse.presetId)?.provider ?? parse.presetId)}</div>
-                          <div className="menu-sub">{presetOf(parse.presetId)?.mode}</div>
+                          <button
+                            type="button"
+                            className="plain"
+                            style={{ textAlign: "left" }}
+                            onClick={() => openSide(parse.presetId, null)}
+                          >
+                            <div>{providerName(presetOf(parse.presetId)?.provider ?? parse.presetId)}</div>
+                            <div className="menu-sub">{presetOf(parse.presetId)?.mode}</div>
+                          </button>
                         </td>
                         <td className="table-score" style={{ color: parse.score === best ? "var(--accent)" : undefined }}>
                           {parse.score ?? "–"}
@@ -635,8 +828,14 @@ export const PageCompare = ({
                               <div className="reasoning">{parse.reasoning}</div>
                             </>
                           ) : (
-                            flags.map((flag) => (
-                              <div key={`${flag.category}:${flag.description}`} className="table-flag">
+                            flags.map((flag, i) => (
+                              <button
+                                key={`${flag.category}:${flag.description}`}
+                                type="button"
+                                className="plain table-flag"
+                                title="Show in the output"
+                                onClick={() => openSide(parse.presetId, i)}
+                              >
                                 <span className={`sev ${flag.severity}`}>{flag.severity.toUpperCase()}</span>
                                 <div>
                                   <div className="mono" style={{ fontSize: 13 }}>
@@ -644,8 +843,15 @@ export const PageCompare = ({
                                   </div>
                                   <div>{flag.description}</div>
                                 </div>
-                              </div>
+                              </button>
                             ))
+                          )}
+                        </td>
+                        <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                          {parse.status === "succeeded" && (
+                            <button type="button" className="btn" onClick={() => openSide(parse.presetId, null)}>
+                              Compare →
+                            </button>
                           )}
                         </td>
                       </tr>

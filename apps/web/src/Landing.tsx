@@ -520,7 +520,11 @@ export const Landing = () => {
           flexWrap: "wrap",
           gap: 24,
           justifyContent: "space-between",
-          padding: "36px var(--gutter) 72px",
+          padding: "20px var(--gutter)",
+          position: "sticky",
+          bottom: 0,
+          background: "#fff",
+          zIndex: 5,
         }}
       >
         <div className="totals" style={{ display: "flex", gap: 44 }}>

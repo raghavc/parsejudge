@@ -236,7 +236,8 @@ export const Report = ({
     const failed = scores.length - ok.length;
     return { page, scores, failed, gap: ok.length > 1 ? Math.max(...ok) - Math.min(...ok) : 0 };
   });
-  const disagreements = pageStats.filter((d) => d.gap >= 3 || d.failed > 0);
+  const [minGap, setMinGap] = useState(3);
+  const disagreements = pageStats.filter((d) => d.gap >= minGap || d.failed > 0);
   const failedCount = disagreements.filter((d) => d.failed > 0).length;
   const [filter, setFilter] = useState<Filter>({ kind: "gap" });
   const versus = (d: (typeof pageStats)[number], f: Extract<Filter, { kind: "h2h" }>) => {
@@ -344,11 +345,40 @@ export const Report = ({
         >
           <div style={{ width: cols.rank }}>#</div>
           <div style={{ width: cols.provider }}>Provider</div>
-          <div style={{ flexGrow: 1 }}>Mean score · 1 to 10</div>
-          <div style={{ textAlign: "right", width: cols.high }}>High-severity pages</div>
-          <div style={{ textAlign: "right", width: cols.price }}>$ / 1k pp</div>
-          <div style={{ textAlign: "right", width: cols.latency }}>p50 · p95</div>
-          <div style={{ textAlign: "right", width: cols.failed }}>Failed</div>
+          <div style={{ flexGrow: 1 }}>
+            <span
+              className="tip"
+              data-tip="The judge scores each page from 1 to 10. This is the mean over every page the provider parsed."
+            >
+              Mean score · 1 to 10
+            </span>
+          </div>
+          <div style={{ textAlign: "right", width: cols.high }}>
+            <span
+              className="tip end"
+              data-tip="Share of pages with at least one high-severity error, such as missing, invented or misread content."
+            >
+              High-severity pages
+            </span>
+          </div>
+          <div style={{ textAlign: "right", width: cols.price }}>
+            <span className="tip end" data-tip="List price in US dollars per 1,000 pages for this provider mode.">
+              $ / 1k pp
+            </span>
+          </div>
+          <div style={{ textAlign: "right", width: cols.latency }}>
+            <span
+              className="tip end"
+              data-tip="Seconds to parse one page. p50 is the median; p95 is the time 95% of pages finished within."
+            >
+              p50 · p95
+            </span>
+          </div>
+          <div style={{ textAlign: "right", width: cols.failed }}>
+            <span className="tip end" data-tip="Pages where the provider returned an error after retries.">
+              Failed
+            </span>
+          </div>
         </div>
         {ranked.map((p, i) => {
           const preset = byId.get(p.presetId);
@@ -580,13 +610,28 @@ export const Report = ({
               <div style={note}>
                 {filter.kind === "h2h"
                   ? `Pages where ${name(filter.row)} scored ${filter.outcome === "win" ? "higher than" : filter.outcome === "tie" ? "the same as" : "lower than"} ${name(filter.col)}. ${matching.length > shown.length ? `Showing the ${shown.length} with the widest margin.` : ""}`
-                  : `${disagreements.length} of ${pageCount} pages have a gap of 3 or more points between the best and worst score, or a failed parse.`}
+                  : `${disagreements.length} of ${pageCount} pages have a gap of ${minGap} or more points between the best and worst score, or a failed parse.`}
               </div>
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              <select
+                className={`gap-select${filter.kind === "gap" ? " on" : ""}`}
+                aria-label="Minimum gap between the best and worst score"
+                value={minGap}
+                onChange={(e) => {
+                  setMinGap(Number(e.target.value));
+                  setFilter({ kind: "gap" });
+                }}
+                onClick={() => filter.kind !== "gap" && setFilter({ kind: "gap" })}
+              >
+                {[2, 3, 5].map((g) => (
+                  <option key={g} value={g}>
+                    Gap ≥ {g} · {pageStats.filter((d) => d.gap >= g || d.failed > 0).length}
+                  </option>
+                ))}
+              </select>
               {(
                 [
-                  [{ kind: "gap" }, "Largest gap"],
                   ...(failedCount > 0 ? [[{ kind: "failed" }, `Failed · ${failedCount}`] as const] : []),
                   ...(filter.kind === "h2h" ? [[filter, `${filterLabel(filter)}  ×`] as const] : []),
                 ] as ReadonlyArray<readonly [Filter, string]>
@@ -613,7 +658,9 @@ export const Report = ({
           </div>
           {shown.length === 0 ? (
             <div style={note}>
-              {filter.kind === "gap" ? "Every provider scored within 3 points of the others on every page." : "No pages match."}
+              {filter.kind === "gap"
+                ? `Every provider scored within ${minGap - 1} points of the others on every page.`
+                : "No pages match."}
             </div>
           ) : (
             <div style={{ display: "grid", gap: 24, gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
