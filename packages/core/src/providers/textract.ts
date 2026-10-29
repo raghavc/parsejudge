@@ -45,23 +45,46 @@ const tableHtml = (table: Block, byId: ReadonlyMap<string, Block>): string => {
   return `<table>${body.join("")}</table>`;
 };
 
-/** Renders Textract LAYOUT blocks in reading order; LAYOUT_TABLE blocks use the matching TABLE block. */
+const isLayout = (block: Block | undefined): block is Block => string(block?.BlockType)?.startsWith("LAYOUT_") === true;
+
+/**
+ * Renders Textract LAYOUT blocks in reading order; LAYOUT_TABLE blocks use the matching TABLE block.
+ * Only the PAGE's own layout children are top level: a LAYOUT_LIST holds its items as LAYOUT_TEXT children,
+ * which are rendered once, as list items.
+ */
 export const textractMarkdown = (raw: unknown): string => {
   const blocks = array(record(raw).Blocks).map(record);
   const byId = new Map(blocks.flatMap((block) => (typeof block.Id === "string" ? [[block.Id, block] as const] : [])));
   const tables = blocks.filter((block) => block.BlockType === "TABLE");
+  const nested = new Set(blocks.filter(isLayout).flatMap((block) => childIds(block).filter((id) => isLayout(byId.get(id)))));
+  const page = blocks.find((block) => block.BlockType === "PAGE");
+  const fromPage =
+    page === undefined
+      ? []
+      : childIds(page)
+          .map((id) => byId.get(id))
+          .filter(isLayout);
+  const top = (fromPage.length > 0 ? fromPage : blocks.filter(isLayout)).filter((block) => !nested.has(String(block.Id)));
   let tableIndex = 0;
-  const parts = blocks
-    .filter((block) => string(block.BlockType)?.startsWith("LAYOUT_") === true)
-    .map((block) => {
-      const type = string(block.BlockType) ?? "";
-      if (type === "LAYOUT_TABLE") {
-        const table = tables[tableIndex++];
-        return table === undefined ? blockText(block, byId) : tableHtml(table, byId);
-      }
-      if (type === "LAYOUT_PAGE_NUMBER") return "";
-      return `${HEADINGS[type] ?? ""}${blockText(block, byId)}`;
-    });
+  const parts = top.map((block) => {
+    const type = string(block.BlockType) ?? "";
+    if (type === "LAYOUT_TABLE") {
+      const table = tables[tableIndex++];
+      return table === undefined ? blockText(block, byId) : tableHtml(table, byId);
+    }
+    if (type === "LAYOUT_PAGE_NUMBER") return "";
+    if (type === "LAYOUT_LIST") {
+      const items = childIds(block)
+        .map((id) => byId.get(id))
+        .filter(isLayout);
+      return items
+        .map((item) => blockText(item, byId))
+        .filter((text) => text.length > 0)
+        .map((text) => `- ${text}`)
+        .join("\n");
+    }
+    return `${HEADINGS[type] ?? ""}${blockText(block, byId)}`;
+  });
   return joinNonEmpty(parts);
 };
 

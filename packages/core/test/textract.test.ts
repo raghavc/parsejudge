@@ -32,4 +32,21 @@ describe("textractMarkdown", () => {
     expect(markdown.indexOf("# Invoice")).toBeLessThan(markdown.indexOf("Total due"));
     expect(markdown).toMatch(/<td>Qty<\/td>\s*<td>Price<\/td>/);
   });
+
+  it("renders a list's items once, as list items, not again as a combined paragraph", () => {
+    const blocks = [
+      { Id: "page", BlockType: "PAGE", Relationships: [{ Type: "CHILD", Ids: ["list", "t1", "t2", "after"] }] },
+      { Id: "list", BlockType: "LAYOUT_LIST", Relationships: [{ Type: "CHILD", Ids: ["t1", "t2"] }] },
+      { Id: "t1", BlockType: "LAYOUT_TEXT", Relationships: [{ Type: "CHILD", Ids: ["l1"] }] },
+      { Id: "t2", BlockType: "LAYOUT_TEXT", Relationships: [{ Type: "CHILD", Ids: ["l2"] }] },
+      { Id: "after", BlockType: "LAYOUT_TEXT", Relationships: [{ Type: "CHILD", Ids: ["l3"] }] },
+      line("l1", "w1"),
+      line("l2", "w2"),
+      line("l3", "w3"),
+      word("w1", "Led design"),
+      word("w2", "Shipped app"),
+      word("w3", "Education"),
+    ];
+    expect(textractMarkdown({ Blocks: blocks })).toBe("- Led design\n- Shipped app\n\nEducation");
+  });
 });
