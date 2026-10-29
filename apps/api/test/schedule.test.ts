@@ -5,8 +5,9 @@ const PRESETS = 15;
 const STEPS_PER_INSTANCE = 10_000;
 
 describe("poll schedule", () => {
-  it("sees a fast job within a second and a slow one within 10 s", () => {
-    expect(pollDelayMs(0)).toBe(1000);
+  it("polls every second for the first 30 s, and a slow job within 10 s", () => {
+    expect(Array.from({ length: 30 }, (_, i) => pollDelayMs(i)).every((d) => d === 1000)).toBe(true);
+    expect(pollDelayMs(30)).toBe(1500);
     expect(Math.max(...Array.from({ length: MAX_POLLS }, (_, i) => pollDelayMs(i)))).toBe(10_000);
   });
 
