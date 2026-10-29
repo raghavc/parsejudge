@@ -1,5 +1,6 @@
 import { type CSSProperties, useEffect, useMemo, useState } from "react";
 import { api, type PageDetail, type Preset, type PresetSummary, type Run } from "./api.ts";
+import { CopyButton } from "./CopyButton.tsx";
 import { perThousand, providerName, seconds, shortName } from "./names.ts";
 import { navigate } from "./router.ts";
 
@@ -215,7 +216,7 @@ export const Report = ({
   };
 
   return (
-    <>
+    <div className="stagger">
       <section style={{ alignItems: "end", display: "flex", justifyContent: "space-between", padding: "72px 120px 56px" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <div className="eyebrow" style={{ fontSize: 13 }}>
@@ -418,9 +419,7 @@ export const Report = ({
             <span className="mono" style={{ fontSize: 13 }}>
               {mcp}
             </span>
-            <button type="button" className="u" style={{ fontSize: 13 }} onClick={() => navigator.clipboard.writeText(mcp)}>
-              Copy
-            </button>
+            <CopyButton text={mcp} label="Copy" className="u" style={{ fontSize: 13 }} />
           </div>
           <div style={{ color: "var(--muted)", fontSize: 12 }}>
             Try: "On run {run.shareId}, show me the pages where the providers disagree most and why."
@@ -554,6 +553,6 @@ export const Report = ({
           </div>
         ))}
       </section>
-    </>
+    </div>
   );
 };

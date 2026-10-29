@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type CellDone, currentUser, type Preset, type Run } from "./api.ts";
+import { CopyButton } from "./CopyButton.tsx";
 import { Nav } from "./Nav.tsx";
 import { providerName, seconds } from "./names.ts";
 import { Report } from "./Report.tsx";
@@ -24,7 +25,16 @@ export const runTitle = (run: Run) => {
 
 const Bar = ({ value, height = 2 }: { readonly value: number; readonly height?: number }) => (
   <div style={{ background: "var(--rule)", display: "flex", flexGrow: 1, height }}>
-    <div style={{ background: "var(--ink)", height, width: `${Math.round(value * 100)}%`, transition: "width 300ms ease" }} />
+    <div
+      style={{
+        background: "var(--ink)",
+        height,
+        width: "100%",
+        transform: `scaleX(${value})`,
+        transformOrigin: "left",
+        transition: "transform 300ms var(--ease-out)",
+      }}
+    />
   </div>
 );
 
@@ -61,13 +71,15 @@ const Progress = ({
 
   const all = [...cells.values()];
   const total = pages * run.presetIds.length;
+  const judgeDone = pages > 0 && judged === pages;
+  const progress = total === 0 ? 0 : (all.length + judged) / (total + pages);
   const share = `${location.host}/r/${run.shareId}`;
   const user = currentUser();
   const started = new Date(run.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   const head = { color: "var(--muted)" } as const;
 
   return (
-    <>
+    <div className="stagger">
       <section style={{ alignItems: "end", display: "flex", justifyContent: "space-between", padding: "72px 120px 40px" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <div style={{ alignItems: "center", display: "flex", gap: 10 }}>
@@ -84,15 +96,15 @@ const Progress = ({
         </div>
         <div style={{ alignItems: "end", display: "flex", flexDirection: "column", gap: 6 }}>
           <div style={{ fontSize: 64, fontWeight: 300, letterSpacing: "-0.04em", lineHeight: "64px" }}>
-            {total === 0 ? 0 : Math.floor((all.length / total) * 100)}%
+            {Math.floor(progress * 100)}%
           </div>
           <div style={{ color: "var(--muted)", fontSize: 14 }}>
-            {all.length} of {total} parses
+            {all.length} of {total} parses · {judged} of {pages} pages judged
           </div>
         </div>
       </section>
       <div style={{ display: "flex", padding: "0 120px" }}>
-        <Bar value={total === 0 ? 0 : all.length / total} />
+        <Bar value={progress} />
       </div>
       <section style={{ display: "flex", flexDirection: "column", padding: "48px 120px 0" }}>
         <div className="eyebrow" style={{ borderBottom: "1px solid var(--line)", display: "flex", gap: 24, paddingBottom: 12 }}>
@@ -108,7 +120,7 @@ const Progress = ({
           const failed = mine.filter((c) => !c.ok).length;
           const latency = p50(mine.flatMap((c) => (c.latencyMs === null ? [] : [c.latencyMs])));
           const finished = pages > 0 && mine.length === pages;
-          const status = finished ? (judged === pages ? "Done" : "Judging") : mine.length === 0 ? "Queued" : "Parsing";
+          const status = finished ? "Done" : mine.length === 0 ? "Queued" : "Parsing";
           return (
             <div key={id} className="row" style={{ fontSize: 14, gap: 24, padding: "20px 0" }}>
               <div style={{ fontSize: 15, width: 260 }}>
@@ -127,6 +139,19 @@ const Progress = ({
             </div>
           );
         })}
+        <div className="row" style={{ fontSize: 14, gap: 24, padding: "20px 0" }}>
+          <div style={{ fontSize: 15, width: 260 }}>
+            Judge<span style={head}> · {run.judgeModel.replace(/^.*\//, "")}</span>
+          </div>
+          <Bar value={pages === 0 ? 0 : judged / pages} />
+          <div style={{ textAlign: "right", width: 100 }}>
+            {judged} / {pages}
+          </div>
+          <div style={{ ...head, textAlign: "right", width: 120 }}>–</div>
+          <div style={{ color: judgeDone ? "var(--ink)" : "var(--muted)", textAlign: "right", width: 140 }}>
+            {judgeDone ? "Done" : judged > 0 ? "Judging" : "Waiting"}
+          </div>
+        </div>
         <div style={{ alignItems: "center", display: "flex", justifyContent: "space-between", padding: "40px 0 72px" }}>
           <div style={{ color: "var(--muted)", fontSize: 14 }}>
             You can close this tab.
@@ -134,13 +159,11 @@ const Progress = ({
           </div>
           <div style={{ alignItems: "center", display: "flex", gap: 16, fontSize: 14 }}>
             {share}
-            <button type="button" className="btn" onClick={() => navigator.clipboard.writeText(`${location.protocol}//${share}`)}>
-              Copy link
-            </button>
+            <CopyButton text={`${location.protocol}//${share}`} label="Copy link" />
           </div>
         </div>
       </section>
-    </>
+    </div>
   );
 };
 

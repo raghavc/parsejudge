@@ -7,6 +7,7 @@ export const SignIn = ({ onDone, onCancel }: { readonly onDone: () => void; read
   const valid = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email);
   return (
     <div
+      className="modal-backdrop"
       style={{
         position: "fixed",
         inset: 0,
@@ -17,6 +18,7 @@ export const SignIn = ({ onDone, onCancel }: { readonly onDone: () => void; read
       }}
     >
       <form
+        className="modal"
         style={{ background: "#fff", width: 440, padding: 40, borderRadius: 6, display: "grid", gap: 16 }}
         onSubmit={(e) => {
           e.preventDefault();

@@ -2,6 +2,7 @@ import DOMPurify from "dompurify";
 import { marked } from "marked";
 import { useEffect, useMemo, useState } from "react";
 import { api, type JudgedError, type PageDetail, type PageParse, type Preset, type Run } from "./api.ts";
+import { CopyButton } from "./CopyButton.tsx";
 import { SHORT_NAMES } from "./names.ts";
 import { navigate } from "./router.ts";
 
@@ -198,9 +199,7 @@ export const PageCompare = ({
           </button>
         </div>
         <div className="flex" style={{ gap: 8 }}>
-          <button type="button" className="btn" onClick={() => navigator.clipboard.writeText(location.href)}>
-            Copy link to page
-          </button>
+          <CopyButton text={location.href} label="Copy link to page" />
           <div className="flex" style={{ border: "1px solid var(--line)" }}>
             {(["side", "all"] as const).map((name) => (
               <button

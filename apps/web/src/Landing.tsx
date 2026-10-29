@@ -128,7 +128,7 @@ const ProviderRow = (props: {
         </div>
       </div>
       {open && (
-        <div style={{ alignItems: "center", display: "flex", gap: 8, paddingLeft: 24 }}>
+        <div className="enter" style={{ alignItems: "center", display: "flex", gap: 8, paddingLeft: 24 }}>
           {presets.map((p) => {
             const active = selected.has(p.id);
             return (
@@ -163,7 +163,7 @@ const ProviderRow = (props: {
         </div>
       )}
       {needsKey && (
-        <div style={{ alignItems: "center", display: "flex", gap: 40, paddingLeft: 24 }}>
+        <div className="enter" style={{ alignItems: "center", display: "flex", gap: 40, paddingLeft: 24 }}>
           <input
             type="password"
             placeholder={`${providerName(provider)} API key`}
@@ -348,7 +348,7 @@ export const Landing = () => {
           <input ref={fileInput} type="file" multiple hidden accept=".pdf,.docx,.pptx" onChange={(e) => add(e.target.files)} />
           <div style={{ display: "flex", flexDirection: "column", paddingTop: 12 }}>
             {uploads.map((u) => (
-              <div key={u.id} className="row" style={{ padding: "16px 0", fontSize: 14 }}>
+              <div key={u.id} className="row enter" style={{ padding: "16px 0", fontSize: 14 }}>
                 <div style={{ flexGrow: 1, fontSize: 15 }}>{u.name}</div>
                 <div style={{ color: "var(--muted)", width: 100 }}>{u.format}</div>
                 <div style={{ color: u.error ? "var(--bad)" : "var(--muted)", textAlign: "right", width: 100 }}>
@@ -430,7 +430,7 @@ export const Landing = () => {
         </div>
         <div style={{ alignItems: "center", display: "flex", gap: 16 }}>
           {(overLimit || error) && (
-            <span style={{ color: "var(--bad)", fontSize: 13 }}>
+            <span className="enter" style={{ color: "var(--bad)", fontSize: 13 }}>
               {overLimit ? `${pages} pages selected. The limit is ${MAX_PAGES_PER_RUN} per run.` : error}
             </span>
           )}
