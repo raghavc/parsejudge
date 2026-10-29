@@ -1,5 +1,5 @@
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
-import { api, currentUser, type Preset } from "./api.ts";
+import { api, auth, currentUser, DRAFT_KEY, type Draft, type Preset } from "./api.ts";
 import { Nav } from "./Nav.tsx";
 import { BYOK_KEY, numberWord, PROVIDER_ORDER, perThousand, providerName } from "./names.ts";
 import { navigate } from "./router.ts";
@@ -194,16 +194,33 @@ export const Landing = () => {
   const [starting, setStarting] = useState(false);
   const [pending, setPending] = useState<ReadonlyArray<File> | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  // Set by the sign-in link page: the files uploaded and presets chosen before sign-in.
+  const [draft] = useState(() => JSON.parse(sessionStorage.getItem(DRAFT_KEY) ?? "null") as Draft | null);
+
+  useEffect(() => {
+    sessionStorage.removeItem(DRAFT_KEY);
+    if (draft === null) return;
+    setUploads(
+      draft.documents.map((d) => ({
+        id: d.documentId,
+        name: d.filename,
+        format: d.format.toUpperCase(),
+        documentId: d.documentId,
+        pageCount: d.pageCount,
+      })),
+    );
+  }, [draft]);
 
   useEffect(() => {
     api.presets().then(
       (all) => {
         setPresets(all);
-        setSelected(new Set(all.filter((p) => p.default).map((p) => p.id)));
+        const restored = draft?.presetIds.filter((id) => all.some((p) => p.id === id)) ?? [];
+        setSelected(new Set(restored.length > 0 ? restored : all.filter((p) => p.default).map((p) => p.id)));
       },
       (e: unknown) => setError(String(e)),
     );
-  }, []);
+  }, [draft]);
 
   const groups = useMemo(() => {
     const byProvider = new Map<string, Preset[]>();
@@ -266,6 +283,10 @@ export const Landing = () => {
   const title = titleFor?.key === ready.map((u) => u.name).join("\n") ? (titleFor.title ?? undefined) : undefined;
 
   const start = async () => {
+    if (currentUser() === null) {
+      setPending([]);
+      return;
+    }
     setStarting(true);
     setError(null);
     try {
@@ -293,10 +314,11 @@ export const Landing = () => {
       <Nav user={currentUser()} />
       {pending && (
         <SignIn
-          onDone={() => {
+          onEmail={async (email) => {
+            await auth.start(email, [...selected]);
             upload(pending);
-            setPending(null);
           }}
+          onDone={() => setPending(null)}
           onCancel={() => setPending(null)}
         />
       )}

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api, currentUser, signOut } from "./api.ts";
+import { api, auth, currentUser, setUser } from "./api.ts";
 import { Dialog } from "./Dialog.tsx";
 import { Nav } from "./Nav.tsx";
 import { navigate } from "./router.ts";
@@ -19,8 +19,11 @@ export const Account = () => {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const leave = () => {
-    signOut();
+    setUser(null);
     navigate("/");
+  };
+  const signOut = () => {
+    auth.signOut().finally(leave);
   };
   const removeAll = () => {
     setBusy(true);
@@ -43,7 +46,7 @@ export const Account = () => {
         <section style={{ maxWidth: 880, padding: "48px var(--gutter) 72px" }}>
           <div style={row}>
             <div style={{ fontSize: 15 }}>Sign out of this browser</div>
-            <button type="button" className="btn" onClick={leave}>
+            <button type="button" className="btn" onClick={signOut}>
               Sign out
             </button>
           </div>

@@ -24,7 +24,12 @@ export interface Env {
   readonly BUDGET_ALERT_URL?: string;
   /** Analytics Engine dataset for per-call cost and latency (see usage.ts). Unbound turns it off. */
   readonly USAGE?: AnalyticsEngineDataset;
+  /** "email" (sign-in by emailed code or link) or "dev" (also trusts the x-parsejudge-user header; local only). */
   readonly AUTH_MODE: string;
+  /** HMAC key for sign-in codes, links and session ids. */
+  readonly AUTH_KEY: string;
+  readonly EMAIL: SendEmail;
+  readonly EMAIL_FROM: string;
   /** Hosted provider credentials (REDUCTO_API_KEY, AZURE_DI_KEY, ...). */
   readonly [credential: string]: unknown;
 }

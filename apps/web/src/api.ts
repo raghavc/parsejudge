@@ -120,15 +120,54 @@ export type RunEvent =
   | { readonly type: "page_done"; readonly pageId: string; readonly done: number; readonly total: number }
   | { readonly type: "run_done"; readonly status: "succeeded" | "failed" };
 
-const USER_KEY = "parsejudge.user";
+let user: string | null = null;
 
-/** Stand-in for email sign-in: the API's dev auth mode trusts this header. */
-export const currentUser = () => localStorage.getItem(USER_KEY);
-export const signIn = (email: string) => localStorage.setItem(USER_KEY, email);
-export const signOut = () => localStorage.removeItem(USER_KEY);
-const userHeaders = (): Record<string, string> => {
-  const email = currentUser();
-  return email === null ? {} : { "x-parsejudge-user": email };
+/** Loads the signed-in email from the session cookie. Called once before the first render. */
+export const loadUser = async () => {
+  const response = await fetch("/v1/me").catch(() => null);
+  user = response?.ok ? ((await response.json()) as { email: string }).email : null;
+};
+export const currentUser = () => user;
+export const setUser = (email: string | null) => {
+  user = email;
+};
+
+export interface DraftDocument {
+  readonly documentId: string;
+  readonly filename: string;
+  readonly format: string;
+  readonly pageCount: number;
+}
+/** What a sign-in carries across tabs and browsers: the files uploaded while it was open and the chosen presets. */
+export interface Draft {
+  readonly presetIds: ReadonlyArray<string>;
+  readonly documents: ReadonlyArray<DraftDocument>;
+}
+/** The sign-in link tab hands its draft to the landing page, and tells the tab that started sign-in. */
+export const DRAFT_KEY = "parsejudge.draft";
+export const AUTH_CHANNEL = "parsejudge.auth";
+
+const authJson = async <T>(response: Response): Promise<T> => {
+  const body = (await response.json().catch(() => ({}))) as { readonly error?: string };
+  if (!response.ok) throw new Error(body.error ?? `Sign-in failed (${response.status}).`);
+  return body as T;
+};
+const post = (path: string, body: unknown) =>
+  fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+export const auth = {
+  start: (email: string, presetIds: ReadonlyArray<string>) => post("/v1/auth/start", { email, presetIds }).then(authJson),
+  verify: (body: { readonly code: string } | { readonly token: string }) =>
+    post("/v1/auth/verify", body)
+      .then(authJson<{ readonly email: string; readonly draft: Draft }>)
+      .then((result) => {
+        user = result.email;
+        return result;
+      }),
+  signOut: () =>
+    post("/v1/auth/signout", {}).then(() => {
+      user = null;
+    }),
 };
 
 const json = async <T>(response: Response): Promise<T> => {
@@ -146,7 +185,7 @@ export const api = {
   upload: (file: File) =>
     fetch(`/v1/documents?filename=${encodeURIComponent(file.name)}`, {
       method: "POST",
-      headers: { ...userHeaders(), "content-type": file.type || "application/octet-stream" },
+      headers: { "content-type": file.type || "application/octet-stream" },
       body: file,
     }).then(json<{ documentId: string; pageCount: number }>),
   createRun: (body: {
@@ -157,7 +196,7 @@ export const api = {
   }) =>
     fetch("/v1/runs", {
       method: "POST",
-      headers: { ...userHeaders(), "content-type": "application/json" },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     }).then(json<{ runId: string; shareId: string }>),
   title: (filenames: ReadonlyArray<string>) =>
@@ -166,10 +205,10 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ filenames }),
     }).then(json<{ title: string | null }>),
-  shared: (shareId: string) => fetch(`/v1/share/${shareId}`, { headers: userHeaders() }).then(json<Run>),
+  shared: (shareId: string) => fetch(`/v1/share/${shareId}`).then(json<Run>),
   deleteRun: (runId: string, scope: "data" | "report") =>
-    fetch(`/v1/runs/${runId}?scope=${scope}`, { method: "DELETE", headers: userHeaders() }).then(ok),
-  deleteAccount: () => fetch("/v1/account", { method: "DELETE", headers: userHeaders() }).then(ok),
+    fetch(`/v1/runs/${runId}?scope=${scope}`, { method: "DELETE" }).then(ok),
+  deleteAccount: () => fetch("/v1/account", { method: "DELETE" }).then(ok),
   page: (runId: string, pageId: string) => fetch(`/v1/runs/${runId}/pages/${pageId}`).then(json<PageDetail>),
   events: (runId: string, onEvent: (event: RunEvent) => void) => {
     const socket = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/v1/runs/${runId}/events`);

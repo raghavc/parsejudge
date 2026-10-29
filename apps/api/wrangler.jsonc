@@ -5,6 +5,8 @@
   "compatibility_date": "2026-10-01",
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true, "logs": { "enabled": true }, "traces": { "enabled": true } },
+  "send_email": [{ "name": "EMAIL" }],
+  "triggers": { "crons": ["17 * * * *"] },
   "analytics_engine_datasets": [{ "binding": "USAGE", "dataset": "parsejudge_usage" }],
   "limits": { "cpu_ms": 300000 },
   "assets": {
@@ -21,7 +23,8 @@
     "MAX_PAGES_PER_RUN": "1000",
     "MAX_CONCURRENCY": "{}",
     "AWS_REGION": "us-west-2",
-    "AUTH_MODE": "dev"
+    "AUTH_MODE": "email",
+    "EMAIL_FROM": "noreply@parsejudge.com"
   },
   "d1_databases": [{ "binding": "DB", "database_name": "parsejudge", "database_id": "local", "migrations_dir": "migrations" }],
   "r2_buckets": [{ "binding": "BLOBS", "bucket_name": "parsejudge-blobs" }],

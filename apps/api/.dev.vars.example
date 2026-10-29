@@ -12,3 +12,6 @@ AWS_SECRET_ACCESS_KEY=
 JUDGE_API_KEY=
 BLOB_SIGNING_KEY=
 CREDENTIALS_KEY=
+AUTH_KEY=
+# Local only: also trust the x-parsejudge-user header.
+AUTH_MODE=dev

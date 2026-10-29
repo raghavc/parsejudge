@@ -3,6 +3,7 @@ import { DEFAULT_PRESET_IDS, ErrorCategory, findPreset, JUDGE_VERSION, PRESETS, 
 import { Effect, Layer, Schema } from "effect";
 import { HttpRouter, HttpServer, HttpServerRequest } from "effect/http";
 import { HttpApi, HttpApiBuilder, HttpApiEndpoint, HttpApiError, HttpApiGroup } from "effect/http-api";
+import { PENDING_USER, pendingLogin, sessionUser } from "./auth.ts";
 import { signedBlobUrl } from "./blobs.ts";
 import { toPdf } from "./converter.ts";
 import { encryptCredentials } from "./credentials.ts";
@@ -210,13 +211,11 @@ export const Api = HttpApi.make("parsejudge")
 
 const query = <A>(promise: () => Promise<A>) => Effect.promise(promise);
 
-/**
- * The signed-in user. Placeholder until email auth lands: trusts the `x-parsejudge-user` header
- * when AUTH_MODE is "dev", and rejects every request otherwise.
- */
-/** The caller's user id if they are signed in and known, without creating a user. */
+/** The signed-in user's id (session cookie; the x-parsejudge-user header too in dev auth mode), without creating a user. */
 const signedInUser = Effect.gen(function* () {
   const request = yield* HttpServerRequest.HttpServerRequest;
+  const session = yield* query(() => sessionUser(cf, request.headers.cookie));
+  if (session !== null) return session.id;
   const email = request.headers["x-parsejudge-user"];
   if (cf.AUTH_MODE !== "dev" || email === undefined) return null;
   const user = yield* query(() =>
@@ -231,22 +230,35 @@ const requireUser = Effect.gen(function* () {
   return id;
 });
 
+/** Like requireUser; in dev auth mode it also creates the header's user. */
 const currentUser = Effect.gen(function* () {
+  const id = yield* signedInUser;
+  if (id !== null) return id;
   const request = yield* HttpServerRequest.HttpServerRequest;
   const email = request.headers["x-parsejudge-user"];
   if (cf.AUTH_MODE !== "dev" || email === undefined || !email.includes("@")) {
     return yield* new HttpApiError.Unauthorized({});
   }
-  const id = crypto.randomUUID();
+  const newId = crypto.randomUUID();
   yield* query(() =>
     cf.DB.prepare("INSERT INTO users (id, email, created_at) VALUES (?, ?, ?) ON CONFLICT (email) DO NOTHING")
-      .bind(id, email.toLowerCase(), Date.now())
+      .bind(newId, email.toLowerCase(), Date.now())
       .run(),
   );
   const user = yield* query(() =>
     cf.DB.prepare("SELECT id FROM users WHERE email = ?").bind(email.toLowerCase()).first<{ id: string }>(),
   );
-  return user?.id ?? id;
+  return user?.id ?? newId;
+});
+
+/** Who an upload belongs to: the signed-in user, or else this browser's open sign-in (its user once it completes). */
+const uploader = Effect.gen(function* () {
+  const user = yield* signedInUser;
+  if (user !== null) return { userId: user, loginId: null };
+  const request = yield* HttpServerRequest.HttpServerRequest;
+  const loginId = yield* query(() => pendingLogin(cf, request.headers.cookie));
+  if (loginId !== null) return { userId: PENDING_USER, loginId };
+  return { userId: yield* currentUser, loginId: null };
 });
 
 const sha256 = async (bytes: Uint8Array) =>
@@ -357,7 +369,7 @@ const PresetsLive = HttpApiBuilder.group(Api, "presets", (handlers) =>
 const DocumentsLive = HttpApiBuilder.group(Api, "documents", (handlers) =>
   handlers.handle("upload", ({ query: { filename } }) =>
     Effect.gen(function* () {
-      const userId = yield* currentUser;
+      const { userId, loginId } = yield* uploader;
       const request = yield* HttpServerRequest.HttpServerRequest;
       const bytes = new Uint8Array(yield* request.arrayBuffer.pipe(Effect.mapError(() => new HttpApiError.BadRequest({}))));
       const format = yield* sniffFormat(bytes).pipe(Effect.mapError(() => new HttpApiError.BadRequest({})));
@@ -369,14 +381,34 @@ const DocumentsLive = HttpApiBuilder.group(Api, "documents", (handlers) =>
       const pages = yield* splitPages(pdf, Number(cf.MAX_PAGES_PER_RUN)).pipe(
         Effect.mapError(() => new HttpApiError.BadRequest({})),
       );
+      if (loginId !== null) {
+        const held = yield* query(() =>
+          cf.DB.prepare("SELECT COALESCE(SUM(page_count), 0) AS pages FROM documents WHERE login_id = ?")
+            .bind(loginId)
+            .first<{ pages: number }>(),
+        );
+        if ((held?.pages ?? 0) + pages.length > Number(cf.MAX_PAGES_PER_RUN)) return yield* new HttpApiError.BadRequest({});
+      }
       const documentId = crypto.randomUUID();
       yield* query(() => cf.BLOBS.put(sourceKey(documentId, format), bytes));
       yield* query(() => cf.BLOBS.put(documentKey(documentId), pdf));
       yield* query(async () =>
         cf.DB.prepare(
-          "INSERT INTO documents (id, user_id, filename, format, sha256, page_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+          // A sign-in that completes while this upload runs has already set logins.user_id; the upload goes to that user.
+          `INSERT INTO documents (id, user_id, login_id, filename, format, sha256, page_count, created_at)
+           VALUES (?, COALESCE((SELECT user_id FROM logins WHERE id = ?), ?), ?, ?, ?, ?, ?, ?)`,
         )
-          .bind(documentId, userId, filename ?? `document.${format}`, format, await sha256(bytes), pages.length, Date.now())
+          .bind(
+            documentId,
+            loginId,
+            userId,
+            loginId,
+            filename ?? `document.${format}`,
+            format,
+            await sha256(bytes),
+            pages.length,
+            Date.now(),
+          )
           .run(),
       );
       return { documentId, pageCount: pages.length };

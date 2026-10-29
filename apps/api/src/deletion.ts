@@ -81,5 +81,17 @@ export const deleteUser = async (env: Env, userId: string) => {
   for (const run of runs.results) await deleteRun(env, run.id, "report");
   const docs = "SELECT id FROM documents WHERE user_id = ?1";
   await removeKeys(env.BLOBS, await documentBlobs(env, docs, userId));
-  await env.DB.batch([...documentStatements(env, docs, userId), env.DB.prepare("DELETE FROM users WHERE id = ?").bind(userId)]);
+  await env.DB.batch([
+    ...documentStatements(env, docs, userId),
+    env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(userId),
+    env.DB.prepare("DELETE FROM logins WHERE user_id = ?").bind(userId),
+    env.DB.prepare("DELETE FROM users WHERE id = ?").bind(userId),
+  ]);
+};
+
+/** Deletes uploads of sign-ins that never completed (still owned by the pending user) made before `before`. */
+export const deleteExpiredUploads = async (env: Env, before: number) => {
+  const docs = "SELECT id FROM documents WHERE user_id = 'pending' AND created_at < ?1";
+  await removeKeys(env.BLOBS, await documentBlobs(env, docs, String(before)));
+  await env.DB.batch(documentStatements(env, docs, String(before)));
 };
