@@ -332,7 +332,7 @@ const DocPicker = ({
     onPick(id);
   };
   return (
-    <div ref={ref} style={{ minWidth: 0, position: "relative" }}>
+    <div ref={ref} className="picker-wrap" style={{ minWidth: 0, position: "relative" }}>
       <button type="button" className="picker-trigger" aria-expanded={open} onClick={() => setOpen(!open)}>
         <span className="clip" title={current.filename}>
           {current.filename}

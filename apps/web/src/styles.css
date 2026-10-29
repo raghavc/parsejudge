@@ -705,7 +705,21 @@ mark.flag.medium {
   .pc-header > div:first-child {
     width: 100%;
   }
+  .picker-wrap {
+    flex: 1 1 0;
+  }
+  .markdown h1 {
+    font-size: 22px;
+  }
+  .markdown h2 {
+    font-size: 19px;
+  }
+  .markdown h3 {
+    font-size: 17px;
+  }
   .picker-trigger {
+    max-width: none;
+    width: 100%;
     flex: 1;
   }
   .pc-col-body {
