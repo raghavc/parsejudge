@@ -48,7 +48,6 @@ export const promote = (state: PoolState, now: number): PoolState => {
 };
 
 /** Drops the head of the queue, when its workflow no longer exists. */
-export const dropHead = (state: PoolState): PoolState => ({ ...state, queue: state.queue.slice(1) });
 
 export const nextExpiry = (state: PoolState): number | undefined => {
   const expiries = Object.values(state.holders);

@@ -30,7 +30,7 @@ const events = (env: Env, runId: string) =>
   env.RUN_EVENTS.get(env.RUN_EVENTS.idFromName(runId)) as unknown as DurableObjectStub<RunEvents>;
 
 const slots = (env: Env, pool: string) =>
-  env.PROVIDER_SLOTS.get(env.PROVIDER_SLOTS.idFromName(pool)) as unknown as DurableObjectStub<ProviderSlots>;
+  env.PROVIDER_SLOTS.get(env.PROVIDER_SLOTS.idFromName(`v2:${pool}`)) as unknown as DurableObjectStub<ProviderSlots>;
 
 /** Renders a page's PNG once; later runs reuse it. */
 const renderPage = async (env: Env, page: string): Promise<void> => {

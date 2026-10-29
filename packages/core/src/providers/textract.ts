@@ -99,6 +99,8 @@ const headerRecord = (headers: Headers): Record<string, string> => {
 export const textract: ProviderAdapter = {
   id: "aws_textract",
   credentialKeys: ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION"],
+  // AnalyzeDocument is rate limited per account; at 100 calls at once AWS throttles about half of them.
+  maxConcurrency: 10,
   submit: Effect.fn("textract.submit")(function* (page, config, credentials) {
     const accessKeyId = yield* credential("aws_textract", credentials, "AWS_ACCESS_KEY_ID");
     const secretAccessKey = yield* credential("aws_textract", credentials, "AWS_SECRET_ACCESS_KEY");

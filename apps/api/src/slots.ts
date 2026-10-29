@@ -1,17 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import type { Env } from "./env.ts";
-import {
-  acquire,
-  dropHead,
-  EMPTY_POOL,
-  expire,
-  nextExpiry,
-  nextWaiter,
-  type PoolState,
-  promote,
-  release,
-  type Waiter,
-} from "./pool.ts";
+import { acquire, EMPTY_POOL, expire, nextExpiry, nextWaiter, type PoolState, promote, release, type Waiter } from "./pool.ts";
 
 const RETRY_WAKE_MS = 5000;
 
@@ -21,39 +10,58 @@ const RETRY_WAKE_MS = 5000;
  * A waiter is woken by `sendEvent` on its PageWorkflow instance; nothing polls.
  */
 export class ProviderSlots extends DurableObject<Env> {
+  /** Every change runs here one at a time, so a change that awaits a wake-up never overwrites another. */
+  private tail: Promise<unknown> = Promise.resolve();
+
+  private serial<A>(change: () => Promise<A>): Promise<A> {
+    const result = this.tail.then(change);
+    this.tail = result.catch(() => undefined);
+    return result;
+  }
+
   /** Returns true when the slot is held now. Otherwise the waiter is queued and gets its event later. */
-  async acquire(limit: number, waiter: Waiter): Promise<boolean> {
-    await this.ctx.storage.put("limit", limit);
-    const result = acquire(await this.load(), limit, waiter, Date.now());
-    await this.save(result.state);
-    return result.granted;
+  acquire(limit: number, waiter: Waiter): Promise<boolean> {
+    return this.serial(async () => {
+      await this.ctx.storage.put("limit", limit);
+      const result = acquire(await this.load(), limit, waiter, Date.now());
+      await this.save(result.state);
+      return result.granted;
+    });
   }
 
   /** Frees a held or queued lease and wakes waiters into the freed slots. Idempotent. */
-  async release(lease: string): Promise<void> {
-    await this.wake(release(await this.load(), lease));
+  release(lease: string): Promise<void> {
+    return this.serial(async () => this.wake(release(await this.load(), lease)));
   }
 
-  override async alarm(): Promise<void> {
-    await this.wake(expire(await this.load(), Date.now()));
+  override alarm(): Promise<void> {
+    return this.serial(async () => this.wake(expire(await this.load(), Date.now())));
   }
 
+  /** Moves waiters into every free slot, saves, then sends their events in parallel. */
   private async wake(initial: PoolState): Promise<void> {
     const limit = (await this.ctx.storage.get<number>("limit")) ?? 0;
     let state = initial;
-    for (let next = nextWaiter(state, limit); next !== undefined; next = nextWaiter(state, limit)) {
-      try {
-        await (await this.env.PAGE_WORKFLOW.get(next.instanceId)).sendEvent({ type: next.event, payload: {} });
+    for (;;) {
+      const woken: Array<Waiter> = [];
+      for (let next = nextWaiter(state, limit); next !== undefined; next = nextWaiter(state, limit)) {
+        woken.push(next);
         state = promote(state, Date.now());
-      } catch (error) {
-        if (!(await this.finished(next.instanceId))) {
-          await this.save(state, Date.now() + RETRY_WAKE_MS);
-          throw error;
-        }
-        state = dropHead(state);
       }
+      if (woken.length === 0) return this.save(state);
+      await this.save(state);
+      const sent = await Promise.allSettled(
+        woken.map(async (w) => this.env.PAGE_WORKFLOW.get(w.instanceId).then((i) => i.sendEvent({ type: w.event, payload: {} }))),
+      );
+      const failed = woken.filter((_, i) => sent[i]?.status === "rejected");
+      if (failed.length === 0) return;
+      const gone = await Promise.all(failed.map((w) => this.finished(w.instanceId)));
+      // A waiter whose workflow ended gives its slot back; one still alive goes back to the head of the queue.
+      const retry = failed.filter((_, i) => !gone[i]);
+      state = failed.reduce((acc, w) => release(acc, w.lease), state);
+      state = { ...state, queue: [...retry, ...state.queue] };
+      if (retry.length > 0) return this.save(state, Date.now() + RETRY_WAKE_MS);
     }
-    await this.save(state);
   }
 
   private async finished(instanceId: string): Promise<boolean> {

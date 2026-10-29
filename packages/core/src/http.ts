@@ -10,6 +10,13 @@ export interface JsonResponse {
 
 const MAX_ERROR_BODY = 500;
 
+/** AWS JSON APIs report throttling as HTTP 400 with one of these error types. */
+const AWS_THROTTLES =
+  /"__type":"(?:[^"#]*#)?(ThrottlingException|ProvisionedThroughputExceededException|LimitExceededException)"/;
+
+/** True when a failed response is worth retrying: a transient status, or an AWS throttle sent as 400. */
+export const isRetryableResponse = (status: number, body: string) => isRetryableStatus(status) || AWS_THROTTLES.test(body);
+
 /** Sends a request and decodes a JSON body (`null` when empty). Non-2xx responses fail with a classified ProviderError. */
 export const sendJson = Effect.fn("http.sendJson")(function* (provider: string, request: HttpClientRequest.HttpClientRequest) {
   const client = yield* HttpClient.HttpClient;
@@ -20,7 +27,7 @@ export const sendJson = Effect.fn("http.sendJson")(function* (provider: string, 
     const text = yield* response.text.pipe(Effect.orElseSucceed(() => ""));
     return yield* new ProviderError({
       provider,
-      retryable: isRetryableStatus(response.status),
+      retryable: isRetryableResponse(response.status, text),
       status: response.status,
       message: `HTTP ${response.status}: ${text.slice(0, MAX_ERROR_BODY)}`,
     });
