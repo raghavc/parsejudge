@@ -5,6 +5,8 @@ import { BYOK_KEY, numberWord, PROVIDER_ORDER, perThousand, providerName } from 
 import { navigate } from "./router.ts";
 import { SignIn } from "./SignIn.tsx";
 
+const MAX_PAGES_PER_RUN = 50;
+
 interface Upload {
   readonly id: string;
   readonly name: string;
@@ -244,6 +246,7 @@ export const Landing = () => {
   const pages = ready.reduce((n, u) => n + (u.pageCount ?? 0), 0);
   const chosen = presets.filter((p) => selected.has(p.id));
   const missingKey = chosen.some((p) => !p.hosted && !keys[p.provider]);
+  const overLimit = pages > MAX_PAGES_PER_RUN;
 
   const start = async () => {
     setStarting(true);
@@ -300,7 +303,7 @@ export const Landing = () => {
       <section style={section}>
         <div style={aside}>
           <div style={h2}>Documents</div>
-          <div style={note}>PDF, DOCX or PPTX. Up to 50 pages per run.</div>
+          <div style={note}>PDF, DOCX or PPTX. Up to {MAX_PAGES_PER_RUN} pages per run.</div>
         </div>
         <div style={{ display: "flex", flexDirection: "column", flexGrow: 1 }}>
           <button
@@ -408,12 +411,16 @@ export const Landing = () => {
           ))}
         </div>
         <div style={{ alignItems: "center", display: "flex", gap: 16 }}>
-          {error && <span style={{ color: "var(--bad)", fontSize: 13 }}>{error}</span>}
+          {(overLimit || error) && (
+            <span style={{ color: "var(--bad)", fontSize: 13 }}>
+              {overLimit ? `${pages} pages selected. The limit is ${MAX_PAGES_PER_RUN} per run.` : error}
+            </span>
+          )}
           <button
             type="button"
             className="btn primary"
             style={{ height: 44, padding: "0 18px" }}
-            disabled={starting || ready.length === 0 || chosen.length === 0 || missingKey}
+            disabled={starting || ready.length === 0 || chosen.length === 0 || missingKey || overLimit}
             onClick={start}
           >
             Start evaluation <span aria-hidden="true">→</span>

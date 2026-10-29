@@ -29,10 +29,19 @@ export const PRESETS: ReadonlyArray<Preset> = [
   {
     id: "reducto_r1",
     provider: "reducto",
-    label: "Reducto R-1",
+    label: "Reducto r-1",
     mode: "r-1",
     config: { formatting: { merge_tables: false }, settings: { model: "r-1" } },
-    listPriceUsdPerPage: 0.015,
+    listPriceUsdPerPage: 0.01,
+    hosted: true,
+  },
+  {
+    id: "reducto_r1_mini",
+    provider: "reducto",
+    label: "Reducto r-1 mini",
+    mode: "r-1 mini",
+    config: { formatting: { merge_tables: false }, settings: { model: "r-1" }, alpha: { r1_model: "r1mini" } },
+    listPriceUsdPerPage: 0.001,
     hosted: true,
   },
   {

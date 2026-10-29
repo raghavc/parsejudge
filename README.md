@@ -14,7 +14,7 @@ latency, head-to-head results and a list-price vs accuracy curve.
 
 | Provider                    | Presets                               | Hosted run         |
 | --------------------------- | ------------------------------------- | ------------------ |
-| Reducto                     | R-1                                   | yes                |
+| Reducto                     | r-1, r-1 mini                         | yes                |
 | Azure Document Intelligence | layout, high-res                      | yes                |
 | AWS Textract                | layout, tables                        | yes                |
 | Mistral                     | OCR 4.1                               | bring your own key |
