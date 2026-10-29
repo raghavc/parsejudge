@@ -30,6 +30,12 @@ export interface Env {
   readonly AUTH_KEY: string;
   readonly EMAIL: SendEmail;
   readonly EMAIL_FROM: string;
+  /** Cloudflare Turnstile on sign-in. Unset turns the check off. */
+  readonly TURNSTILE_SITEKEY?: string;
+  readonly TURNSTILE_SECRET?: string;
+  /** Per-login limits on title generation and on uploads before sign-in. Unset turns them off. */
+  readonly TITLE_LIMIT?: RateLimit;
+  readonly UPLOAD_LIMIT?: RateLimit;
   /** Hosted provider credentials (REDUCTO_API_KEY, AZURE_DI_KEY, ...). */
   readonly [credential: string]: unknown;
 }

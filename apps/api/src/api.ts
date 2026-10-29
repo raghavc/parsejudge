@@ -372,6 +372,17 @@ const DocumentsLive = HttpApiBuilder.group(Api, "documents", (handlers) =>
   handlers.handle("upload", ({ query: { filename } }) =>
     Effect.gen(function* () {
       const { userId, loginId } = yield* uploader;
+      if (loginId !== null) {
+        // Cheap checks before conversion; the insert below re-checks the cap atomically.
+        const limiter = cf.UPLOAD_LIMIT;
+        const allowed = limiter === undefined || (yield* query(() => limiter.limit({ key: loginId }))).success;
+        const held = yield* query(() =>
+          cf.DB.prepare("SELECT COALESCE(SUM(page_count), 0) AS pages FROM documents WHERE login_id = ?")
+            .bind(loginId)
+            .first<{ pages: number }>(),
+        );
+        if (!allowed || (held?.pages ?? 0) >= Number(cf.MAX_PAGES_PER_RUN)) return yield* new HttpApiError.BadRequest({});
+      }
       const request = yield* HttpServerRequest.HttpServerRequest;
       const bytes = new Uint8Array(yield* request.arrayBuffer.pipe(Effect.mapError(() => new HttpApiError.BadRequest({}))));
       const format = yield* sniffFormat(bytes).pipe(Effect.mapError(() => new HttpApiError.BadRequest({})));
@@ -427,11 +438,12 @@ const TitlesLive = HttpApiBuilder.group(Api, "titles", (handlers) =>
   handlers.handle("generate", ({ payload }) =>
     Effect.gen(function* () {
       const { filenames } = payload;
-      if ((yield* signedInUser) === null) {
-        const request = yield* HttpServerRequest.HttpServerRequest;
-        if ((yield* query(() => pendingLogin(cf, request.headers.cookie))) === null) {
-          return yield* new HttpApiError.Unauthorized({});
-        }
+      const request = yield* HttpServerRequest.HttpServerRequest;
+      const key = (yield* signedInUser) ?? (yield* query(() => pendingLogin(cf, request.headers.cookie)));
+      if (key === null) return yield* new HttpApiError.Unauthorized({});
+      const limiter = cf.TITLE_LIMIT;
+      if (limiter !== undefined && !(yield* query(() => limiter.limit({ key }))).success) {
+        return yield* new HttpApiError.BadRequest({});
       }
       if (filenames.length === 0 || filenames.length > 1000) return yield* new HttpApiError.BadRequest({});
       return {

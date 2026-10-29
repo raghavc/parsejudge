@@ -191,6 +191,26 @@ describe("email sign-in", () => {
     expect((verified.body.draft as { documents: unknown[] }).documents).toHaveLength(1);
   });
 
+  it("an upload still running under the replaced sign-in is carried over", async () => {
+    const first = await startLogin("a@example.com");
+    const firstId = await pendingLogin(env, first.login);
+    const again = await call("/v1/auth/start", { email: "a@example.com" }, first.login);
+    const second = cookiePair(again.setCookies, "__Host-pj_login");
+    db.prepare(
+      "INSERT INTO documents (id, user_id, login_id, filename, format, sha256, page_count, created_at) VALUES ('late', 'pending', ?, 'a.pdf', 'pdf', 'x', 1, 1)",
+    ).run(firstId);
+    const verified = await call("/v1/auth/verify", { code: /\b(\d{6})\b/.exec(sent.at(-1)?.subject ?? "")?.[1] }, second);
+    expect((verified.body.draft as { documents: unknown[] }).documents).toHaveLength(1);
+    expect(db.prepare("SELECT user_id FROM documents WHERE id = 'late'").get()).not.toEqual({ user_id: "pending" });
+    expect(db.prepare("SELECT user_id FROM logins WHERE id = ?").get(firstId)).not.toEqual({ user_id: null });
+  });
+
+  it("the link page says when the link was used", async () => {
+    const { token } = await startLogin();
+    await call("/v1/auth/verify", { token });
+    expect((await call("/v1/auth/link", { token })).body.error).toContain("already used");
+  });
+
   it("tells the asking browser when the link was used elsewhere", async () => {
     const { login, code, token } = await startLogin();
     await call("/v1/auth/verify", { token });

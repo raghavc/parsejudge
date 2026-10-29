@@ -321,8 +321,8 @@ export const Landing = () => {
       <Nav user={currentUser()} />
       {pending && (
         <SignIn
-          onEmail={async (email) => {
-            await auth.start(email, [...selected]);
+          onEmail={async (email, turnstile) => {
+            await auth.start(email, [...selected], turnstile);
             // A resend or a new address moves the files on the server; upload them only once.
             if (!uploadedPending.current) upload(pending);
             uploadedPending.current = true;

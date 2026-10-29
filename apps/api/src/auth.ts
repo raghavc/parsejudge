@@ -7,9 +7,9 @@ const MAX_ATTEMPTS = 5;
 /** Wrong codes per address across all its logins in 24 hours; after that only the link works. */
 const MAX_FAILED_CODES_PER_DAY = 10;
 const PER_EMAIL_AND_IP_PER_HOUR = 5;
-const PER_EMAIL_PER_HOUR = 20;
+const PER_EMAIL_PER_HOUR = 10;
 const PER_IP_PER_HOUR = 20;
-const ALL_PER_HOUR = 500;
+const ALL_PER_HOUR = 2000;
 const LOGIN_COOKIE = "__Host-pj_login";
 const SESSION_COOKIE = "__Host-pj_session";
 /** Owner of uploads made before sign-in completes. */
@@ -129,6 +129,7 @@ const start = async (env: Env, request: Request) => {
   const presetIds = Array.isArray(body.presetIds)
     ? body.presetIds.filter((id): id is string => typeof id === "string" && id.length <= 100).slice(0, 50)
     : [];
+  if (!(await human(env, request, body.turnstile))) return fail(400, "Could not check that you are a person. Try again.");
   const ip = ipKey(request.headers.get("cf-connecting-ip") ?? "");
   const key = emailKey(email);
   const now = Date.now();
@@ -190,7 +191,7 @@ const start = async (env: Env, request: Request) => {
   if (earlier !== null && earlier.used_at === null) {
     await env.DB.batch([
       env.DB.prepare("UPDATE documents SET login_id = ? WHERE login_id = ? AND user_id = ?").bind(id, earlier.id, PENDING_USER),
-      env.DB.prepare("UPDATE logins SET expires_at = ? WHERE id = ?").bind(now, earlier.id),
+      env.DB.prepare("UPDATE logins SET expires_at = ?, replaced_by = ? WHERE id = ?").bind(now, id, earlier.id),
     ]);
   }
   return reply({ ok: true }, 200, [setCookie(LOGIN_COOKIE, `${id}.${secret}`, LOGIN_TTL_MS)]);
@@ -204,13 +205,32 @@ const linkLogin = (token: unknown) => {
 
 const pendingDocuments = (env: Env, loginId: string, userId: string) =>
   env.DB.prepare(
-    `SELECT id AS documentId, filename, format, page_count AS pageCount FROM documents
-     WHERE login_id = ? AND user_id = ? ORDER BY created_at`,
+    `${CHAIN} SELECT id AS documentId, filename, format, page_count AS pageCount FROM documents
+     WHERE login_id IN (SELECT id FROM chain) AND user_id = ?2 ORDER BY created_at`,
   )
     .bind(loginId, userId)
     .all();
 
 const EXPIRED = "This sign-in has expired. Request a new email.";
+const TOO_MANY_TODAY = "Too many wrong codes for this address today. Use the link in the email.";
+
+/** The login `?1` and every earlier login from its browser that it replaced. */
+const CHAIN = `WITH RECURSIVE chain(id) AS (SELECT ?1 UNION SELECT logins.id FROM logins JOIN chain ON logins.replaced_by = chain.id)`;
+
+/** Cloudflare Turnstile, when the deployment sets TURNSTILE_SECRET. */
+const human = async (env: Env, request: Request, token: unknown) => {
+  if (!env.TURNSTILE_SECRET) return true;
+  const form = new FormData();
+  form.set("secret", env.TURNSTILE_SECRET);
+  form.set("response", typeof token === "string" ? token : "");
+  const ip = request.headers.get("cf-connecting-ip");
+  if (ip) form.set("remoteip", ip);
+  const result = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", { method: "POST", body: form }).then(
+    (r) => r.json<{ success?: boolean }>(),
+    () => ({ success: false }),
+  );
+  return result.success === true;
+};
 
 /**
  * POST /v1/auth/link with `{ token }`: who the emailed link signs in and which files it carries over, without using it.
@@ -220,14 +240,15 @@ const EXPIRED = "This sign-in has expired. Request a new email.";
 const peek = async (env: Env, request: Request) => {
   const link = linkLogin((await readBody(request)).token);
   if (link === null) return fail(400, EXPIRED);
-  const login = await env.DB.prepare(
-    "SELECT email, link_hash FROM logins WHERE id = ? AND used_at IS NULL AND expires_at > ? AND attempts < ?",
-  )
-    .bind(link.id, Date.now(), MAX_ATTEMPTS)
-    .first<{ email: string; link_hash: string }>();
+  const login = await env.DB.prepare("SELECT email, link_hash, used_at, expires_at, attempts FROM logins WHERE id = ?")
+    .bind(link.id)
+    .first<{ email: string; link_hash: string; used_at: number | null; expires_at: number; attempts: number }>();
   if (login === null || !sameHash(login.link_hash, await hmac(env, `link:${link.id}:${link.value}`))) {
     return fail(400, EXPIRED);
   }
+  if (login.used_at !== null) return fail(400, "This link was already used. Request a new email to sign in again.");
+  if (login.attempts >= MAX_ATTEMPTS) return fail(400, "This sign-in is locked after too many wrong codes. Request a new email.");
+  if (login.expires_at <= Date.now()) return fail(400, EXPIRED);
   const documents = await pendingDocuments(env, link.id, PENDING_USER);
   const sameBrowser = (await pendingLogin(env, request.headers.get("cookie"))) === link.id;
   return reply({ email: login.email, documents: documents.results, sameBrowser });
@@ -270,19 +291,23 @@ const verify = async (env: Env, request: Request) => {
       .bind(id, Date.now() - 24 * 3_600_000)
       .first<{ n: number }>();
     if ((failed?.n ?? 0) >= MAX_FAILED_CODES_PER_DAY) {
-      return fail(400, "Too many wrong codes for this address today. Use the link in the email.");
+      return fail(400, TOO_MANY_TODAY);
     }
   } else {
     return fail(400, "Missing code.");
   }
   const now = Date.now();
   const login = await env.DB.prepare(
-    `UPDATE logins SET attempts = attempts + 1 WHERE id = ? AND used_at IS NULL AND expires_at > ? AND attempts < ?
+    // The per-address daily cap on wrong codes is checked in the same statement, so parallel guesses cannot pass it.
+    `UPDATE logins SET attempts = attempts + 1
+     WHERE id = ?1 AND used_at IS NULL AND expires_at > ?2 AND attempts < ?3 AND (?4 = 'link' OR (
+       SELECT COALESCE(SUM(attempts - (used_at IS NOT NULL)), 0) FROM logins
+       WHERE email_key = (SELECT email_key FROM logins WHERE id = ?1) AND created_at > ?5) < ?6)
      RETURNING email, code_hash, link_hash, preset_ids, attempts`,
   )
-    .bind(id, now, MAX_ATTEMPTS)
+    .bind(id, now, MAX_ATTEMPTS, kind, now - 24 * 3_600_000, MAX_FAILED_CODES_PER_DAY)
     .first<{ email: string; code_hash: string; link_hash: string; preset_ids: string; attempts: number }>();
-  if (login === null) return fail(400, EXPIRED);
+  if (login === null) return fail(400, kind === "code" ? TOO_MANY_TODAY : EXPIRED);
   if (!sameHash(kind === "code" ? login.code_hash : login.link_hash, await hmac(env, `${kind}:${id}:${value}`))) {
     const left = MAX_ATTEMPTS - login.attempts;
     if (kind === "link") return fail(400, EXPIRED);
@@ -302,7 +327,12 @@ const verify = async (env: Env, request: Request) => {
   await env.DB.batch([
     ...(body.discard === true
       ? []
-      : [env.DB.prepare("UPDATE documents SET user_id = ? WHERE login_id = ? AND user_id = ?").bind(user.id, id, PENDING_USER)]),
+      : [
+          env.DB.prepare(`${CHAIN} UPDATE logins SET user_id = ?2 WHERE id IN (SELECT id FROM chain)`).bind(id, user.id),
+          env.DB.prepare(
+            `${CHAIN} UPDATE documents SET user_id = ?2 WHERE login_id IN (SELECT id FROM chain) AND user_id = ?3`,
+          ).bind(id, user.id, PENDING_USER),
+        ]),
     env.DB.prepare("INSERT INTO sessions (id_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)").bind(
       await hmac(env, `session:${session}`),
       user.id,
@@ -337,6 +367,9 @@ export const handleAuth = (env: Env, request: Request): Promise<Response> | null
   const { pathname } = new URL(request.url);
   const post = request.method === "POST";
   if (pathname === "/v1/auth/start" && post) return start(env, request);
+  if (pathname === "/v1/auth/config" && request.method === "GET") {
+    return Promise.resolve(reply({ turnstileSiteKey: env.TURNSTILE_SITEKEY ?? null }));
+  }
   if (pathname === "/v1/auth/link" && post) return peek(env, request);
   if (pathname === "/v1/auth/verify" && post) return verify(env, request);
   if (pathname === "/v1/auth/signout" && post) return signOut(env, request);

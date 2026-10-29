@@ -15,7 +15,7 @@ export const SignIn = ({
   onDone,
   onCancel,
 }: {
-  readonly onEmail: (email: string) => Promise<void>;
+  readonly onEmail: (email: string, turnstile: string | null) => Promise<void>;
   readonly onDone: () => void;
   readonly onCancel: () => void;
 }) => {
@@ -29,6 +29,42 @@ export const SignIn = ({
   const done = useRef(onDone);
   done.current = onDone;
   const checking = useRef(false);
+  const [siteKey, setSiteKey] = useState<string | null>(null);
+  const [turnstile, setTurnstile] = useState<string | null>(null);
+  const widget = useRef<HTMLDivElement>(null);
+  const widgetId = useRef<string | null>(null);
+  const waiting = siteKey !== null && turnstile === null;
+
+  useEffect(() => {
+    auth.config().then(
+      (c) => setSiteKey(c.turnstileSiteKey),
+      () => undefined,
+    );
+  }, []);
+
+  useEffect(() => {
+    const el = widget.current;
+    if (siteKey === null || el === null) return;
+    let cancelled = false;
+    loadTurnstile().then(
+      (ts) => {
+        if (cancelled) return;
+        widgetId.current = ts.render(el, {
+          sitekey: siteKey,
+          size: "flexible",
+          appearance: "interaction-only",
+          callback: (token: string) => setTurnstile(token),
+          "expired-callback": () => setTurnstile(null),
+        });
+      },
+      () => setError("Could not load the check that you are a person. Reload the page."),
+    );
+    return () => {
+      cancelled = true;
+      if (widgetId.current !== null) window.turnstile?.remove(widgetId.current);
+      widgetId.current = null;
+    };
+  }, [siteKey]);
 
   useEffect(() => {
     const channel = new BroadcastChannel(AUTH_CHANNEL);
@@ -43,11 +79,14 @@ export const SignIn = ({
     setBusy(true);
     setError(null);
     try {
-      await onEmail(email);
+      await onEmail(email, turnstile);
       setSent(true);
     } catch (e) {
       setError(message(e));
     }
+    // A Turnstile token works once.
+    setTurnstile(null);
+    if (widgetId.current !== null) window.turnstile?.reset(widgetId.current);
     setBusy(false);
   };
   const check = async (value: string) => {
@@ -124,12 +163,18 @@ export const SignIn = ({
             autoFocus
           />
         )}
+        <div ref={widget} />
         {error && (
           <div className="enter" style={{ color: "var(--bad)", fontSize: 13 }}>
             {error}
           </div>
         )}
-        <button type="submit" className="btn primary" disabled={busy || (sent ? code.length !== 6 : !valid)} style={wide}>
+        <button
+          type="submit"
+          className="btn primary"
+          disabled={busy || (sent ? code.length !== 6 : !valid || waiting)}
+          style={wide}
+        >
           {sent ? "Sign in" : busy ? "Sending…" : "Email me a code"}
         </button>
         <button
@@ -146,7 +191,7 @@ export const SignIn = ({
           {sent ? "Use a different email" : "Cancel"}
         </button>
         {sent && (
-          <button type="button" className="btn" disabled={busy} onClick={send} style={{ justifySelf: "center" }}>
+          <button type="button" className="btn" disabled={busy || waiting} onClick={send} style={{ justifySelf: "center" }}>
             Send a new email
           </button>
         )}
@@ -157,6 +202,29 @@ export const SignIn = ({
       </form>
     </div>
   );
+};
+
+type Turnstile = {
+  readonly render: (el: HTMLElement, options: Record<string, unknown>) => string;
+  readonly reset: (id: string) => void;
+  readonly remove: (id: string) => void;
+};
+declare global {
+  interface Window {
+    turnstile?: Turnstile;
+  }
+}
+let turnstileScript: Promise<Turnstile> | null = null;
+const loadTurnstile = () => {
+  turnstileScript ??= new Promise<Turnstile>((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+    script.async = true;
+    script.onload = () => (window.turnstile ? resolve(window.turnstile) : reject(new Error("Turnstile did not load")));
+    script.onerror = () => reject(new Error("Turnstile did not load"));
+    document.head.appendChild(script);
+  });
+  return turnstileScript;
 };
 
 type LinkState =

@@ -156,7 +156,9 @@ const post = (path: string, body: unknown) =>
   fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 
 export const auth = {
-  start: (email: string, presetIds: ReadonlyArray<string>) => post("/v1/auth/start", { email, presetIds }).then(authJson),
+  config: () => fetch("/v1/auth/config").then(authJson<{ readonly turnstileSiteKey: string | null }>),
+  start: (email: string, presetIds: ReadonlyArray<string>, turnstile: string | null) =>
+    post("/v1/auth/start", { email, presetIds, turnstile }).then(authJson),
   /** Who the emailed link signs in and which files it carries over, without using it. */
   link: (token: string) =>
     post("/v1/auth/link", { token }).then(
