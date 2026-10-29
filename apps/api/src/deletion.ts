@@ -71,7 +71,9 @@ export const stopRun = async (env: Env, runId: string) => {
   for (let i = 0; i < pages.results.length; i += 50) {
     await Promise.all(pages.results.slice(i, i + 50).map((p) => terminate(env.PAGE_WORKFLOW, `${runId}-${p.id}`)));
   }
-  await env.DB.prepare("UPDATE runs SET status = 'failed', error = 'Stopped', completed_at = ? WHERE id = ? AND status IN ('queued', 'running')")
+  await env.DB.prepare(
+    "UPDATE runs SET status = 'failed', error = 'Stopped', completed_at = ? WHERE id = ? AND status IN ('queued', 'running')",
+  )
     .bind(Date.now(), runId)
     .run();
 };

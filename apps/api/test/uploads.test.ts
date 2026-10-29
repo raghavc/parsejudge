@@ -1,0 +1,25 @@
+import { describe, expect, it } from "vitest";
+import type { Env } from "../src/env.ts";
+import { signedUploadUrl, uploadUser } from "../src/uploads.ts";
+
+const env = { PUBLIC_URL: "https://parsejudge.com/", BLOB_SIGNING_KEY: "test-key" } as unknown as Env;
+const tokenOf = (url: string) => url.slice(url.lastIndexOf("/") + 1);
+
+describe("signed upload URLs", () => {
+  it("upload for the user they were made for", async () => {
+    const { url } = await signedUploadUrl(env, "user-1");
+    expect(url.startsWith("https://parsejudge.com/v1/uploads/")).toBe(true);
+    expect(await uploadUser(env, tokenOf(url))).toBe("user-1");
+  });
+
+  it("reject a token for another user or signed with another key", async () => {
+    const token = tokenOf((await signedUploadUrl(env, "user-1")).url);
+    expect(await uploadUser(env, token.replace("user-1", "user-2"))).toBeNull();
+    expect(await uploadUser({ ...env, BLOB_SIGNING_KEY: "other" } as Env, token)).toBeNull();
+  });
+
+  it("reject an expired token", async () => {
+    const [userId, , signature] = tokenOf((await signedUploadUrl(env, "user-1")).url).split(".");
+    expect(await uploadUser(env, `${userId}.1.${signature}`)).toBeNull();
+  });
+});

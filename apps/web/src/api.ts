@@ -207,6 +207,12 @@ export interface RunListItem {
 
 export type Visibility = "private" | "link";
 
+export interface Agent {
+  readonly id: string;
+  readonly name: string;
+  readonly connectedAt: number;
+}
+
 export interface AccountInfo {
   readonly email: string;
   readonly notifyOnDone: boolean;
@@ -217,10 +223,11 @@ const patch = (url: string, body: unknown) =>
 
 export const api = {
   account: () => fetch("/v1/account").then(json<AccountInfo>),
+  agents: () => fetch("/v1/agents").then(json<ReadonlyArray<Agent>>),
+  disconnectAgent: (id: string) => fetch(`/v1/agents/${encodeURIComponent(id)}`, { method: "DELETE" }).then(ok),
   setNotify: (notifyOnDone: boolean) => patch("/v1/account", { notifyOnDone }).then(json<AccountInfo>),
   setVisibility: (runId: string, visibility: Visibility) => patch(`/v1/runs/${runId}`, { visibility }).then(ok),
-  rotateLink: (runId: string) =>
-    fetch(`/v1/runs/${runId}/share-link`, { method: "POST" }).then(json<{ shareId: string }>),
+  rotateLink: (runId: string) => fetch(`/v1/runs/${runId}/share-link`, { method: "POST" }).then(json<{ shareId: string }>),
   runs: () => fetch("/v1/runs").then(json<ReadonlyArray<RunListItem>>),
   rename: (runId: string, title: string) =>
     fetch(`/v1/runs/${runId}`, {

@@ -3,8 +3,8 @@ import { api, type PageDetail, type Preset, type PresetSummary, type Run } from 
 import { CopyButton } from "./CopyButton.tsx";
 import { DeleteRun } from "./DeleteRun.tsx";
 import { perThousand, providerName, seconds, shortName } from "./names.ts";
-import { ShareDialog } from "./Share.tsx";
 import { navigate } from "./router.ts";
+import { ShareDialog } from "./Share.tsx";
 
 const h2: CSSProperties = { fontSize: 20, fontWeight: 500, letterSpacing: "-0.015em", lineHeight: "24px" };
 const note: CSSProperties = { color: "var(--muted)", fontSize: 14, lineHeight: "22px" };
@@ -288,7 +288,7 @@ export const Report = ({
   const minScore = Math.max(0, Math.floor(Math.min(10, ...scored.map((p) => p.meanScore)) - 1));
   const pageCount = pages.length;
   const date = new Date(run.createdAt).toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" });
-  const mcp = `claude mcp add parsejudge ${location.origin}/mcp`;
+  const mcp = `claude mcp add --transport http parsejudge ${location.origin}/mcp`;
   const h2h = (a: string, b: string) => summary.headToHead.find((h) => h.presetId === a && h.opponentId === b);
   const exportRun = () => {
     const url = URL.createObjectURL(new Blob([JSON.stringify(run, null, 2)], { type: "application/json" }));
@@ -323,12 +323,7 @@ export const Report = ({
           </div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <button
-            type="button"
-            className="btn"
-            style={{ height: 40, padding: "0 16px" }}
-            onClick={() => setSharing(true)}
-          >
+          <button type="button" className="btn" style={{ height: 40, padding: "0 16px" }} onClick={() => setSharing(true)}>
             Share
           </button>
           {run.owned && <DeleteRun runId={run.id} dataDeleted={run.dataDeletedAt !== null} />}

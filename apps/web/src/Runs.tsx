@@ -2,9 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { api, currentUser, type Preset, type RunListItem } from "./api.ts";
 import { Dialog } from "./Dialog.tsx";
 import { Nav } from "./Nav.tsx";
-import { ShareDialog, visibilityLabel } from "./Share.tsx";
 import { shortName } from "./names.ts";
 import { navigate } from "./router.ts";
+import { ShareDialog, visibilityLabel } from "./Share.tsx";
 
 const started = (ms: number) => {
   const date = new Date(ms);
@@ -103,7 +103,7 @@ export const Runs = () => {
   }
   const pages = (runs ?? []).reduce((sum, run) => sum + run.pages, 0);
   return (
-    <div className="stagger">
+    <div className="stagger" style={{ minHeight: "100vh" }}>
       <Nav user={user} active="runs" />
       <section
         style={{

@@ -9,6 +9,7 @@ import { toPdf } from "./converter.ts";
 import { encryptCredentials } from "./credentials.ts";
 import { deleteRun, deleteUser } from "./deletion.ts";
 import type { Env } from "./env.ts";
+import { INTERNAL_HEADER, internalUser } from "./internal.ts";
 import { documentKey, markdownKey, pageId as pageIdOf, pagePdfKey, pagePngKey, sourceKey } from "./keys.ts";
 import { generateTitle } from "./title.ts";
 
@@ -269,6 +270,11 @@ const devHeaderEmail = Effect.gen(function* () {
 /** The signed-in user's id (session cookie; the x-parsejudge-user header too in dev auth mode), without creating a user. */
 const signedInUser = Effect.gen(function* () {
   const request = yield* HttpServerRequest.HttpServerRequest;
+  const internal = internalUser(request.headers[INTERNAL_HEADER]);
+  if (internal !== null) {
+    const user = yield* query(() => cf.DB.prepare("SELECT id FROM users WHERE id = ?").bind(internal).first<{ id: string }>());
+    return user?.id ?? null;
+  }
   const session = yield* query(() => sessionUser(cf, request.headers.cookie));
   if (session !== null) return session.id;
   const email = yield* devHeaderEmail;
@@ -315,7 +321,9 @@ const newShareId = () => crypto.randomUUID().replace(/-/g, "").slice(0, 16);
 export const canOpenRun = (runId: string) =>
   Effect.gen(function* () {
     const row = yield* query(() =>
-      cf.DB.prepare("SELECT user_id, visibility FROM runs WHERE id = ?").bind(runId).first<{ user_id: string; visibility: string }>(),
+      cf.DB.prepare("SELECT user_id, visibility FROM runs WHERE id = ?")
+        .bind(runId)
+        .first<{ user_id: string; visibility: string }>(),
     );
     if (row === null) return false;
     return row.visibility === "link" || (yield* signedInUser) === row.user_id;
@@ -743,7 +751,9 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
 const account = Effect.gen(function* () {
   const userId = yield* requireUser;
   const row = yield* query(() =>
-    cf.DB.prepare("SELECT email, notify_on_done FROM users WHERE id = ?").bind(userId).first<{ email: string; notify_on_done: number }>(),
+    cf.DB.prepare("SELECT email, notify_on_done FROM users WHERE id = ?")
+      .bind(userId)
+      .first<{ email: string; notify_on_done: number }>(),
   );
   if (row === null) return yield* new HttpApiError.Unauthorized({});
   return { email: row.email, notifyOnDone: row.notify_on_done === 1 };
@@ -756,7 +766,9 @@ const AccountLive = HttpApiBuilder.group(Api, "account", (handlers) =>
       Effect.gen(function* () {
         const userId = yield* requireUser;
         yield* query(() =>
-          cf.DB.prepare("UPDATE users SET notify_on_done = ? WHERE id = ?").bind(payload.notifyOnDone ? 1 : 0, userId).run(),
+          cf.DB.prepare("UPDATE users SET notify_on_done = ? WHERE id = ?")
+            .bind(payload.notifyOnDone ? 1 : 0, userId)
+            .run(),
         );
         return yield* account;
       }),

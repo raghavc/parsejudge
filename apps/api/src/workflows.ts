@@ -3,11 +3,11 @@ import { JUDGE_VERSION, judgePage, type PageResult, splitPages, summarize } from
 import { Effect } from "effect";
 import { checkJudgeBudget } from "./budget.ts";
 import type { Env } from "./env.ts";
-import { emailRunDone } from "./notify.ts";
 import type { RunEvents } from "./events.ts";
 import { documentKey, markdownKey, pageId, pagePdfKey, pagePngKey } from "./keys.ts";
 import { writeLocations } from "./locate.ts";
 import { writePageNote } from "./note.ts";
+import { emailRunDone } from "./notify.ts";
 import { renderFirstPagePng } from "./render.ts";
 import { type Cell, judgePool, type Pool, pollCell, providerPool, runStep, saveFailure, submitCell } from "./run.ts";
 import { MAX_POLLS, pollDelayMs } from "./schedule.ts";
@@ -112,9 +112,11 @@ export class RunWorkflow extends WorkflowEntrypoint<Env, RunWorkflowParams> {
   }
 
   private async emailOwner(step: WorkflowStep, runId: string): Promise<void> {
-    await step.do("email owner", RETRY, () => emailRunDone(this.env, runId)).catch((error: unknown) => {
-      console.error("Run email failed", runId, error);
-    });
+    await step
+      .do("email owner", RETRY, () => emailRunDone(this.env, runId))
+      .catch((error: unknown) => {
+        console.error("Run email failed", runId, error);
+      });
   }
 
   /** Upload already splits the document; this covers an upload whose split did not finish. */

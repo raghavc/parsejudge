@@ -9,11 +9,13 @@ import { RunPage } from "./RunPage.tsx";
 import { Runs } from "./Runs.tsx";
 import { useRoute } from "./router.ts";
 import { SignInLink } from "./SignIn.tsx";
+import { SignInPage } from "./SignInPage.tsx";
 
 const App = () => {
   const route = useRoute();
   if (route.name === "account") return <Account />;
   if (route.name === "runs") return <Runs />;
+  if (route.name === "signin") return <SignInPage next={route.next} />;
   if (route.name === "auth") return <SignInLink token={route.token} />;
   if (route.name === "run") return <RunPage shareId={route.shareId} />;
   if (route.name === "page") return <PageCompare shareId={route.shareId} pageId={route.pageId} view={route.view} />;

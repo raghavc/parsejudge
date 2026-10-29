@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { type AccountInfo, api, auth, currentUser, type RunListItem, setUser } from "./api.ts";
+import { type AccountInfo, type Agent, api, auth, currentUser, type RunListItem, setUser } from "./api.ts";
 import { Dialog } from "./Dialog.tsx";
 import { Nav } from "./Nav.tsx";
 import { navigate } from "./router.ts";
@@ -21,6 +21,19 @@ export const Account = () => {
   const [typed, setTyped] = useState("");
   const [runs, setRuns] = useState<ReadonlyArray<RunListItem> | null>(null);
   const [info, setInfo] = useState<AccountInfo | null>(null);
+  const [agents, setAgents] = useState<ReadonlyArray<Agent> | null>(null);
+  useEffect(() => {
+    if (user) api.agents().then(setAgents, () => setAgents([]));
+  }, [user]);
+  const disconnect = async (agent: Agent) => {
+    setError(null);
+    try {
+      await api.disconnectAgent(agent.id);
+      setAgents((list) => list?.filter((a) => a.id !== agent.id) ?? null);
+    } catch {
+      setError(`Could not disconnect ${agent.name}.`);
+    }
+  };
   useEffect(() => {
     if (user) api.account().then(setInfo, () => setInfo(null));
   }, [user]);
@@ -73,6 +86,38 @@ export const Account = () => {
               disabled={info === null}
               onClick={toggleNotify}
             />
+          </div>
+          <div style={{ ...row, alignItems: "flex-start", flexDirection: "column", gap: 12 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <div style={{ fontSize: 15 }}>Connected agents</div>
+              <div style={{ color: "var(--muted)", fontSize: 13, lineHeight: "20px" }}>
+                Agents connected through MCP at {location.origin}/mcp can do anything you can do here.
+              </div>
+            </div>
+            {agents?.length === 0 && <div style={{ color: "var(--muted)", fontSize: 13 }}>None connected.</div>}
+            {agents?.map((agent) => (
+              <div
+                key={agent.id}
+                style={{ alignItems: "center", display: "flex", gap: 16, justifyContent: "space-between", width: "100%" }}
+              >
+                <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+                  <div className="clip" style={{ fontSize: 14 }}>
+                    {agent.name}
+                  </div>
+                  <div style={{ color: "var(--muted)", fontSize: 13 }}>
+                    Connected{" "}
+                    {new Date(agent.connectedAt).toLocaleDateString(undefined, {
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric",
+                    })}
+                  </div>
+                </div>
+                <button type="button" className="btn" onClick={() => disconnect(agent)}>
+                  Disconnect
+                </button>
+              </div>
+            ))}
           </div>
           <div style={row}>
             <div style={{ fontSize: 15 }}>Sign out of this browser</div>
