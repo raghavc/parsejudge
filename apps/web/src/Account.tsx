@@ -5,6 +5,7 @@ import { Nav } from "./Nav.tsx";
 import { navigate } from "./router.ts";
 
 const row = {
+  alignItems: "center",
   borderTop: "1px solid var(--line)",
   display: "flex",
   flexWrap: "wrap",
@@ -94,17 +95,19 @@ export const Account = () => {
                 Agents connected through MCP at {location.origin}/mcp can do anything you can do here.
               </div>
             </div>
-            {agents?.length === 0 && <div style={{ color: "var(--muted)", fontSize: 13 }}>None connected.</div>}
+            {agents?.length === 0 && (
+              <div style={{ color: "var(--muted)", fontSize: 13, lineHeight: "20px" }}>None connected.</div>
+            )}
             {agents?.map((agent) => (
               <div
                 key={agent.id}
                 style={{ alignItems: "center", display: "flex", gap: 16, justifyContent: "space-between", width: "100%" }}
               >
-                <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
-                  <div className="clip" style={{ fontSize: 14 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
+                  <div className="clip" style={{ fontSize: 15 }}>
                     {agent.name}
                   </div>
-                  <div style={{ color: "var(--muted)", fontSize: 13 }}>
+                  <div style={{ color: "var(--muted)", fontSize: 13, lineHeight: "20px" }}>
                     Connected{" "}
                     {new Date(agent.connectedAt).toLocaleDateString(undefined, {
                       month: "short",
