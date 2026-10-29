@@ -79,15 +79,17 @@ const ProviderRow = (props: {
   const label = presets.length > 1 && on ? `${chosen.length} of ${presets.length} modes` : (chosen[0] ?? first).mode;
   return (
     <div style={{ borderBottom: "1px solid var(--rule)", display: "flex", flexDirection: "column", gap: 12, padding: "16px 0" }}>
-      <div style={{ alignItems: "center", display: "flex", gap: 16 }}>
+      <div className="prow" style={{ alignItems: "center", display: "flex", gap: 16 }}>
         <Check
           on={on}
           onClick={() => {
             for (const p of on ? chosen : [first]) toggle(p.id);
           }}
         />
-        <div style={{ flex: "0 1 240px", fontSize: 15, lineHeight: "18px", minWidth: 0 }}>{providerName(provider)}</div>
-        <div style={{ display: "flex", flexGrow: 1 }}>
+        <div className="prow-name" style={{ flex: "0 1 240px", fontSize: 15, lineHeight: "18px", minWidth: 0 }}>
+          {providerName(provider)}
+        </div>
+        <div className="prow-mode" style={{ display: "flex", flexGrow: 1 }}>
           <button
             type="button"
             onClick={() => setOpen(!open)}
@@ -101,6 +103,7 @@ const ProviderRow = (props: {
               gap: 8,
               height: 30,
               padding: "0 10px",
+              whiteSpace: "nowrap",
             }}
           >
             {label}
@@ -110,6 +113,7 @@ const ProviderRow = (props: {
           </button>
         </div>
         <div
+          className="prow-price"
           style={{
             color: on || !byok ? "var(--muted)" : "var(--ink)",
             flexShrink: 0,
@@ -451,7 +455,7 @@ export const Landing = () => {
           padding: "36px var(--gutter) 72px",
         }}
       >
-        <div style={{ display: "flex", gap: 44 }}>
+        <div className="totals" style={{ display: "flex", gap: 44 }}>
           {[
             [pages, "pages"],
             [chosen.length, "provider modes"],

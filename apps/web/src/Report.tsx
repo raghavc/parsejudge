@@ -1,4 +1,4 @@
-import { type CSSProperties, useEffect, useMemo, useState } from "react";
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { api, type PageDetail, type Preset, type PresetSummary, type Run } from "./api.ts";
 import { CopyButton } from "./CopyButton.tsx";
 import { DeleteRun } from "./DeleteRun.tsx";
@@ -60,8 +60,19 @@ const Scatter = ({
   readonly yMin: number;
   readonly yMax: number;
 }) => {
-  const W = 560;
-  const H = 300;
+  const box = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(560);
+  useEffect(() => {
+    const el = box.current;
+    if (el === null) return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) setWidth(Math.round(entry.contentRect.width));
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  const W = Math.max(280, width);
+  const H = W < 480 ? 240 : 300;
   const L = 32;
   const R = 16;
   const T = 12;
@@ -80,55 +91,72 @@ const Scatter = ({
   const qx = sx(mx);
   const qy = sy(median(points.map((p) => p.y)));
   const yTicks = ticks(yMin, yMax, 3);
+  const labels = new Map<string, { readonly x: number; readonly y: number; readonly right: boolean }>();
+  const placed: Array<{ readonly x0: number; readonly x1: number; readonly y: number }> = [];
+  for (const p of [...points].sort((a, b) => b.y - a.y)) {
+    const right = sx(p.x) > W - 150;
+    const x = sx(p.x) + (right ? -9 : 9);
+    const x0 = right ? x - p.label.length * 6.6 : x;
+    const x1 = x0 + p.label.length * 6.6;
+    let y = sy(p.y) - 8;
+    for (const q of placed) if (x0 < q.x1 && q.x0 < x1 && Math.abs(y - q.y) < 15) y = q.y + 15;
+    placed.push({ x0, x1, y });
+    labels.set(p.id, { x, y, right });
+  }
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: "block", overflow: "visible" }} role="img" aria-label="chart">
-      {points.length > 1 && (
-        <>
-          <rect x={L} y={T} width={Math.max(0, qx - L)} height={Math.max(0, qy - T)} fill="var(--good)" opacity={0.07} />
-          <text x={L + 8} y={T + 16} fontSize={11} fill="var(--good)" letterSpacing="0.04em">
-            MOST ATTRACTIVE
-          </text>
-        </>
-      )}
-      <line x1={L} x2={W - R} y1={H - B} y2={H - B} stroke="var(--line)" />
-      {yTicks.map((y) => (
-        <text key={y} x={L - 10} y={sy(y) + 4} fontSize={11} fill="var(--faint)" textAnchor="end">
-          {Math.round(y)}
-        </text>
-      ))}
-      {logTicks(lo, hi).map((x) => (
-        <text key={x} x={sx(x)} y={H - 8} fontSize={11} fill="var(--faint)" textAnchor="middle">
-          {xTick(x)}
-        </text>
-      ))}
-      {frontier.length > 1 && (
-        <path
-          d={frontier.map((p, i) => `${i === 0 ? "M" : "L"}${sx(p.x)},${sy(p.y)}`).join(" ")}
-          fill="none"
-          stroke="var(--ink)"
-          strokeDasharray="1 4"
-          strokeLinecap="round"
-          strokeWidth={1.5}
-        />
-      )}
-      {points.map((p) => {
-        const right = sx(p.x) > W - 150;
-        return (
-          <g key={p.id}>
-            <circle cx={sx(p.x)} cy={sy(p.y)} r={4.5} fill={onFrontier.has(p.id) ? "var(--accent)" : "var(--ink)"} />
-            <text
-              x={sx(p.x) + (right ? -9 : 9)}
-              y={sy(p.y) - 8}
-              fontSize={12}
-              fill="var(--ink)"
-              textAnchor={right ? "end" : "start"}
-            >
-              {p.label}
+    <div ref={box}>
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        width={W}
+        height={H}
+        style={{ display: "block", overflow: "visible" }}
+        role="img"
+        aria-label="chart"
+      >
+        {points.length > 1 && (
+          <>
+            <rect x={L} y={T} width={Math.max(0, qx - L)} height={Math.max(0, qy - T)} fill="var(--good)" opacity={0.07} />
+            <text x={L + 8} y={Math.max(T + 16, qy - 8)} fontSize={11} fill="var(--good)" letterSpacing="0.04em">
+              MOST ATTRACTIVE
             </text>
-          </g>
-        );
-      })}
-    </svg>
+          </>
+        )}
+        <line x1={L} x2={W - R} y1={H - B} y2={H - B} stroke="var(--line)" />
+        {yTicks.map((y) => (
+          <text key={y} x={L - 10} y={sy(y) + 4} fontSize={11} fill="var(--faint)" textAnchor="end">
+            {Math.round(y)}
+          </text>
+        ))}
+        {logTicks(lo, hi).map((x) => (
+          <text key={x} x={sx(x)} y={H - 8} fontSize={11} fill="var(--faint)" textAnchor="middle">
+            {xTick(x)}
+          </text>
+        ))}
+        {frontier.length > 1 && (
+          <path
+            d={frontier.map((p, i) => `${i === 0 ? "M" : "L"}${sx(p.x)},${sy(p.y)}`).join(" ")}
+            fill="none"
+            stroke="var(--ink)"
+            strokeDasharray="1 4"
+            strokeLinecap="round"
+            strokeWidth={1.5}
+          />
+        )}
+        {points.map((p) => {
+          const label = labels.get(p.id);
+          return (
+            <g key={p.id}>
+              <circle cx={sx(p.x)} cy={sy(p.y)} r={4.5} fill={onFrontier.has(p.id) ? "var(--accent)" : "var(--ink)"} />
+              {label && (
+                <text x={label.x} y={label.y} fontSize={12} fill="var(--ink)" textAnchor={label.right ? "end" : "start"}>
+                  {p.label}
+                </text>
+              )}
+            </g>
+          );
+        })}
+      </svg>
+    </div>
   );
 };
 
@@ -315,9 +343,9 @@ export const Report = ({
         </div>
       </section>
 
-      <section className="scroll-x" style={{ display: "flex", flexDirection: "column", padding: "0 var(--gutter) 72px" }}>
+      <section className="results" style={{ display: "flex", flexDirection: "column", padding: "0 var(--gutter) 72px" }}>
         <div
-          className="eyebrow"
+          className="eyebrow results-head"
           style={{
             borderBottom: "1px solid var(--line)",
             borderTop: "1px solid var(--ink)",
@@ -337,38 +365,45 @@ export const Report = ({
         {ranked.map((p, i) => {
           const preset = byId.get(p.presetId);
           return (
-            <div key={p.presetId} className="row" style={{ fontSize: 14, gap: 24, padding: "22px 0" }}>
+            <div key={p.presetId} className="row result" style={{ fontSize: 14, gap: 24, padding: "22px 0" }}>
               <div style={{ color: "var(--muted)", width: cols.rank }}>{i + 1}</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 2, width: cols.provider }}>
+              <div className="result-provider" style={{ display: "flex", flexDirection: "column", gap: 2, width: cols.provider }}>
                 <div style={{ fontSize: 16, lineHeight: "20px" }}>{preset ? providerName(preset.provider) : p.label}</div>
                 <div style={{ color: "var(--muted)", fontSize: 13 }}>
                   {preset?.mode}
                   {preset && !preset.hosted && " · your key"}
                 </div>
               </div>
-              <div style={{ alignItems: "center", display: "flex", flexGrow: 1, gap: 20 }}>
+              <div className="result-score" style={{ alignItems: "center", display: "flex", flexGrow: 1, gap: 20 }}>
                 <div style={{ fontSize: 24, fontWeight: 300, letterSpacing: "-0.02em", lineHeight: "30px", width: 48 }}>
                   {p.meanScore === null ? "–" : p.meanScore.toFixed(1)}
                 </div>
-                <div style={{ background: "#F2F2F2", display: "flex", flexGrow: 1, height: 4 }}>
+                <div className="result-bar" style={{ background: "#F2F2F2", display: "flex", flexGrow: 1, height: 4 }}>
                   <div style={{ background: "var(--ink)", height: 4, width: `${((p.meanScore ?? 0) / 10) * 100}%` }} />
                 </div>
               </div>
-              <div style={{ textAlign: "right", width: cols.high }}>
-                {p.highSeverityRate === null ? "–" : pct(p.highSeverityRate)}
-                {p.highSeverityInterval && (
-                  <span style={{ color: "var(--faint)" }}>
-                    {" "}
-                    ({Math.round(p.highSeverityInterval.low * 100)}–{pct(p.highSeverityInterval.high).replace("%", "")})
-                  </span>
-                )}
-              </div>
-              <div style={{ textAlign: "right", width: cols.price }}>{perThousand(p.listPriceUsdPerPage)}</div>
-              <div style={{ textAlign: "right", width: cols.latency }}>
-                {seconds(p.latencyMsP50).replace(" s", "")} · {seconds(p.latencyMsP95)}
-              </div>
-              <div style={{ color: p.failedPages > 0 ? "var(--bad)" : "var(--muted)", textAlign: "right", width: cols.failed }}>
-                {p.failedPages}
+              <div className="result-stats">
+                <div data-label="High severity" style={{ textAlign: "right", width: cols.high }}>
+                  {p.highSeverityRate === null ? "–" : pct(p.highSeverityRate)}
+                  {p.highSeverityInterval && (
+                    <span style={{ color: "var(--faint)" }}>
+                      {" "}
+                      ({Math.round(p.highSeverityInterval.low * 100)}–{pct(p.highSeverityInterval.high).replace("%", "")})
+                    </span>
+                  )}
+                </div>
+                <div data-label="$/1k pp" style={{ textAlign: "right", width: cols.price }}>
+                  {perThousand(p.listPriceUsdPerPage)}
+                </div>
+                <div data-label="p50 · p95" style={{ textAlign: "right", width: cols.latency }}>
+                  {seconds(p.latencyMsP50).replace(" s", "")} · {seconds(p.latencyMsP95)}
+                </div>
+                <div
+                  data-label="Failed"
+                  style={{ color: p.failedPages > 0 ? "var(--bad)" : "var(--muted)", textAlign: "right", width: cols.failed }}
+                >
+                  {p.failedPages}
+                </div>
               </div>
             </div>
           );
@@ -429,7 +464,7 @@ export const Report = ({
         </div>
         <div style={{ display: "flex", flexDirection: "column", flexGrow: 1 }}>
           <div style={{ borderBottom: "1px solid var(--ink)", display: "flex", paddingBottom: 10 }}>
-            <div style={{ width: 140 }} />
+            <div className="h2h-name" style={{ width: 140 }} />
             {ranked.map((c) => (
               <div key={c.presetId} style={{ color: "var(--muted)", flex: "1 0 0", fontSize: 13 }}>
                 vs {name(c.presetId)}
@@ -438,11 +473,13 @@ export const Report = ({
           </div>
           {ranked.map((r) => (
             <div key={r.presetId} className="row" style={{ fontSize: 14, padding: "14px 0" }}>
-              <div style={{ width: 140 }}>{name(r.presetId)}</div>
+              <div className="h2h-name" style={{ width: 140 }}>
+                {name(r.presetId)}
+              </div>
               {ranked.map((c) => {
                 const h = h2h(r.presetId, c.presetId);
                 return (
-                  <div key={c.presetId} style={{ color: h ? "var(--ink)" : "#BDBDBD", flex: "1 0 0" }}>
+                  <div key={c.presetId} style={{ color: h ? "var(--ink)" : "#BDBDBD", flex: "1 0 0", whiteSpace: "nowrap" }}>
                     {h ? (
                       <>
                         <button
@@ -490,6 +527,7 @@ export const Report = ({
       </section>
 
       <section
+        className="mcp"
         style={{
           alignItems: "center",
           background: "#F7F7F7",
@@ -501,7 +539,7 @@ export const Report = ({
           padding: "28px 32px",
         }}
       >
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, width: 420 }}>
+        <div className="mcp-intro" style={{ display: "flex", flexDirection: "column", gap: 6, width: 420 }}>
           <div style={{ fontSize: 18, fontWeight: 500, letterSpacing: "-0.01em", lineHeight: "22px" }}>
             Ask your agent about your evals
           </div>
@@ -510,11 +548,12 @@ export const Report = ({
             one.
           </div>
         </div>
-        <div style={{ display: "flex", flexDirection: "column", flexGrow: 1, gap: 10 }}>
+        <div style={{ display: "flex", flexDirection: "column", flexGrow: 1, gap: 10, minWidth: 0 }}>
           <div
             style={{
               alignItems: "center",
               background: "#fff",
+              gap: 16,
               border: "1px solid var(--line)",
               borderRadius: 4,
               display: "flex",
@@ -522,7 +561,7 @@ export const Report = ({
               padding: "12px 16px",
             }}
           >
-            <span className="mono" style={{ fontSize: 13 }}>
+            <span className="mono" style={{ fontSize: 13, minWidth: 0, overflowX: "auto", whiteSpace: "nowrap" }}>
               {mcp}
             </span>
             <CopyButton text={mcp} label="Copy" className="u" style={{ fontSize: 13 }} />
@@ -549,7 +588,7 @@ export const Report = ({
             scrollMarginTop: 16,
           }}
         >
-          <div style={{ alignItems: "end", display: "flex", justifyContent: "space-between" }}>
+          <div style={{ alignItems: "end", display: "flex", flexWrap: "wrap", gap: 16, justifyContent: "space-between" }}>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               <div style={h2}>Where providers disagree</div>
               <div style={note}>
@@ -558,7 +597,7 @@ export const Report = ({
                   : `${disagreements.length} of ${pageCount} pages have a gap of 3 or more points between the best and worst score, or a failed parse.`}
               </div>
             </div>
-            <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               {(
                 [
                   [{ kind: "gap" }, "Largest gap"],
@@ -578,6 +617,7 @@ export const Report = ({
                     fontSize: 13,
                     height: 32,
                     padding: "0 12px",
+                    whiteSpace: "nowrap",
                   }}
                 >
                   {label}
@@ -635,16 +675,29 @@ export const Report = ({
               })}
             </div>
           )}
-          <div style={{ alignItems: "center", display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-            <div style={{ alignItems: "center", color: "var(--muted)", display: "flex", gap: 16 }}>
-              <span>
+          <div
+            style={{
+              alignItems: "center",
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 16,
+              justifyContent: "space-between",
+              fontSize: 12,
+            }}
+          >
+            <div style={{ alignItems: "center", color: "var(--muted)", display: "flex", flexWrap: "wrap", gap: "8px 16px" }}>
+              <span style={{ whiteSpace: "nowrap" }}>
                 <span style={{ color: "var(--accent)" }}>●</span> best output
               </span>
-              <span>○ worst output</span>
+              <span style={{ whiteSpace: "nowrap" }}>○ worst output</span>
               <span>Dots show each provider's score on this page, from 1 to 10.</span>
             </div>
             {pages[0] && (
-              <button type="button" style={{ fontSize: 14 }} onClick={() => navigate(`/r/${run.shareId}/p/${pages[0]?.id}`)}>
+              <button
+                type="button"
+                style={{ fontSize: 14, whiteSpace: "nowrap" }}
+                onClick={() => navigate(`/r/${run.shareId}/p/${pages[0]?.id}`)}
+              >
                 Browse all {pageCount} pages →
               </button>
             )}
