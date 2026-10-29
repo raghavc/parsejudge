@@ -56,4 +56,6 @@ Return JSON with exactly one evaluation per label listed here:
 ${labels}
 
 For each evaluation, include the label, a list of specific errors found, concise reasoning, and the 1-10 score.
+
+For each error, put in "quotes" up to 6 short excerpts copied exactly, character for character, from that parse's output where the error appears (for example the duplicated sentence, or the misread word with a few words around it). Each excerpt must be a contiguous span of the output, at most 120 characters, without Markdown or HTML syntax. Leave "quotes" empty when the error is about content that is missing from the output.
 `;

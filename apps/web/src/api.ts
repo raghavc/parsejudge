@@ -71,6 +71,7 @@ export interface JudgedError {
   readonly category: string;
   readonly severity: "not_error" | "low" | "medium" | "high";
   readonly description: string;
+  readonly quotes?: ReadonlyArray<string>;
 }
 
 export interface PageParse {
@@ -96,6 +97,7 @@ export interface CellScore {
   readonly presetId: string;
   readonly status: string;
   readonly score: number | null;
+  readonly high: number;
 }
 
 export interface CellDone {

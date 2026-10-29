@@ -47,6 +47,8 @@ export const JudgedError = Schema.Struct({
   category: ErrorCategory,
   severity: Severity,
   description: Schema.String,
+  /** Exact excerpts of the output that show the error, so a viewer can mark them. */
+  quotes: Schema.optional(Schema.Array(Schema.String)),
 });
 export type JudgedError = typeof JudgedError.Type;
 

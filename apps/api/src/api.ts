@@ -104,6 +104,8 @@ const Run = Schema.Struct({
       presetId: Schema.String,
       status: Schema.String,
       score: Schema.NullOr(Schema.Number),
+      /** High-severity errors the judge found in this parse. */
+      high: Schema.Number,
     }),
   ),
   summary: Schema.NullOr(RunSummary),
@@ -305,12 +307,19 @@ const runDocuments = (runId: string) =>
 const runScores = (runId: string) =>
   query(async () => {
     const rows = await cf.DB.prepare(
-      `SELECT p.page_id, p.preset_id, p.status, v.score FROM parses p
-       LEFT JOIN verdicts v USING (run_id, page_id, preset_id) WHERE p.run_id = ?`,
+      `SELECT p.page_id, p.preset_id, p.status, v.score,
+         (SELECT COUNT(*) FROM json_each(v.errors) e WHERE json_extract(e.value, '$.severity') = 'high') AS high
+       FROM parses p LEFT JOIN verdicts v USING (run_id, page_id, preset_id) WHERE p.run_id = ?`,
     )
       .bind(runId)
-      .all<{ page_id: string; preset_id: string; status: string; score: number | null }>();
-    return rows.results.map((row) => ({ pageId: row.page_id, presetId: row.preset_id, status: row.status, score: row.score }));
+      .all<{ page_id: string; preset_id: string; status: string; score: number | null; high: number }>();
+    return rows.results.map((row) => ({
+      pageId: row.page_id,
+      presetId: row.preset_id,
+      status: row.status,
+      score: row.score,
+      high: row.high,
+    }));
   });
 
 const findRun = (column: "id" | "share_id", value: string) =>
