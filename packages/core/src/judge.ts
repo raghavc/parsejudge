@@ -11,6 +11,8 @@ export interface JudgeConfig {
   readonly model: string;
   readonly reasoningEffort: "low" | "medium" | "high";
   readonly baseUrl: string;
+  /** Called with the `usage` object of each answered judge call (OpenRouter includes cost). */
+  readonly onUsage?: (usage: unknown) => void;
 }
 
 export interface JudgeInput {
@@ -130,6 +132,15 @@ export const judgePage = Effect.fn("judge.page")(function* (config: JudgeConfig,
     const retryable = response.status === 429 || response.status >= 500;
     return yield* new JudgeError({ retryable, message: `HTTP ${response.status}: ${text.slice(0, 500)}` });
   }
+  config.onUsage?.(
+    (() => {
+      try {
+        return JSON.parse(text).usage;
+      } catch {
+        return undefined;
+      }
+    })(),
+  );
   const content = yield* Effect.try({
     try: () => String(JSON.parse(text).choices[0].message.content),
     catch: () => new JudgeError({ retryable: true, message: "Judge response has no message content." }),

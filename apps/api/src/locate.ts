@@ -1,6 +1,7 @@
 import { marked } from "marked";
 import type { Env } from "./env.ts";
 import { markdownKey } from "./keys.ts";
+import { openRouterUsage, recordUsage } from "./usage.ts";
 
 /** One place an error appears: `text` occurs in the output's visible text, and `occurrence` picks which match (1-based). */
 export interface Quote {
@@ -92,7 +93,10 @@ const parseReply = (content: string): Map<number, Array<Quote>> => {
 
 type Message = { role: "system" | "user" | "assistant"; content: string };
 
-const complete = async (env: Env, messages: ReadonlyArray<Message>): Promise<string> => {
+type Where = { readonly runId?: string; readonly pageId?: string };
+
+const complete = async (env: Env, messages: ReadonlyArray<Message>, where: Where): Promise<string> => {
+  const startedAt = Date.now();
   const response = await fetch(`${env.JUDGE_BASE_URL}/chat/completions`, {
     method: "POST",
     headers: { authorization: `Bearer ${env.JUDGE_API_KEY}`, "content-type": "application/json" },
@@ -100,7 +104,15 @@ const complete = async (env: Env, messages: ReadonlyArray<Message>): Promise<str
     signal: AbortSignal.timeout(60_000),
   });
   if (!response.ok) throw new Error(`OpenRouter ${response.status}: ${await response.text()}`);
-  const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
+  const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }>; usage?: unknown };
+  recordUsage(env, {
+    kind: "locate",
+    name: env.SMALL_MODEL,
+    ...where,
+    status: "ok",
+    latencyMs: Date.now() - startedAt,
+    ...openRouterUsage(data.usage),
+  });
   return data.choices?.[0]?.message?.content ?? "";
 };
 
@@ -108,7 +120,12 @@ const complete = async (env: Env, messages: ReadonlyArray<Message>): Promise<str
  * Finds the excerpts of the output each judge error is about. The model's excerpts are checked against the output, and
  * the problems go back to it until every error has excerpts that match one place, or the rounds run out.
  */
-export const locate = async (env: Env, markdown: string, flags: ReadonlyArray<Flag>): Promise<Array<Array<Quote>>> => {
+export const locate = async (
+  env: Env,
+  markdown: string,
+  flags: ReadonlyArray<Flag>,
+  where: Where = {},
+): Promise<Array<Array<Quote>>> => {
   const text = visibleText(markdown);
   const located: Array<Array<Quote> | undefined> = flags.map(() => undefined);
   const list = flags.map((f, i) => `${i + 1}. ${f.severity} ${f.category}: ${f.description}`).join("\n");
@@ -118,7 +135,7 @@ export const locate = async (env: Env, markdown: string, flags: ReadonlyArray<Fl
   ];
   let last = new Map<number, Array<Quote>>();
   for (let round = 0; round < ROUNDS && located.includes(undefined); round++) {
-    const reply = await complete(env, messages);
+    const reply = await complete(env, messages, where);
     messages.push({ role: "assistant", content: reply });
     try {
       last = parseReply(reply);
@@ -153,7 +170,7 @@ export const writeLocations = async (env: Env, runId: string, pageId: string, pr
   if (flags.length === 0) return;
   const markdown = await (await env.BLOBS.get(markdownKey(runId, pageId, presetId)))?.text();
   if (markdown === undefined) return;
-  const quotes = await locate(env, markdown, flags);
+  const quotes = await locate(env, markdown, flags, { runId, pageId });
   await env.DB.prepare("INSERT OR REPLACE INTO page_locations (run_id, page_id, preset_id, quotes) VALUES (?, ?, ?, ?)")
     .bind(runId, pageId, presetId, JSON.stringify(quotes))
     .run();

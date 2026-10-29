@@ -4,7 +4,8 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-10-01",
   "compatibility_flags": ["nodejs_compat"],
-  "observability": { "enabled": true },
+  "observability": { "enabled": true, "logs": { "enabled": true }, "traces": { "enabled": true } },
+  "analytics_engine_datasets": [{ "binding": "USAGE", "dataset": "parsejudge_usage" }],
   "limits": { "cpu_ms": 300000 },
   "assets": {
     "directory": "../web/dist",

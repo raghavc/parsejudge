@@ -22,6 +22,8 @@ export interface Env {
   readonly JUDGE_API_KEY: string;
   /** incident.io HTTP alert source URL, with its token. Unset turns budget alerts off. */
   readonly BUDGET_ALERT_URL?: string;
+  /** Analytics Engine dataset for per-call cost and latency (see usage.ts). Unbound turns it off. */
+  readonly USAGE?: AnalyticsEngineDataset;
   readonly AUTH_MODE: string;
   /** Hosted provider credentials (REDUCTO_API_KEY, AZURE_DI_KEY, ...). */
   readonly [credential: string]: unknown;

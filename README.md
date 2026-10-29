@@ -50,6 +50,24 @@ Deploy `apps/api` to your own Cloudflare account: create the D1 database and R2 
 `--remote`, then `wrangler deploy`. DOCX and PPTX conversion runs in the LibreOffice container in
 `containers/libreoffice`; Wrangler builds it with Docker on deploy and in `wrangler dev`.
 
+## Usage and cost
+
+Every provider parse, judge call and small-model call (page notes, error locations, run titles) is logged to
+Workers Logs as an `{"event":"usage",...}` line and written to the Analytics Engine dataset `parsejudge_usage`.
+Model cost is the `usage.cost` OpenRouter returns with each completion; provider cost is the provider's reported
+cost or the list price. Columns are listed in `apps/api/src/usage.ts`. Query it with the
+[SQL API](https://developers.cloudflare.com/analytics/analytics-engine/sql-api/), for example cost per run and kind:
+
+```sql
+SELECT blob3 AS run, blob1 AS kind, blob2 AS name, SUM(_sample_interval) AS calls,
+       SUM(_sample_interval * double1) AS cost_usd
+FROM parsejudge_usage
+WHERE timestamp > NOW() - INTERVAL '7' DAY
+GROUP BY run, kind, name ORDER BY cost_usd DESC
+```
+
+Traces of each request and workflow step are in Workers Observability.
+
 ## Checks
 
 ```sh

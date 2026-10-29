@@ -1,5 +1,6 @@
 import { PRESETS } from "@parsejudge/core";
 import type { Env } from "./env.ts";
+import { openRouterUsage, recordUsage } from "./usage.ts";
 
 /** A page gets a note when its best and worst scores differ by this much, or a parse failed. Matches the report. */
 const NOTE_GAP = 3;
@@ -54,6 +55,7 @@ export const writePageNote = async (env: Env, runId: string, pageId: string): Pr
     const place = r.score === null ? "not judged" : r.score === top ? "best" : r.score === bottom ? "worst" : "middle";
     return `${label(r.preset_id)}: ${place}. Errors: ${found || "none"}`;
   });
+  const startedAt = Date.now();
   const response = await fetch(`${env.JUDGE_BASE_URL}/chat/completions`, {
     method: "POST",
     headers: { authorization: `Bearer ${env.JUDGE_API_KEY}`, "content-type": "application/json" },
@@ -68,7 +70,16 @@ export const writePageNote = async (env: Env, runId: string, pageId: string): Pr
     signal: AbortSignal.timeout(30_000),
   });
   if (!response.ok) throw new Error(`OpenRouter ${response.status}: ${await response.text()}`);
-  const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
+  const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }>; usage?: unknown };
+  recordUsage(env, {
+    kind: "note",
+    name: env.SMALL_MODEL,
+    runId,
+    pageId,
+    status: "ok",
+    latencyMs: Date.now() - startedAt,
+    ...openRouterUsage(data.usage),
+  });
   const note = data.choices?.[0]?.message?.content?.trim();
   if (!note || note.includes("\n")) throw new Error(`Unusable page note: ${JSON.stringify(note)}`);
   await env.DB.prepare("INSERT OR REPLACE INTO page_notes (run_id, page_id, note) VALUES (?, ?, ?)")

@@ -15,6 +15,7 @@ import { signedBlobUrl } from "./blobs.ts";
 import { decryptCredentials } from "./credentials.ts";
 import type { Env } from "./env.ts";
 import { markdownKey, pagePngKey, rawKey } from "./keys.ts";
+import { recordUsage } from "./usage.ts";
 
 /** Runs an Effect inside a workflow step. Non-retryable errors stop the step's retries. */
 export const runStep = <A>(program: Effect.Effect<A, ProviderError | JudgeError, HttpClient.HttpClient>) =>
@@ -64,28 +65,32 @@ export interface Cell {
 export const saveParse = async (env: Env, cell: Cell, output: ParseOutput, latencyMs: number, queueMs: number) => {
   const { runId, pageId, presetId } = cell;
   const listPrice = findPreset(presetId)?.listPriceUsdPerPage ?? null;
+  const costUsd = output.reportedCost?.usd ?? listPrice;
   await env.BLOBS.put(markdownKey(runId, pageId, presetId), output.markdown);
   await env.BLOBS.put(rawKey(runId, pageId, presetId), JSON.stringify(output.raw));
   await env.DB.prepare(
     `INSERT OR REPLACE INTO parses (run_id, page_id, preset_id, status, latency_ms, queue_ms, cost_usd, cost_source, error)
      VALUES (?, ?, ?, 'succeeded', ?, ?, ?, ?, NULL)`,
   )
-    .bind(
-      runId,
-      pageId,
-      presetId,
-      latencyMs,
-      queueMs,
-      output.reportedCost?.usd ?? listPrice,
-      output.reportedCost?.source ?? "list_price",
-    )
+    .bind(runId, pageId, presetId, latencyMs, queueMs, costUsd, output.reportedCost?.source ?? "list_price")
     .run();
+  recordUsage(env, { kind: "provider", name: presetId, runId, pageId, status: "ok", costUsd: costUsd ?? 0, latencyMs, queueMs });
 };
 
-export const saveFailure = (env: Env, cell: Cell, error: string) =>
-  env.DB.prepare(`INSERT OR REPLACE INTO parses (run_id, page_id, preset_id, status, error) VALUES (?, ?, ?, 'failed', ?)`)
+export const saveFailure = (env: Env, cell: Cell, error: string) => {
+  recordUsage(env, {
+    kind: "provider",
+    name: cell.presetId,
+    runId: cell.runId,
+    pageId: cell.pageId,
+    status: "failed",
+    costUsd: 0,
+    latencyMs: 0,
+  });
+  return env.DB.prepare(`INSERT OR REPLACE INTO parses (run_id, page_id, preset_id, status, error) VALUES (?, ?, ?, 'failed', ?)`)
     .bind(cell.runId, cell.pageId, cell.presetId, error.slice(0, 1000))
     .run();
+};
 
 export const submitCell = async (
   env: Env,

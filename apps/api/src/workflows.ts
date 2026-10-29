@@ -11,6 +11,7 @@ import { renderFirstPagePng } from "./render.ts";
 import { type Cell, judgePool, type Pool, pollCell, providerPool, runStep, saveFailure, submitCell } from "./run.ts";
 import { MAX_POLLS, pollDelayMs } from "./schedule.ts";
 import type { ProviderSlots } from "./slots.ts";
+import { openRouterUsage, recordUsage } from "./usage.ts";
 
 export interface RunWorkflowParams {
   readonly runId: string;
@@ -273,6 +274,7 @@ export class PageWorkflow extends WorkflowEntrypoint<Env, PageWorkflowParams> {
     }
     const image = await this.env.BLOBS.get(pagePngKey(page));
     if (image === null) throw new Error(`Missing image for ${page}`);
+    const startedAt = Date.now();
     const verdicts = await runStep(
       judgePage(
         {
@@ -280,6 +282,16 @@ export class PageWorkflow extends WorkflowEntrypoint<Env, PageWorkflowParams> {
           model: this.env.JUDGE_MODEL,
           reasoningEffort: this.env.JUDGE_REASONING_EFFORT,
           baseUrl: this.env.JUDGE_BASE_URL,
+          onUsage: (usage) =>
+            recordUsage(this.env, {
+              kind: "judge",
+              name: this.env.JUDGE_MODEL,
+              runId,
+              pageId: page,
+              status: "ok",
+              latencyMs: Date.now() - startedAt,
+              ...openRouterUsage(usage),
+            }),
         },
         { pageId: page, imagePng: new Uint8Array(await image.arrayBuffer()), markdownByPreset },
       ),
