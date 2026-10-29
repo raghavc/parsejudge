@@ -11,6 +11,7 @@ export interface Env {
   readonly PAGE_WORKFLOW: Workflow<PageWorkflowParams>;
   readonly PUBLIC_URL: string;
   readonly JUDGE_MODEL: string;
+  readonly TITLE_MODEL: string;
   readonly JUDGE_REASONING_EFFORT: "low" | "medium" | "high";
   readonly JUDGE_BASE_URL: string;
   readonly MAX_PAGES_PER_RUN: string;

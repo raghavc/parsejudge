@@ -8,6 +8,7 @@ import { toPdf } from "./converter.ts";
 import { encryptCredentials } from "./credentials.ts";
 import type { Env } from "./env.ts";
 import { documentKey, markdownKey, pageId as pageIdOf, pagePngKey, sourceKey } from "./keys.ts";
+import { generateTitle } from "./title.ts";
 
 const cf = env as unknown as Env;
 
@@ -24,6 +25,7 @@ const PresetInfo = Schema.Struct({
 const CreateRun = Schema.Struct({
   documentIds: Schema.Array(Schema.String),
   presetIds: Schema.optional(Schema.Array(Schema.String)),
+  title: Schema.optional(Schema.String),
   /** BYOK keys by provider id, e.g. `{ "llamaparse": { "LLAMA_CLOUD_API_KEY": "..." } }`. */
   credentials: Schema.optional(Schema.Record(Schema.String, Schema.Record(Schema.String, Schema.String))),
 });
@@ -82,6 +84,7 @@ const DocumentInfo = Schema.Struct({
 const Run = Schema.Struct({
   id: Schema.String,
   shareId: Schema.String,
+  title: Schema.NullOr(Schema.String),
   status: Schema.String,
   presetIds: Schema.Array(Schema.String),
   judgeVersion: Schema.String,
@@ -128,6 +131,15 @@ export const Api = HttpApi.make("parsejudge")
         query: { filename: Schema.optional(Schema.String) },
         success: Schema.Struct({ documentId: Schema.String, pageCount: Schema.Number }),
         error: [HttpApiError.BadRequest, HttpApiError.Unauthorized, HttpApiError.ServiceUnavailable],
+      }),
+    ),
+  )
+  .add(
+    HttpApiGroup.make("titles").add(
+      HttpApiEndpoint.post("generate", "/v1/titles", {
+        payload: Schema.Struct({ filenames: Schema.Array(Schema.String) }),
+        success: Schema.Struct({ title: Schema.NullOr(Schema.String) }),
+        error: [HttpApiError.BadRequest],
       }),
     ),
   )
@@ -193,6 +205,7 @@ const sha256 = async (bytes: Uint8Array) =>
 type RunRow = {
   id: string;
   share_id: string;
+  title: string | null;
   status: string;
   preset_ids: string;
   judge_version: string;
@@ -206,6 +219,7 @@ type RunRow = {
 const toRun = (row: RunRow) => ({
   id: row.id,
   shareId: row.share_id,
+  title: row.title,
   status: row.status,
   presetIds: JSON.parse(row.preset_ids) as Array<string>,
   judgeVersion: row.judge_version,
@@ -305,6 +319,23 @@ const DocumentsLive = HttpApiBuilder.group(Api, "documents", (handlers) =>
   ),
 );
 
+const TitlesLive = HttpApiBuilder.group(Api, "titles", (handlers) =>
+  handlers.handle("generate", ({ payload }) =>
+    Effect.gen(function* () {
+      const { filenames } = payload;
+      if (filenames.length === 0 || filenames.length > 1000) return yield* new HttpApiError.BadRequest({});
+      return {
+        title: yield* query(() =>
+          generateTitle(
+            cf,
+            filenames.map((name) => name.slice(0, 200)),
+          ),
+        ),
+      };
+    }),
+  ),
+);
+
 const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
   handlers
     .handle("create", ({ payload }) =>
@@ -329,6 +360,19 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
         if (owned?.n !== payload.documentIds.length || owned.pages > Number(cf.MAX_PAGES_PER_RUN)) {
           return yield* new HttpApiError.BadRequest({});
         }
+        const title =
+          payload.title?.trim().slice(0, 80) ||
+          (yield* query(async () => {
+            const rows = await cf.DB.prepare(
+              `SELECT filename FROM documents WHERE user_id = ? AND id IN (${payload.documentIds.map(() => "?").join(", ")})`,
+            )
+              .bind(userId, ...payload.documentIds)
+              .all<{ filename: string }>();
+            return generateTitle(
+              cf,
+              rows.results.map((row) => row.filename),
+            );
+          }));
         const runId = crypto.randomUUID();
         const shareId = crypto.randomUUID().replace(/-/g, "").slice(0, 16);
         const credentials = yield* query(() =>
@@ -342,9 +386,9 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
         yield* query(() =>
           cf.DB.batch([
             cf.DB.prepare(
-              `INSERT INTO runs (id, user_id, share_id, status, preset_ids, judge_version, judge_model, created_at)
-               VALUES (?, ?, ?, 'queued', ?, ?, ?, ?)`,
-            ).bind(runId, userId, shareId, JSON.stringify(presetIds), JUDGE_VERSION, cf.JUDGE_MODEL, Date.now()),
+              `INSERT INTO runs (id, user_id, share_id, title, status, preset_ids, judge_version, judge_model, created_at)
+               VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?)`,
+            ).bind(runId, userId, shareId, title, JSON.stringify(presetIds), JUDGE_VERSION, cf.JUDGE_MODEL, Date.now()),
             ...payload.documentIds.map((documentId) =>
               cf.DB.prepare("INSERT INTO run_documents (run_id, document_id) VALUES (?, ?)").bind(runId, documentId),
             ),
@@ -405,7 +449,7 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
 );
 
 const ApiLive = HttpApiBuilder.layer(Api, { openapiPath: "/openapi.json" }).pipe(
-  Layer.provide([PresetsLive, DocumentsLive, RunsLive]),
+  Layer.provide([PresetsLive, DocumentsLive, TitlesLive, RunsLive]),
   Layer.provide(HttpServer.layerServices),
 );
 

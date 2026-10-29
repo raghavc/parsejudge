@@ -14,6 +14,7 @@
   "vars": {
     "PUBLIC_URL": "http://localhost:8787",
     "JUDGE_MODEL": "openai/gpt-6.1-sol",
+    "TITLE_MODEL": "anthropic/claude-haiku-5.5",
     "JUDGE_REASONING_EFFORT": "medium",
     "JUDGE_BASE_URL": "https://openrouter.ai/api/v1",
     "MAX_PAGES_PER_RUN": "1000",

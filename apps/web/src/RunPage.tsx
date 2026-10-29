@@ -16,8 +16,10 @@ const elapsed = (ms: number) => {
 };
 
 export const runTitle = (run: Run) => {
+  if (run.title) return run.title;
   const names = run.documents.map((d) => d.filename.replace(/\.[^.]+$/, ""));
-  return names.length <= 2 ? names.join(" and ") : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+  if (names.length <= 2) return names.join(" and ");
+  return `${names.length} documents`;
 };
 
 const Bar = ({ value, height = 2 }: { readonly value: number; readonly height?: number }) => (

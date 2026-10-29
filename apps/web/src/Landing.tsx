@@ -247,6 +247,23 @@ export const Landing = () => {
   const chosen = presets.filter((p) => selected.has(p.id));
   const missingKey = chosen.some((p) => !p.hosted && !keys[p.provider]);
   const overLimit = pages > MAX_PAGES_PER_RUN;
+  const namesKey = uploads
+    .filter((u) => u.error === undefined)
+    .map((u) => u.name)
+    .join("\n");
+  const [titleFor, setTitleFor] = useState<{ readonly key: string; readonly title: string | null }>();
+  useEffect(() => {
+    if (namesKey === "") return;
+    let live = true;
+    api.title(namesKey.split("\n")).then(
+      ({ title }) => live && setTitleFor({ key: namesKey, title }),
+      () => undefined,
+    );
+    return () => {
+      live = false;
+    };
+  }, [namesKey]);
+  const title = titleFor?.key === ready.map((u) => u.name).join("\n") ? (titleFor.title ?? undefined) : undefined;
 
   const start = async () => {
     setStarting(true);
@@ -260,6 +277,7 @@ export const Landing = () => {
       );
       const { shareId } = await api.createRun({
         documentIds: ready.flatMap((u) => (u.documentId ? [u.documentId] : [])),
+        title,
         presetIds: chosen.map((p) => p.id),
         credentials,
       });

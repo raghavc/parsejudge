@@ -51,6 +51,7 @@ export interface DocumentInfo {
 export interface Run {
   readonly id: string;
   readonly shareId: string;
+  readonly title: string | null;
   readonly status: string;
   readonly presetIds: ReadonlyArray<string>;
   readonly judgeVersion: string;
@@ -139,6 +140,7 @@ export const api = {
   createRun: (body: {
     documentIds: ReadonlyArray<string>;
     presetIds: ReadonlyArray<string>;
+    title?: string | undefined;
     credentials: Record<string, Record<string, string>>;
   }) =>
     fetch("/v1/runs", {
@@ -146,6 +148,12 @@ export const api = {
       headers: { ...userHeaders(), "content-type": "application/json" },
       body: JSON.stringify(body),
     }).then(json<{ runId: string; shareId: string }>),
+  title: (filenames: ReadonlyArray<string>) =>
+    fetch("/v1/titles", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ filenames }),
+    }).then(json<{ title: string | null }>),
   shared: (shareId: string) => fetch(`/v1/share/${shareId}`).then(json<Run>),
   page: (runId: string, pageId: string) => fetch(`/v1/runs/${runId}/pages/${pageId}`).then(json<PageDetail>),
   events: (runId: string, onEvent: (event: RunEvent) => void) => {
