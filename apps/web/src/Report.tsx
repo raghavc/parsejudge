@@ -385,12 +385,6 @@ export const Report = ({
               <div className="result-stats">
                 <div data-label="High severity" style={{ textAlign: "right", width: cols.high }}>
                   {p.highSeverityRate === null ? "–" : pct(p.highSeverityRate)}
-                  {p.highSeverityInterval && (
-                    <span style={{ color: "var(--faint)" }}>
-                      {" "}
-                      ({Math.round(p.highSeverityInterval.low * 100)}–{pct(p.highSeverityInterval.high).replace("%", "")})
-                    </span>
-                  )}
                 </div>
                 <div data-label="$/1k pp" style={{ textAlign: "right", width: cols.price }}>
                   {perThousand(p.listPriceUsdPerPage)}
