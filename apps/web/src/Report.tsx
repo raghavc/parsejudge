@@ -161,7 +161,7 @@ const Scatter = ({
   );
 };
 
-const Dots = ({ scores }: { readonly scores: ReadonlyArray<number | null> }) => {
+const Dots = ({ scores, names }: { readonly scores: ReadonlyArray<number | null>; readonly names: ReadonlyArray<string> }) => {
   const ok = scores.filter((s): s is number => s !== null);
   const best = Math.max(...ok);
   const worst = Math.min(...ok);
@@ -176,6 +176,7 @@ const Dots = ({ scores }: { readonly scores: ReadonlyArray<number | null> }) => 
           <div
             // biome-ignore lint/suspicious/noArrayIndexKey: scores have no identity beyond their slot
             key={i}
+            title={`${names[i] ?? ""}: ${failed ? "failed" : `${s} / 10`}`}
             style={{
               background: fill,
               border: `1px solid ${border}`,
@@ -290,11 +291,6 @@ export const Report = ({
   const date = new Date(run.createdAt).toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" });
   const mcp = `claude mcp add --transport http parsejudge ${location.origin}/mcp`;
   const h2h = (a: string, b: string) => summary.headToHead.find((h) => h.presetId === a && h.opponentId === b);
-  const exportRun = () => {
-    const url = URL.createObjectURL(new Blob([JSON.stringify(run, null, 2)], { type: "application/json" }));
-    Object.assign(document.createElement("a"), { href: url, download: `parsejudge-${run.shareId}.json` }).click();
-    URL.revokeObjectURL(url);
-  };
 
   return (
     <div className="stagger">
@@ -327,17 +323,6 @@ export const Report = ({
             Share
           </button>
           {run.owned && <DeleteRun runId={run.id} dataDeleted={run.dataDeletedAt !== null} />}
-          <button type="button" className="btn" style={{ height: 40, padding: "0 16px" }} onClick={exportRun}>
-            Export
-          </button>
-          <button
-            type="button"
-            className="btn primary"
-            style={{ fontWeight: 500, height: 40, padding: "0 16px" }}
-            onClick={() => navigate("/")}
-          >
-            Run again
-          </button>
         </div>
       </section>
 
@@ -660,7 +645,7 @@ export const Report = ({
                         {d.failed > 0 ? `${d.failed} failed` : `gap ${d.gap}`}
                       </span>
                     </div>
-                    <Dots scores={d.scores} />
+                    <Dots scores={d.scores} names={run.presetIds.map(name)} />
                     <div style={{ ...note, fontSize: 13, lineHeight: "18px" }}>{d.page.note ?? worst?.reasoning}</div>
                   </a>
                 );
@@ -681,8 +666,14 @@ export const Report = ({
               <span style={{ whiteSpace: "nowrap" }}>
                 <span style={{ color: "var(--accent)" }}>●</span> best output
               </span>
+              <span style={{ whiteSpace: "nowrap" }}>● in between</span>
               <span style={{ whiteSpace: "nowrap" }}>○ worst output</span>
-              <span>Dots show each provider's score on this page, from 1 to 10.</span>
+              {failedCount > 0 && (
+                <span style={{ whiteSpace: "nowrap" }}>
+                  <span style={{ color: "var(--bad)" }}>◇</span> failed
+                </span>
+              )}
+              <span>Each dot is one provider's score on this page, from 1 to 10. Hover a dot to see the provider.</span>
             </div>
             {pages[0] && (
               <button

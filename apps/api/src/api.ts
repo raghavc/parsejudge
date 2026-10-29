@@ -29,6 +29,8 @@ const CreateRun = Schema.Struct({
   documentIds: Schema.Array(Schema.String),
   presetIds: Schema.optional(Schema.Array(Schema.String)),
   title: Schema.optional(Schema.String),
+  /** Retrying with the same key returns the run the first request created. */
+  idempotencyKey: Schema.optional(Schema.String),
   /** BYOK keys by provider id, e.g. `{ "llamaparse": { "LLAMA_CLOUD_API_KEY": "..." } }`. */
   credentials: Schema.optional(Schema.Record(Schema.String, Schema.Record(Schema.String, Schema.String))),
 });
@@ -152,6 +154,19 @@ const withQuotes = (errors: string | null, quotes: string | null): ReadonlyArray
   );
 };
 
+/** Every judged parse of a run that has at least one error, with its page and document. */
+const RunErrors = Schema.Array(
+  Schema.Struct({
+    pageId: Schema.String,
+    document: Schema.String,
+    page: Schema.Number,
+    presetId: Schema.String,
+    score: Schema.Number,
+    reasoning: Schema.String,
+    errors: Schema.Unknown,
+  }),
+);
+
 const PageDetail = Schema.Struct({
   pageId: Schema.String,
   imageUrl: Schema.String,
@@ -263,6 +278,11 @@ export const Api = HttpApi.make("parsejudge")
         }),
       )
       .add(
+        HttpApiEndpoint.get("errors", "/v1/runs/:runId/errors", {
+          params: { runId: Schema.String },
+          success: RunErrors,
+          error: HttpApiError.NotFound,
+        }),
         HttpApiEndpoint.get("page", "/v1/runs/:runId/pages/:pageId", {
           params: { runId: Schema.String, pageId: Schema.String },
           success: PageDetail,
@@ -599,6 +619,15 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
         if (owned?.n !== payload.documentIds.length || owned.pages > Number(cf.MAX_PAGES_PER_RUN)) {
           return yield* new HttpApiError.BadRequest({});
         }
+        const key = payload.idempotencyKey?.trim().slice(0, 200) || null;
+        const existing = () =>
+          key === null
+            ? Promise.resolve(null)
+            : cf.DB.prepare("SELECT id AS runId, share_id AS shareId FROM runs WHERE user_id = ? AND idempotency_key = ?")
+                .bind(userId, key)
+                .first<{ runId: string; shareId: string }>();
+        const earlier = yield* query(existing);
+        if (earlier !== null) return earlier;
         const title =
           payload.title?.trim().slice(0, 80) ||
           (yield* query(async () => {
@@ -622,25 +651,33 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
             })),
           ),
         );
-        yield* query(() =>
-          cf.DB.batch([
-            cf.DB.prepare(
-              `INSERT INTO runs (id, user_id, share_id, title, status, preset_ids, judge_version, judge_model, created_at)
-               VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?)`,
-            ).bind(runId, userId, shareId, title, JSON.stringify(presetIds), JUDGE_VERSION, cf.JUDGE_MODEL, Date.now()),
-            ...payload.documentIds.map((documentId) =>
-              cf.DB.prepare("INSERT INTO run_documents (run_id, document_id) VALUES (?, ?)").bind(runId, documentId),
-            ),
-            ...credentials.map((c) =>
-              cf.DB.prepare("INSERT INTO run_credentials (run_id, provider, iv, ciphertext) VALUES (?, ?, ?, ?)").bind(
-                runId,
-                c.provider,
-                c.iv,
-                c.ciphertext,
+        const inserted = yield* query(async () => {
+          try {
+            await cf.DB.batch([
+              cf.DB.prepare(
+                `INSERT INTO runs (id, user_id, share_id, title, status, preset_ids, judge_version, judge_model, created_at, idempotency_key)
+               VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?)`,
+              ).bind(runId, userId, shareId, title, JSON.stringify(presetIds), JUDGE_VERSION, cf.JUDGE_MODEL, Date.now(), key),
+              ...payload.documentIds.map((documentId) =>
+                cf.DB.prepare("INSERT INTO run_documents (run_id, document_id) VALUES (?, ?)").bind(runId, documentId),
               ),
-            ),
-          ]),
-        );
+              ...credentials.map((c) =>
+                cf.DB.prepare("INSERT INTO run_credentials (run_id, provider, iv, ciphertext) VALUES (?, ?, ?, ?)").bind(
+                  runId,
+                  c.provider,
+                  c.iv,
+                  c.ciphertext,
+                ),
+              ),
+            ]);
+            return null;
+          } catch (error) {
+            const raced = await existing();
+            if (raced === null) throw error;
+            return raced;
+          }
+        });
+        if (inserted !== null) return inserted;
         yield* query(() => cf.RUN_WORKFLOW.create({ id: runId, params: { runId } }));
         return { runId, shareId };
       }),
@@ -740,6 +777,39 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
     )
     .handle("get", ({ params }) => findRun("id", params.runId))
     .handle("shared", ({ params }) => findRun("share_id", params.shareId))
+    .handle("errors", ({ params }) =>
+      Effect.gen(function* () {
+        if (!(yield* canOpenRun(params.runId))) return yield* new HttpApiError.NotFound({});
+        const rows = yield* query(() =>
+          cf.DB.prepare(
+            `SELECT v.page_id, d.filename, pg.page_index, v.preset_id, v.score, v.reasoning, v.errors, l.quotes
+             FROM verdicts v JOIN pages pg ON pg.id = v.page_id JOIN documents d ON d.id = pg.document_id
+             LEFT JOIN page_locations l USING (run_id, page_id, preset_id)
+             WHERE v.run_id = ? AND v.errors != '[]' ORDER BY d.filename, pg.page_index, v.preset_id`,
+          )
+            .bind(params.runId)
+            .all<{
+              page_id: string;
+              filename: string;
+              page_index: number;
+              preset_id: string;
+              score: number;
+              reasoning: string;
+              errors: string;
+              quotes: string | null;
+            }>(),
+        );
+        return rows.results.map((row) => ({
+          pageId: row.page_id,
+          document: row.filename,
+          page: row.page_index + 1,
+          presetId: row.preset_id,
+          score: row.score,
+          reasoning: row.reasoning,
+          errors: withQuotes(row.errors, row.quotes),
+        }));
+      }),
+    )
     .handle("page", ({ params }) =>
       Effect.gen(function* () {
         if (!(yield* canOpenRun(params.runId))) return yield* new HttpApiError.NotFound({});

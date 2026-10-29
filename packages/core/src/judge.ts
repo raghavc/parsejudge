@@ -2,6 +2,7 @@ import { Effect, Schema } from "effect";
 import { HttpClient, HttpClientRequest } from "effect/http";
 import { ErrorCategory, type PresetVerdict, Severity } from "./domain.ts";
 import { JudgeError } from "./errors.ts";
+import { findPreset } from "./presets.ts";
 import { comparePrompt } from "./prompt.ts";
 
 export const JUDGE_VERSION = "compare-v1";
@@ -34,6 +35,13 @@ export const blindLabels = (pageId: string, presetIds: ReadonlyArray<string>) =>
     const keyed = await Promise.all(presetIds.map(async (id) => ({ id, key: await sha256Hex(`${pageId}:${id}`) })));
     keyed.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
     return Object.fromEntries(keyed.map(({ id }, index) => [`parse_${String.fromCharCode(97 + index)}`, id]));
+  });
+
+/** Replaces the blind labels the judge saw (`parse_a`) with the preset labels they stand for. */
+export const unblind = (text: string, labelToPreset: Readonly<Record<string, string>>) =>
+  text.replace(/\bparse_[a-z]\b/g, (label) => {
+    const presetId = labelToPreset[label];
+    return presetId === undefined ? label : (findPreset(presetId)?.label ?? presetId);
   });
 
 const Verdicts = Schema.Struct({
@@ -155,7 +163,12 @@ export const judgePage = Effect.fn("judge.page")(function* (config: JudgeConfig,
     if (!Number.isInteger(evaluation.score) || evaluation.score < 1 || evaluation.score > 10) {
       return yield* new JudgeError({ retryable: true, message: `Judge score out of range: ${evaluation.score}` });
     }
-    verdicts.set(presetId, { presetId, score: evaluation.score, reasoning: evaluation.reasoning, errors: evaluation.errors });
+    verdicts.set(presetId, {
+      presetId,
+      score: evaluation.score,
+      reasoning: unblind(evaluation.reasoning, labelToPreset),
+      errors: evaluation.errors.map((error) => ({ ...error, description: unblind(error.description, labelToPreset) })),
+    });
   }
   if (verdicts.size !== labels.length) {
     return yield* new JudgeError({ retryable: true, message: "Judge did not score every parse." });

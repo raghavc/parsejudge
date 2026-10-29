@@ -7,6 +7,7 @@ import { handler } from "./api.ts";
 import type { Env } from "./env.ts";
 import { INTERNAL_HEADER, internalHeader } from "./internal.ts";
 import { type AgentProps, listAgents, revokeAgents } from "./oauth.ts";
+import { countErrors, flattenErrors, type PageRow, paginate, type RunErrorRow, selectPages } from "./results.ts";
 import { signedUploadUrl } from "./uploads.ts";
 
 const MAX_FETCH_BYTES = 100 * 1024 * 1024;
@@ -19,11 +20,19 @@ To evaluate local files:
 2. Call start_run with the uploadId. It runs every file the upload received; list_uploaded_files shows them first. Leave presetIds out to run the default hosted parsers (free).
    Parsers that are not hosted need your own key: pass it in credentials (see list_providers for the key names).
 3. Call get_run until status is "succeeded" or "failed". The run's owner also gets an email when it finishes, unless they turned that off.
-4. Read the results with get_run (summary), list_pages and get_page. Share the reportUrl.`;
+4. Read the results with get_run (summary), list_errors (every judge error in the run, filterable), list_pages and get_page. Share the reportUrl.
+Errors come back as JSON: {"error": "...", "status": 500}. start_run with an idempotencyKey is safe to retry.`;
 
 type Json = Record<string, unknown>;
 
-class ApiError extends Error {}
+class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status?: number,
+  ) {
+    super(message);
+  }
+}
 
 const describeStatus = (status: number) =>
   status === 404
@@ -32,10 +41,15 @@ const describeStatus = (status: number) =>
       ? "Your account no longer exists, or this connection was revoked."
       : status === 400
         ? "The request was rejected. Check the ids, that the documents are yours and not deleted, and the 1,000-page limit per run."
-        : `ParseJudge returned HTTP ${status}.`;
+        : status >= 500
+          ? `ParseJudge failed with HTTP ${status}, an error on our side. Retry; to be sure no run is created twice, pass the same idempotencyKey, or check list_runs first.`
+          : `ParseJudge returned HTTP ${status}.`;
 
-const ok = (value: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }] });
-const fail = (message: string) => ({ isError: true, content: [{ type: "text" as const, text: message }] });
+const ok = (value: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(value) }] });
+const fail = (error: string, status?: number) => ({
+  isError: true,
+  content: [{ type: "text" as const, text: JSON.stringify(status === undefined ? { error } : { error, status }) }],
+});
 
 const tool =
   <A>(run: (args: A) => Promise<unknown>) =>
@@ -43,8 +57,9 @@ const tool =
     try {
       return ok(await run(args));
     } catch (error) {
-      if (error instanceof ApiError) return fail(error.message);
-      throw error;
+      if (error instanceof ApiError) return fail(error.message, error.status);
+      console.error("MCP tool failed", error);
+      return fail(`ParseJudge failed: ${error instanceof Error ? error.message : String(error)}`, 500);
     }
   };
 
@@ -61,7 +76,7 @@ const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
       headers.set("content-type", "application/json");
     }
     const response = await handler(new Request(`${base}${path}`, { method, headers, body: payload }));
-    if (!response.ok) throw new ApiError(describeStatus(response.status));
+    if (!response.ok) throw new ApiError(describeStatus(response.status), response.status);
     return response.status === 204 ? null : ((await response.json()) as Json);
   };
   const reportUrl = (shareId: unknown) => `${base}/r/${String(shareId)}`;
@@ -191,6 +206,7 @@ const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
     presetIds?: ReadonlyArray<string> | undefined;
     title?: string | undefined;
     credentials?: Record<string, Record<string, string>> | undefined;
+    idempotencyKey?: string | undefined;
   }) => {
     for (const id of args.presetIds ?? []) {
       const preset = PRESETS.find((p) => p.id === id);
@@ -203,6 +219,7 @@ const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
       documentIds: args.documentIds,
       ...(args.presetIds === undefined ? {} : { presetIds: args.presetIds }),
       ...(args.title === undefined ? {} : { title: args.title }),
+      ...(args.idempotencyKey === undefined ? {} : { idempotencyKey: args.idempotencyKey }),
       credentials: args.credentials ?? {},
     });
     return { ...created, reportUrl: reportUrl(created?.shareId), next: "Call get_run with the runId to follow progress." };
@@ -218,6 +235,12 @@ const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
         documentIds: z.array(z.string()).optional().describe("From upload_from_url or earlier uploads."),
         presetIds: z.array(z.string()).min(1).optional().describe("Preset ids from list_providers."),
         title: z.string().max(80).optional().describe("Run title. Without one, a title is made from the file names."),
+        idempotencyKey: z
+          .string()
+          .min(1)
+          .max(200)
+          .optional()
+          .describe("Any unique string. A retry with the same key returns the run the first call created instead of a new one."),
         credentials,
       },
     },
@@ -233,33 +256,6 @@ const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
         const ids = [...new Set([...(uploadId === undefined ? [] : await uploadedIds(uploadId)), ...(documentIds ?? [])])];
         if (ids.length === 0) throw new ApiError("Pass uploadId or documentIds.");
         return startRun({ ...rest, documentIds: ids });
-      },
-    ),
-  );
-
-  server.registerTool(
-    "run_again",
-    {
-      description:
-        "Start a new run on the same documents as an earlier run of yours. Uses the earlier run's hosted parsers unless you pass presetIds (and credentials for any that aren't hosted).",
-      inputSchema: { run: runRef, presetIds: z.array(z.string()).min(1).optional(), credentials },
-    },
-    tool(
-      async (args: {
-        run: string;
-        presetIds?: Array<string> | undefined;
-        credentials?: Record<string, Record<string, string>> | undefined;
-      }) => {
-        const run = await findRun(args.run);
-        if (run.owned !== true) throw new ApiError("You can only run your own runs again.");
-        if (run.dataDeletedAt !== null) throw new ApiError("This run's documents were deleted.");
-        const hosted = (run.presetIds as Array<string>).filter((id) => PRESETS.find((p) => p.id === id)?.hosted);
-        return startRun({
-          documentIds: (run.documents as Array<{ id: string }>).map((d) => d.id),
-          presetIds: args.presetIds ?? hosted,
-          title: (run.title as string | null) ?? undefined,
-          credentials: args.credentials,
-        });
       },
     ),
   );
@@ -289,92 +285,195 @@ const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
     "get_run",
     {
       description:
-        "A run's status, progress, documents and, once it succeeded, the summary: per preset mean and median score (0-10), high-severity error rate, error counts, failed pages, list price, observed cost, latency, head-to-head wins/ties/losses and the price-accuracy Pareto frontier. Works for your runs and for reports shared by link.",
-      inputSchema: { run: runRef },
+        "A run's status, progress and, once it succeeded, the summary: per preset mean and median score (0-10), high-severity error rate, error counts, failed pages, list price, observed cost, latency, head-to-head wins/ties/losses and the price-accuracy Pareto frontier. Works for your runs and for reports shared by link. The documents list (id, filename, pages) is left out unless includeDocuments is true.",
+      inputSchema: {
+        run: runRef,
+        includeDocuments: z.boolean().default(false),
+        includeSummary: z.boolean().default(true),
+      },
       annotations: read,
     },
-    tool(async ({ run: ref }: { run: string }) => {
-      const run = await findRun(ref);
-      const documents = run.documents as Array<{ id: string; filename: string; pages: Array<unknown> }>;
-      const scores = run.scores as Array<{ status: string }>;
-      const pages = documents.reduce((n, d) => n + d.pages.length, 0);
-      return {
-        id: run.owned === true ? run.id : undefined,
-        shareId: run.shareId,
-        reportUrl: reportUrl(run.shareId),
-        title: run.title,
-        status: run.status,
-        error: run.error,
-        owned: run.owned,
-        visibility: run.visibility,
-        presetIds: run.presetIds,
-        judge: { version: run.judgeVersion, model: run.judgeModel },
-        documents: documents.map((d) => ({ id: d.id, filename: d.filename, pages: d.pages.length })),
-        progress: { pages, parsesDone: scores.length, parsesTotal: pages * (run.presetIds as Array<string>).length },
-        summary: run.summary,
-        createdAt: run.createdAt,
-        completedAt: run.completedAt,
-        dataDeletedAt: run.dataDeletedAt,
-      };
-    }),
+    tool(
+      async ({
+        run: ref,
+        includeDocuments,
+        includeSummary,
+      }: {
+        run: string;
+        includeDocuments: boolean;
+        includeSummary: boolean;
+      }) => {
+        const run = await findRun(ref);
+        const documents = run.documents as Array<{ id: string; filename: string; pages: Array<unknown> }>;
+        const scores = run.scores as Array<{ status: string }>;
+        const pages = documents.reduce((n, d) => n + d.pages.length, 0);
+        return {
+          id: run.owned === true ? run.id : undefined,
+          shareId: run.shareId,
+          reportUrl: reportUrl(run.shareId),
+          title: run.title,
+          status: run.status,
+          error: run.error,
+          owned: run.owned,
+          visibility: run.visibility,
+          presetIds: run.presetIds,
+          judge: { version: run.judgeVersion, model: run.judgeModel },
+          documentCount: documents.length,
+          documents: includeDocuments
+            ? documents.map((d) => ({ id: d.id, filename: d.filename, pages: d.pages.length }))
+            : undefined,
+          progress: { pages, parsesDone: scores.length, parsesTotal: pages * (run.presetIds as Array<string>).length },
+          summary: includeSummary ? run.summary : undefined,
+          createdAt: run.createdAt,
+          completedAt: run.completedAt,
+          dataDeletedAt: run.dataDeletedAt,
+        };
+      },
+    ),
   );
 
   server.registerTool(
     "list_pages",
     {
       description:
-        "Pages of a run with each preset's score and high-severity error count, the gap between best and worst score, and a one-sentence note on how the parsers differ (flagged pages only). Use get_page for the outputs and the judge's errors.",
+        "Pages of a run with each preset's score, the gap between best and worst score, and (flagged pages) a one-sentence note on how the parsers differ. Filter by presetId and maxScore to find where one parser lost points. Paginated: pass nextCursor back as cursor. For the judge's errors across the run use list_errors; for one page's outputs use get_page.",
       inputSchema: {
         run: runRef,
         filter: z
           .enum(["all", "flagged", "high"])
           .default("all")
           .describe("flagged: pages with a note. high: any high-severity error."),
-        sort: z.enum(["document", "gap"]).default("document"),
-        limit: z.number().int().min(1).max(1000).default(200),
+        presetId: z.string().optional().describe("Only this preset's scores, and only pages it has a score on."),
+        maxScore: z
+          .number()
+          .min(1)
+          .max(10)
+          .optional()
+          .describe("Only pages where the preset (or any preset) scored at most this."),
+        sort: z.enum(["document", "gap", "score"]).default("document").describe("score: lowest first."),
+        compact: z
+          .boolean()
+          .default(true)
+          .describe(
+            'true: scores only, as {presetId: score or "failed"}. false: also status, high-severity count, note and URL.',
+          ),
+        cursor: z.string().optional(),
+        limit: z.number().int().min(1).max(500).default(50),
       },
       annotations: read,
     },
-    tool(async (args: { run: string; filter: "all" | "flagged" | "high"; sort: "document" | "gap"; limit: number }) => {
-      const run = await findRun(args.run);
-      const scores = run.scores as Array<{
-        pageId: string;
-        presetId: string;
-        status: string;
-        score: number | null;
-        high: number;
-      }>;
-      const byPage = new Map<string, typeof scores>();
-      for (const s of scores) byPage.set(s.pageId, [...(byPage.get(s.pageId) ?? []), s]);
-      const documents = run.documents as Array<{
-        filename: string;
-        pages: Array<{ id: string; index: number; note: string | null }>;
-      }>;
-      const pages = documents.flatMap((d) =>
-        d.pages.map((page) => {
-          const parses = byPage.get(page.id) ?? [];
-          const scored = parses.flatMap((p) => (p.score === null ? [] : [p.score]));
-          return {
-            pageId: page.id,
-            document: d.filename,
-            page: page.index + 1,
-            note: page.note,
-            gap: scored.length > 1 ? Math.max(...scored) - Math.min(...scored) : null,
-            scores: Object.fromEntries(parses.map((p) => [p.presetId, { status: p.status, score: p.score, high: p.high }])),
-            url: `${reportUrl(run.shareId)}/p/${page.id}`,
-          };
-        }),
-      );
-      const kept = pages.filter((p) =>
-        args.filter === "flagged"
-          ? p.note !== null
-          : args.filter === "high"
-            ? Object.values(p.scores).some((s) => s.high > 0)
-            : true,
-      );
-      if (args.sort === "gap") kept.sort((a, b) => (b.gap ?? -1) - (a.gap ?? -1));
-      return { total: kept.length, pages: kept.slice(0, args.limit) };
-    }),
+    tool(
+      async (args: {
+        run: string;
+        filter: "all" | "flagged" | "high";
+        presetId?: string | undefined;
+        maxScore?: number | undefined;
+        sort: "document" | "gap" | "score";
+        compact: boolean;
+        cursor?: string | undefined;
+        limit: number;
+      }) => {
+        const run = await findRun(args.run);
+        const scores = run.scores as Array<{
+          pageId: string;
+          presetId: string;
+          status: string;
+          score: number | null;
+          high: number;
+        }>;
+        const byPage = new Map<string, typeof scores>();
+        for (const s of scores) byPage.set(s.pageId, [...(byPage.get(s.pageId) ?? []), s]);
+        const documents = run.documents as Array<{
+          filename: string;
+          pages: Array<{ id: string; index: number; note: string | null }>;
+        }>;
+        const rows: Array<PageRow> = documents.flatMap((d) =>
+          d.pages.map((page) => {
+            const parses = byPage.get(page.id) ?? [];
+            const scored = parses.flatMap((p) => (p.score === null ? [] : [p.score]));
+            return {
+              pageId: page.id,
+              document: d.filename,
+              page: page.index + 1,
+              note: page.note,
+              gap: scored.length > 1 ? Math.max(...scored) - Math.min(...scored) : null,
+              scores: parses.map((p) => ({ presetId: p.presetId, status: p.status, score: p.score, high: p.high })),
+            };
+          }),
+        );
+        const { total, items, nextCursor } = paginate(selectPages(rows, args), args.cursor, args.limit);
+        const shown = (row: PageRow) =>
+          args.presetId === undefined ? row.scores : row.scores.filter((s) => s.presetId === args.presetId);
+        return {
+          total,
+          nextCursor,
+          pages: items.map((row) =>
+            args.compact
+              ? {
+                  pageId: row.pageId,
+                  document: row.document,
+                  page: row.page,
+                  gap: row.gap,
+                  scores: Object.fromEntries(shown(row).map((s) => [s.presetId, s.status === "succeeded" ? s.score : "failed"])),
+                }
+              : {
+                  ...row,
+                  scores: Object.fromEntries(
+                    shown(row).map((s) => [s.presetId, { status: s.status, score: s.score, high: s.high }]),
+                  ),
+                  url: `${reportUrl(run.shareId)}/p/${row.pageId}`,
+                },
+          ),
+        };
+      },
+    ),
+  );
+
+  server.registerTool(
+    "list_errors",
+    {
+      description:
+        "Every error the judge found in a run, one entry each, most severe first and then lowest score: preset, file, page, score, severity, category, description, and the excerpts of the parser's output it is about. Filter by presets, severities and categories. counts gives totals per preset over the whole filtered set. Paginated: pass nextCursor back as cursor.",
+      inputSchema: {
+        run: runRef,
+        presetIds: z.array(z.string()).optional().describe("Only these presets."),
+        severities: z.array(z.enum(["high", "medium", "low"])).optional(),
+        categories: z
+          .array(z.string())
+          .optional()
+          .describe(
+            "e.g. content_omission, text_corruption, table_structure, reading_order. See errorCounts in get_run's summary.",
+          ),
+        includeReasoning: z.boolean().default(false).describe("Add the judge's reasoning for each error's parse."),
+        cursor: z.string().optional(),
+        limit: z.number().int().min(1).max(500).default(100),
+      },
+      annotations: read,
+    },
+    tool(
+      async (args: {
+        run: string;
+        presetIds?: Array<string> | undefined;
+        severities?: Array<string> | undefined;
+        categories?: Array<string> | undefined;
+        includeReasoning: boolean;
+        cursor?: string | undefined;
+        limit: number;
+      }) => {
+        const run = await findRun(args.run);
+        const rows = ((await call("GET", `/v1/runs/${encodeURIComponent(String(run.id))}/errors`)) ??
+          []) as unknown as Array<RunErrorRow>;
+        const errors = flattenErrors(rows, args);
+        const { total, items, nextCursor } = paginate(errors, args.cursor, args.limit);
+        const reasoning = new Map(rows.map((r) => [`${r.pageId}:${r.presetId}`, r.reasoning]));
+        return {
+          total,
+          nextCursor,
+          counts: countErrors(errors),
+          errors: items.map((e) => (args.includeReasoning ? { ...e, reasoning: reasoning.get(`${e.pageId}:${e.presetId}`) } : e)),
+        };
+      },
+    ),
   );
 
   server.registerTool(

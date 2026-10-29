@@ -14,6 +14,7 @@ export const Dialog = ({ title, children }: { readonly title: string; readonly c
         borderRadius: 6,
         display: "grid",
         gap: 16,
+        gridTemplateColumns: "minmax(0, 1fr)",
         maxWidth: "calc(100vw - 32px)",
         padding: 32,
         width: 440,

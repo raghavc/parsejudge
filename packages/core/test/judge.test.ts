@@ -1,7 +1,7 @@
 import { Effect, Exit, Layer } from "effect";
 import { FetchHttpClient } from "effect/http";
 import { describe, expect, it } from "vitest";
-import { blindLabels, judgePage } from "../src/judge.ts";
+import { blindLabels, judgePage, unblind } from "../src/judge.ts";
 
 const config = { apiKey: "test", model: "judge", reasoningEffort: "medium" as const, baseUrl: "https://judge.test/v1" };
 const input = {
@@ -59,5 +59,13 @@ describe("judgePage", () => {
   it("fails on out-of-range scores and HTTP errors", async () => {
     expect(String(await judgeWith((ids) => ids.map((id) => evaluation(id, 11))))).toContain("out of range");
     expect(String(await judgeWith(() => [], 500))).toContain("HTTP 500");
+  });
+});
+
+describe("unblind", () => {
+  it("replaces blind labels with preset labels and leaves unknown ones", () => {
+    expect(
+      unblind("Matches parse_a; parse_b drops a row; parse_c is unknown.", { parse_a: "reducto_r1", parse_b: "aws_textract" }),
+    ).toBe("Matches Reducto r-1; AWS Textract (layout, tables) drops a row; parse_c is unknown.");
   });
 });

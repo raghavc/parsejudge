@@ -83,7 +83,10 @@ export const ShareDialog = ({
           padding: "10px 12px",
         }}
       >
-        <span className="mono" style={{ fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        <span
+          className="mono"
+          style={{ fontSize: 13, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+        >
           {url}
         </span>
         <CopyButton text={url} label="Copy" />

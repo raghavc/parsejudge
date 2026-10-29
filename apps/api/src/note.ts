@@ -61,7 +61,8 @@ export const writePageNote = async (env: Env, runId: string, pageId: string): Pr
     headers: { authorization: `Bearer ${env.JUDGE_API_KEY}`, "content-type": "application/json" },
     body: JSON.stringify({
       model: env.SMALL_MODEL,
-      max_tokens: 120,
+      max_tokens: 1000,
+      reasoning: { effort: "low", exclude: true },
       messages: [
         { role: "system", content: PROMPT },
         { role: "user", content: lines.join("\n") },

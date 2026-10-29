@@ -77,22 +77,6 @@ export const Runs = () => {
     () => (runs ?? []).filter((run) => (run.title ?? "Untitled run").toLowerCase().includes(search.trim().toLowerCase())),
     [runs, search],
   );
-  const runAgain = async (item: RunListItem) => {
-    setError(null);
-    try {
-      const run = await api.run(item.id);
-      const hosted = run.presetIds.filter((id) => presets.find((p) => p.id === id)?.hosted);
-      const created = await api.createRun({
-        documentIds: run.documents.map((d) => d.id),
-        presetIds: hosted,
-        title: run.title ?? undefined,
-        credentials: {},
-      });
-      navigate(`/r/${created.shareId}`);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  };
   if (user === null) {
     return (
       <div className="stagger">
@@ -210,9 +194,6 @@ export const Runs = () => {
                       </button>
                       <button type="button" onClick={() => setRenaming(run)}>
                         Rename
-                      </button>
-                      <button type="button" disabled={run.dataDeletedAt !== null} onClick={() => runAgain(run)}>
-                        Run again
                       </button>
                       <button type="button" className="danger" onClick={() => setDeleting(run)}>
                         Delete run
