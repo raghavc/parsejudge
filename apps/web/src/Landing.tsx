@@ -1,8 +1,9 @@
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
-import { api, type Preset } from "./api.ts";
+import { api, currentUser, type Preset } from "./api.ts";
 import { Nav } from "./Nav.tsx";
 import { BYOK_KEY, numberWord, PROVIDER_ORDER, perThousand, providerName } from "./names.ts";
 import { navigate } from "./router.ts";
+import { SignIn } from "./SignIn.tsx";
 
 interface Upload {
   readonly id: string;
@@ -189,6 +190,7 @@ export const Landing = () => {
   const [uploads, setUploads] = useState<ReadonlyArray<Upload>>([]);
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  const [pending, setPending] = useState<ReadonlyArray<File> | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -219,8 +221,8 @@ export const Landing = () => {
       return next;
     });
 
-  const add = (files: FileList | null) => {
-    for (const file of Array.from(files ?? [])) {
+  const upload = (files: ReadonlyArray<File>) => {
+    for (const file of files) {
       const format = (file.name.split(".").pop() ?? "").toUpperCase();
       const id = crypto.randomUUID();
       setUploads((u) => [...u, { id, name: file.name, format }]);
@@ -229,6 +231,13 @@ export const Landing = () => {
         (e: unknown) => setUploads((u) => u.map((x) => (x.id === id ? { ...x, error: String(e) } : x))),
       );
     }
+  };
+
+  const add = (files: FileList | null) => {
+    const list = Array.from(files ?? []);
+    if (list.length === 0) return;
+    if (currentUser() === null) setPending(list);
+    else upload(list);
   };
 
   const ready = uploads.filter((u) => u.documentId !== undefined);
@@ -261,6 +270,15 @@ export const Landing = () => {
   return (
     <div>
       <Nav />
+      {pending && (
+        <SignIn
+          onDone={() => {
+            upload(pending);
+            setPending(null);
+          }}
+          onCancel={() => setPending(null)}
+        />
+      )}
       <section style={{ display: "flex", flexDirection: "column", gap: 20, padding: "112px 120px 72px" }}>
         <h1 style={{ fontSize: 64, fontWeight: 300, letterSpacing: "-0.035em", lineHeight: "70px", margin: 0, maxWidth: 900 }}>
           Compare document parsers on your own documents.
