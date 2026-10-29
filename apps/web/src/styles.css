@@ -108,6 +108,12 @@ input {
   font-size: 12px;
   width: 100%;
 }
+/* HTML table cells from parsers carry line breaks as "\n"; show them as the parser wrote them. */
+.markdown th,
+.markdown td {
+  white-space: pre-line;
+}
+
 .markdown th,
 .markdown td {
   border: 1px solid var(--line);
