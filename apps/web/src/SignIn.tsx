@@ -118,7 +118,15 @@ export const SignIn = ({
     >
       <form
         className="modal"
-        style={{ background: "#fff", width: 440, padding: 40, borderRadius: 6, display: "grid", gap: 16 }}
+        style={{
+          background: "#fff",
+          width: "min(440px, calc(100vw - 24px))",
+          padding: "clamp(20px, 6vw, 40px)",
+          boxSizing: "border-box",
+          borderRadius: 6,
+          display: "grid",
+          gap: 16,
+        }}
         onSubmit={(e) => {
           e.preventDefault();
           if (sent) {
