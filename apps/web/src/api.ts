@@ -115,7 +115,9 @@ export type RunEvent =
       readonly total: number;
       readonly status: string | null;
       readonly cells: ReadonlyArray<CellDone>;
+      readonly started?: ReadonlyArray<string>;
     }
+  | { readonly type: "parse_started"; readonly presetId: string }
   | ({ readonly type: "parse_done" } & CellDone)
   | { readonly type: "page_done"; readonly pageId: string; readonly done: number; readonly total: number }
   | { readonly type: "run_done"; readonly status: "succeeded" | "failed" };

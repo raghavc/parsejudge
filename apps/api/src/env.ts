@@ -1,5 +1,5 @@
 import type { Converter } from "./converter.ts";
-import type { PageWorkflowParams, RunWorkflowParams } from "./workflows.ts";
+import type { DocumentWorkflowParams, PageWorkflowParams, RunWorkflowParams } from "./workflows.ts";
 
 export interface Env {
   readonly DB: D1Database;
@@ -9,6 +9,7 @@ export interface Env {
   readonly CONVERTER: DurableObjectNamespace<Converter>;
   readonly RUN_WORKFLOW: Workflow<RunWorkflowParams>;
   readonly PAGE_WORKFLOW: Workflow<PageWorkflowParams>;
+  readonly DOCUMENT_WORKFLOW: Workflow<DocumentWorkflowParams>;
   readonly PUBLIC_URL: string;
   readonly JUDGE_MODEL: string;
   readonly SMALL_MODEL: string;

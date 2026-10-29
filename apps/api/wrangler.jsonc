@@ -51,6 +51,7 @@
   ],
   "workflows": [
     { "name": "parsejudge-run", "binding": "RUN_WORKFLOW", "class_name": "RunWorkflow" },
-    { "name": "parsejudge-page", "binding": "PAGE_WORKFLOW", "class_name": "PageWorkflow" }
+    { "name": "parsejudge-page", "binding": "PAGE_WORKFLOW", "class_name": "PageWorkflow" },
+    { "name": "parsejudge-document", "binding": "DOCUMENT_WORKFLOW", "class_name": "DocumentWorkflow" }
   ]
 }

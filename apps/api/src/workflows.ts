@@ -31,6 +31,30 @@ const events = (env: Env, runId: string) =>
 const slots = (env: Env, pool: string) =>
   env.PROVIDER_SLOTS.get(env.PROVIDER_SLOTS.idFromName(pool)) as unknown as DurableObjectStub<ProviderSlots>;
 
+/** Renders a page's PNG once; later runs reuse it. */
+const renderPage = async (env: Env, page: string): Promise<void> => {
+  if ((await env.BLOBS.head(pagePngKey(page))) !== null) return;
+  const pdf = await env.BLOBS.get(pagePdfKey(page));
+  if (pdf === null) throw new Error(`Missing page ${page}`);
+  await env.BLOBS.put(pagePngKey(page), await renderFirstPagePng(new Uint8Array(await pdf.arrayBuffer())));
+  await env.DB.prepare("UPDATE pages SET rendered = 1 WHERE id = ?").bind(page).run();
+};
+
+export interface DocumentWorkflowParams {
+  readonly documentId: string;
+  readonly pageCount: number;
+}
+
+/** Started by each upload, so a document's page images are ready before a run starts. */
+export class DocumentWorkflow extends WorkflowEntrypoint<Env, DocumentWorkflowParams> {
+  override async run(event: Readonly<WorkflowEvent<DocumentWorkflowParams>>, step: WorkflowStep) {
+    const { documentId, pageCount } = event.payload;
+    for (let index = 0; index < pageCount; index++) {
+      await step.do(`render ${index}`, RETRY, () => renderPage(this.env, pageId(documentId, index)));
+    }
+  }
+}
+
 /** One run: split documents into pages, fan out one PageWorkflow per page, wait for all, then summarize. */
 export class RunWorkflow extends WorkflowEntrypoint<Env, RunWorkflowParams> {
   override async run(event: Readonly<WorkflowEvent<RunWorkflowParams>>, step: WorkflowStep) {
@@ -50,10 +74,11 @@ export class RunWorkflow extends WorkflowEntrypoint<Env, RunWorkflowParams> {
         };
       });
 
-      const pageIds: Array<string> = [];
-      for (const documentId of run.documentIds) {
-        pageIds.push(...(await step.do(`prepare ${documentId}`, RETRY, () => this.preparePages(documentId))));
-      }
+      const pageIds = (
+        await Promise.all(
+          run.documentIds.map((documentId) => step.do(`prepare ${documentId}`, RETRY, () => this.preparePages(documentId))),
+        )
+      ).flat();
 
       await step.do("fan out", RETRY, async () => {
         await events(this.env, runId).start(runId, pageIds.length);
@@ -83,7 +108,7 @@ export class RunWorkflow extends WorkflowEntrypoint<Env, RunWorkflowParams> {
     }
   }
 
-  /** Splits the document into single-page PDFs once; later runs reuse them. Pages render in their own workflows. */
+  /** Upload already splits the document; this covers an upload whose split did not finish. */
   private async preparePages(documentId: string): Promise<Array<string>> {
     const document = await this.env.DB.prepare("SELECT page_count FROM documents WHERE id = ?")
       .bind(documentId)
@@ -160,7 +185,7 @@ export class RunWorkflow extends WorkflowEntrypoint<Env, RunWorkflowParams> {
 export class PageWorkflow extends WorkflowEntrypoint<Env, PageWorkflowParams> {
   override async run(event: Readonly<WorkflowEvent<PageWorkflowParams>>, step: WorkflowStep) {
     const { runId, pageId: page, presetIds } = event.payload;
-    await step.do("render", RETRY, () => this.render(page));
+    await step.do("render", RETRY, () => renderPage(this.env, page));
     await Promise.all(presetIds.map((presetId) => this.parse(step, event.instanceId, { runId, pageId: page, presetId })));
     try {
       const pool = judgePool(this.env);
@@ -185,14 +210,6 @@ export class PageWorkflow extends WorkflowEntrypoint<Env, PageWorkflowParams> {
       console.error("Page note failed", page, error);
     }
     await step.do("report", () => events(this.env, runId).pageDone(page));
-  }
-
-  private async render(page: string): Promise<void> {
-    if ((await this.env.BLOBS.head(pagePngKey(page))) !== null) return;
-    const pdf = await this.env.BLOBS.get(pagePdfKey(page));
-    if (pdf === null) throw new Error(`Missing page ${page}`);
-    await this.env.BLOBS.put(pagePngKey(page), await renderFirstPagePng(new Uint8Array(await pdf.arrayBuffer())));
-    await this.env.DB.prepare("UPDATE pages SET rendered = 1 WHERE id = ?").bind(page).run();
   }
 
   /**
@@ -230,7 +247,10 @@ export class PageWorkflow extends WorkflowEntrypoint<Env, PageWorkflowParams> {
     try {
       const pool = await step.do(`pool ${name}`, RETRY, () => providerPool(this.env, cell));
       await this.withSlot(step, instanceId, name, pool, async (queueMs) => {
-        const { job, startedAt } = await step.do(`submit ${name}`, RETRY, () => submitCell(this.env, cell, queueMs));
+        const { job, startedAt } = await step.do(`submit ${name}`, RETRY, async () => {
+          await events(this.env, cell.runId).parseStarted(cell.presetId);
+          return submitCell(this.env, cell, queueMs);
+        });
         if (job === null) return;
         for (let attempt = 0; attempt < MAX_POLLS; attempt++) {
           await step.sleep(`wait ${name} ${attempt}`, pollDelayMs(attempt));

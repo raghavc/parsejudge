@@ -9,7 +9,7 @@ import { toPdf } from "./converter.ts";
 import { encryptCredentials } from "./credentials.ts";
 import { deleteRun, deleteUser } from "./deletion.ts";
 import type { Env } from "./env.ts";
-import { documentKey, markdownKey, pageId as pageIdOf, pagePngKey, sourceKey } from "./keys.ts";
+import { documentKey, markdownKey, pageId as pageIdOf, pagePdfKey, pagePngKey, sourceKey } from "./keys.ts";
 import { generateTitle } from "./title.ts";
 
 const cf = env as unknown as Env;
@@ -429,6 +429,19 @@ const DocumentsLive = HttpApiBuilder.group(Api, "documents", (handlers) =>
         yield* query(() => cf.BLOBS.delete([sourceKey(documentId, format), documentKey(documentId)]));
         return yield* new HttpApiError.BadRequest({});
       }
+      yield* query(() => Promise.all(pages.map((page, index) => cf.BLOBS.put(pagePdfKey(pageIdOf(documentId, index)), page))));
+      yield* query(() =>
+        cf.DB.batch(
+          pages.map((_, index) =>
+            cf.DB.prepare("INSERT OR IGNORE INTO pages (id, document_id, page_index, rendered) VALUES (?, ?, ?, 0)").bind(
+              pageIdOf(documentId, index),
+              documentId,
+              index,
+            ),
+          ),
+        ),
+      );
+      yield* query(() => cf.DOCUMENT_WORKFLOW.create({ id: documentId, params: { documentId, pageCount: pages.length } }));
       return { documentId, pageCount: pages.length };
     }),
   ),

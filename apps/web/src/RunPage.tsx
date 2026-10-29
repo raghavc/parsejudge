@@ -49,6 +49,7 @@ const Progress = ({
 }) => {
   const [cells, setCells] = useState<ReadonlyMap<string, CellDone>>(new Map());
   const [judged, setJudged] = useState(0);
+  const [startedPresets, setStartedPresets] = useState<ReadonlySet<string>>(new Set());
   const [now, setNow] = useState(Date.now());
   const pages = run.documents.reduce((n, d) => n + d.pages.length, 0);
 
@@ -57,8 +58,10 @@ const Progress = ({
     return api.events(run.id, (event) => {
       if (event.type === "progress") {
         setCells(new Map(event.cells.map((c) => [key(c), c])));
+        setStartedPresets(new Set(event.started ?? []));
         setJudged(event.done);
-      } else if (event.type === "parse_done") setCells((m) => new Map(m).set(key(event), event));
+      } else if (event.type === "parse_started") setStartedPresets((s) => new Set(s).add(event.presetId));
+      else if (event.type === "parse_done") setCells((m) => new Map(m).set(key(event), event));
       else if (event.type === "page_done") setJudged(event.done);
       else onDone();
     });
@@ -125,7 +128,7 @@ const Progress = ({
           const failed = mine.filter((c) => !c.ok).length;
           const latency = p50(mine.flatMap((c) => (c.latencyMs === null ? [] : [c.latencyMs])));
           const finished = pages > 0 && mine.length === pages;
-          const status = finished ? "Done" : mine.length === 0 ? "Queued" : "Parsing";
+          const status = finished ? "Done" : mine.length === 0 && !startedPresets.has(id) ? "Queued" : "Parsing";
           return (
             <div key={id} className="row" style={{ fontSize: 14, gap: 24, padding: "20px 0" }}>
               <div style={{ fontSize: 15, width: 260 }}>

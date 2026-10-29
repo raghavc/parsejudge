@@ -6,7 +6,7 @@ import type { Env } from "./env.ts";
 export { Converter } from "./converter.ts";
 export { RunEvents } from "./events.ts";
 export { ProviderSlots } from "./slots.ts";
-export { PageWorkflow, RunWorkflow } from "./workflows.ts";
+export { DocumentWorkflow, PageWorkflow, RunWorkflow } from "./workflows.ts";
 
 const EVENTS_PATH = /^\/v1\/runs\/([^/]+)\/events$/;
 
