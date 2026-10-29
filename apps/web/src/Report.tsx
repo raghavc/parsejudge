@@ -3,6 +3,7 @@ import { api, type PageDetail, type Preset, type PresetSummary, type Run } from 
 import { CopyButton } from "./CopyButton.tsx";
 import { DeleteRun } from "./DeleteRun.tsx";
 import { perThousand, providerName, seconds, shortName } from "./names.ts";
+import { ShareDialog } from "./Share.tsx";
 import { navigate } from "./router.ts";
 
 const h2: CSSProperties = { fontSize: 20, fontWeight: 500, letterSpacing: "-0.015em", lineHeight: "24px" };
@@ -269,6 +270,8 @@ export const Report = ({
     }
   }, [run.id, shownIds]);
 
+  const [sharing, setSharing] = useState(false);
+  const [shared, setShared] = useState({ shareId: run.shareId, visibility: run.visibility });
   if (summary === null) return <div style={{ ...note, padding: "72px var(--gutter)" }}>This run failed: {run.error}</div>;
 
   const scored = ranked.filter(
@@ -324,7 +327,7 @@ export const Report = ({
             type="button"
             className="btn"
             style={{ height: 40, padding: "0 16px" }}
-            onClick={() => navigate(`${location.pathname}?share=1`)}
+            onClick={() => setSharing(true)}
           >
             Share
           </button>
@@ -729,6 +732,19 @@ export const Report = ({
           </div>
         ))}
       </section>
+      {sharing && (
+        <ShareDialog
+          runId={run.id}
+          shareId={shared.shareId}
+          visibility={shared.visibility}
+          owned={run.owned}
+          onClose={() => setSharing(false)}
+          onChange={(c) => {
+            setShared(c);
+            if (c.shareId !== run.shareId) history.replaceState(null, "", `/r/${c.shareId}`);
+          }}
+        />
+      )}
     </div>
   );
 };

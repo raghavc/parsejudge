@@ -64,6 +64,7 @@ export interface Run {
   readonly createdAt: number;
   readonly completedAt: number | null;
   readonly dataDeletedAt: number | null;
+  readonly visibility: Visibility;
   readonly owned: boolean;
 }
 
@@ -201,9 +202,25 @@ export interface RunListItem {
   readonly top: { readonly presetId: string; readonly meanScore: number } | null;
   readonly createdAt: number;
   readonly dataDeletedAt: number | null;
+  readonly visibility: Visibility;
 }
 
+export type Visibility = "private" | "link";
+
+export interface AccountInfo {
+  readonly email: string;
+  readonly notifyOnDone: boolean;
+}
+
+const patch = (url: string, body: unknown) =>
+  fetch(url, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
 export const api = {
+  account: () => fetch("/v1/account").then(json<AccountInfo>),
+  setNotify: (notifyOnDone: boolean) => patch("/v1/account", { notifyOnDone }).then(json<AccountInfo>),
+  setVisibility: (runId: string, visibility: Visibility) => patch(`/v1/runs/${runId}`, { visibility }).then(ok),
+  rotateLink: (runId: string) =>
+    fetch(`/v1/runs/${runId}/share-link`, { method: "POST" }).then(json<{ shareId: string }>),
   runs: () => fetch("/v1/runs").then(json<ReadonlyArray<RunListItem>>),
   rename: (runId: string, title: string) =>
     fetch(`/v1/runs/${runId}`, {

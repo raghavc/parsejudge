@@ -3,6 +3,7 @@ import { JUDGE_VERSION, judgePage, type PageResult, splitPages, summarize } from
 import { Effect } from "effect";
 import { checkJudgeBudget } from "./budget.ts";
 import type { Env } from "./env.ts";
+import { emailRunDone } from "./notify.ts";
 import type { RunEvents } from "./events.ts";
 import { documentKey, markdownKey, pageId, pagePdfKey, pagePngKey } from "./keys.ts";
 import { writeLocations } from "./locate.ts";
@@ -95,6 +96,7 @@ export class RunWorkflow extends WorkflowEntrypoint<Env, RunWorkflowParams> {
       await step.waitForEvent("pages done", { type: "pages-done", timeout: "6 hours" });
       await step.do("summarize", RETRY, () => this.summarize(runId));
       await step.do("notify done", () => events(this.env, runId).runDone("succeeded"));
+      await this.emailOwner(step, runId);
       await step
         .do("check judge budget", RETRY, () => checkJudgeBudget(this.env))
         .catch((error: unknown) => {
@@ -105,7 +107,14 @@ export class RunWorkflow extends WorkflowEntrypoint<Env, RunWorkflowParams> {
         await this.finish(runId, "failed", error instanceof Error ? error.message : String(error));
         await events(this.env, runId).runDone("failed");
       });
+      await this.emailOwner(step, runId);
     }
+  }
+
+  private async emailOwner(step: WorkflowStep, runId: string): Promise<void> {
+    await step.do("email owner", RETRY, () => emailRunDone(this.env, runId)).catch((error: unknown) => {
+      console.error("Run email failed", runId, error);
+    });
   }
 
   /** Upload already splits the document; this covers an upload whose split did not finish. */

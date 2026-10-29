@@ -47,7 +47,12 @@ const RunListItem = Schema.Struct({
   top: Schema.NullOr(Schema.Struct({ presetId: Schema.String, meanScore: Schema.Number })),
   createdAt: Schema.Number,
   dataDeletedAt: Schema.NullOr(Schema.Number),
+  visibility: Schema.String,
 });
+
+const Visibility = Schema.Literals(["private", "link"]);
+
+const Account = Schema.Struct({ email: Schema.String, notifyOnDone: Schema.Boolean });
 
 const Interval = Schema.Struct({ low: Schema.Number, high: Schema.Number });
 
@@ -132,6 +137,8 @@ const Run = Schema.Struct({
   completedAt: Schema.NullOr(Schema.Number),
   /** Set when the owner deleted the documents; the summary stays. */
   dataDeletedAt: Schema.NullOr(Schema.Number),
+  /** Who can open the share link: "link" (anyone with it) or "private" (only the owner). */
+  visibility: Schema.String,
   /** Whether the signed-in caller owns this run. */
   owned: Schema.Boolean,
 });
@@ -164,9 +171,16 @@ const PageDetail = Schema.Struct({
 
 export const Api = HttpApi.make("parsejudge")
   .add(
-    HttpApiGroup.make("account").add(
-      HttpApiEndpoint.delete("remove", "/v1/account", { error: [HttpApiError.Unauthorized, HttpApiError.Conflict] }),
-    ),
+    HttpApiGroup.make("account")
+      .add(HttpApiEndpoint.get("get", "/v1/account", { success: Account, error: HttpApiError.Unauthorized }))
+      .add(
+        HttpApiEndpoint.patch("update", "/v1/account", {
+          payload: Schema.Struct({ notifyOnDone: Schema.Boolean }),
+          success: Account,
+          error: HttpApiError.Unauthorized,
+        }),
+      )
+      .add(HttpApiEndpoint.delete("remove", "/v1/account", { error: HttpApiError.Unauthorized })),
   )
   .add(HttpApiGroup.make("presets").add(HttpApiEndpoint.get("list", "/v1/presets", { success: Schema.Array(PresetInfo) })))
   .add(
@@ -200,7 +214,7 @@ export const Api = HttpApi.make("parsejudge")
       .add(
         HttpApiEndpoint.patch("rename", "/v1/runs/:runId", {
           params: { runId: Schema.String },
-          payload: Schema.Struct({ title: Schema.String }),
+          payload: Schema.Struct({ title: Schema.optional(Schema.String), visibility: Schema.optional(Visibility) }),
           error: [HttpApiError.Unauthorized, HttpApiError.NotFound, HttpApiError.BadRequest],
         }),
       )
@@ -222,7 +236,14 @@ export const Api = HttpApi.make("parsejudge")
         HttpApiEndpoint.delete("remove", "/v1/runs/:runId", {
           params: { runId: Schema.String },
           query: { scope: Schema.Literals(["data", "report"]) },
-          error: [HttpApiError.Unauthorized, HttpApiError.NotFound, HttpApiError.Conflict],
+          error: [HttpApiError.Unauthorized, HttpApiError.NotFound],
+        }),
+      )
+      .add(
+        HttpApiEndpoint.post("rotateLink", "/v1/runs/:runId/share-link", {
+          params: { runId: Schema.String },
+          success: Schema.Struct({ shareId: Schema.String }),
+          error: [HttpApiError.Unauthorized, HttpApiError.NotFound],
         }),
       )
       .add(
@@ -288,6 +309,18 @@ const uploader = Effect.gen(function* () {
   return { userId: yield* currentUser, loginId: null };
 });
 
+const newShareId = () => crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+
+/** Whether the caller may read a run's pages: its owner, or anyone while the share link is open. */
+export const canOpenRun = (runId: string) =>
+  Effect.gen(function* () {
+    const row = yield* query(() =>
+      cf.DB.prepare("SELECT user_id, visibility FROM runs WHERE id = ?").bind(runId).first<{ user_id: string; visibility: string }>(),
+    );
+    if (row === null) return false;
+    return row.visibility === "link" || (yield* signedInUser) === row.user_id;
+  });
+
 const sha256 = async (bytes: Uint8Array) =>
   [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map((b) => b.toString(16).padStart(2, "0")).join("");
 
@@ -305,6 +338,7 @@ type RunRow = {
   completed_at: number | null;
   user_id: string;
   data_deleted_at: number | null;
+  visibility: string;
 };
 
 const toRun = (row: RunRow) => ({
@@ -320,6 +354,7 @@ const toRun = (row: RunRow) => ({
   createdAt: row.created_at,
   completedAt: row.completed_at,
   dataDeletedAt: row.data_deleted_at,
+  visibility: row.visibility,
 });
 
 const pageImageUrl = (pageId: string) => signedBlobUrl(cf.PUBLIC_URL, cf.BLOB_SIGNING_KEY, pagePngKey(pageId));
@@ -374,6 +409,7 @@ const findRun = (column: "id" | "share_id", value: string) =>
     const row = yield* query(() => cf.DB.prepare(`SELECT * FROM runs WHERE ${column} = ?`).bind(value).first<RunRow>());
     if (row === null) return yield* new HttpApiError.NotFound({});
     const owned = (yield* signedInUser) === row.user_id;
+    if (!owned && (column === "id" || row.visibility !== "link")) return yield* new HttpApiError.NotFound({});
     return { ...toRun(row), owned, documents: yield* runDocuments(row.id), scores: yield* runScores(row.id) };
   });
 
@@ -534,7 +570,7 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
             );
           }));
         const runId = crypto.randomUUID();
-        const shareId = crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+        const shareId = newShareId();
         const credentials = yield* query(() =>
           Promise.all(
             Object.entries(payload.credentials ?? {}).map(async ([provider, values]) => ({
@@ -575,7 +611,6 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
             .first<{ user_id: string; status: string }>(),
         );
         if (row === null || row.user_id !== userId) return yield* new HttpApiError.NotFound({});
-        if (row.status === "queued" || row.status === "running") return yield* new HttpApiError.Conflict({});
         yield* query(() => deleteRun(cf, params.runId, scope));
       }),
     )
@@ -584,7 +619,7 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
         const userId = yield* requireUser;
         const rows = yield* query(() =>
           cf.DB.prepare(
-            `SELECT r.id, r.share_id, r.title, r.status, r.preset_ids, r.summary, r.created_at, r.data_deleted_at,
+            `SELECT r.id, r.share_id, r.title, r.status, r.preset_ids, r.summary, r.created_at, r.data_deleted_at, r.visibility,
                (SELECT COUNT(*) FROM run_documents rd WHERE rd.run_id = r.id) AS documents,
                (SELECT COALESCE(SUM(d.page_count), 0) FROM run_documents rd JOIN documents d ON d.id = rd.document_id
                  WHERE rd.run_id = r.id) AS pages,
@@ -601,6 +636,7 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
               summary: string | null;
               created_at: number;
               data_deleted_at: number | null;
+              visibility: string;
               documents: number;
               pages: number;
               judged: number;
@@ -628,6 +664,7 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
             top,
             createdAt: row.created_at,
             dataDeletedAt: row.data_deleted_at,
+            visibility: row.visibility,
           };
         });
       }),
@@ -635,18 +672,34 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
     .handle("rename", ({ params, payload }) =>
       Effect.gen(function* () {
         const userId = yield* requireUser;
-        const title = payload.title.trim().slice(0, 80);
-        if (title.length === 0) return yield* new HttpApiError.BadRequest({});
+        const title = payload.title?.trim().slice(0, 80) ?? null;
+        if (title === "" || (title === null && payload.visibility === undefined)) return yield* new HttpApiError.BadRequest({});
         const updated = yield* query(() =>
-          cf.DB.prepare("UPDATE runs SET title = ? WHERE id = ? AND user_id = ?").bind(title, params.runId, userId).run(),
+          cf.DB.prepare(
+            "UPDATE runs SET title = COALESCE(?, title), visibility = COALESCE(?, visibility) WHERE id = ? AND user_id = ?",
+          )
+            .bind(title, payload.visibility ?? null, params.runId, userId)
+            .run(),
         );
         if (updated.meta.changes !== 1) return yield* new HttpApiError.NotFound({});
+      }),
+    )
+    .handle("rotateLink", ({ params }) =>
+      Effect.gen(function* () {
+        const userId = yield* requireUser;
+        const shareId = newShareId();
+        const updated = yield* query(() =>
+          cf.DB.prepare("UPDATE runs SET share_id = ? WHERE id = ? AND user_id = ?").bind(shareId, params.runId, userId).run(),
+        );
+        if (updated.meta.changes !== 1) return yield* new HttpApiError.NotFound({});
+        return { shareId };
       }),
     )
     .handle("get", ({ params }) => findRun("id", params.runId))
     .handle("shared", ({ params }) => findRun("share_id", params.shareId))
     .handle("page", ({ params }) =>
       Effect.gen(function* () {
+        if (!(yield* canOpenRun(params.runId))) return yield* new HttpApiError.NotFound({});
         const rows = yield* query(() =>
           cf.DB.prepare(
             `SELECT p.preset_id, p.status, p.latency_ms, p.queue_ms, p.error, v.score, v.reasoning, v.errors, l.quotes
@@ -687,19 +740,33 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
     ),
 );
 
+const account = Effect.gen(function* () {
+  const userId = yield* requireUser;
+  const row = yield* query(() =>
+    cf.DB.prepare("SELECT email, notify_on_done FROM users WHERE id = ?").bind(userId).first<{ email: string; notify_on_done: number }>(),
+  );
+  if (row === null) return yield* new HttpApiError.Unauthorized({});
+  return { email: row.email, notifyOnDone: row.notify_on_done === 1 };
+});
+
 const AccountLive = HttpApiBuilder.group(Api, "account", (handlers) =>
-  handlers.handle("remove", () =>
-    Effect.gen(function* () {
-      const userId = yield* requireUser;
-      const active = yield* query(() =>
-        cf.DB.prepare("SELECT COUNT(*) AS n FROM runs WHERE user_id = ? AND status IN ('queued', 'running')")
-          .bind(userId)
-          .first<{ n: number }>(),
-      );
-      if ((active?.n ?? 0) > 0) return yield* new HttpApiError.Conflict({});
-      yield* query(() => deleteUser(cf, userId));
-    }),
-  ),
+  handlers
+    .handle("get", () => account)
+    .handle("update", ({ payload }) =>
+      Effect.gen(function* () {
+        const userId = yield* requireUser;
+        yield* query(() =>
+          cf.DB.prepare("UPDATE users SET notify_on_done = ? WHERE id = ?").bind(payload.notifyOnDone ? 1 : 0, userId).run(),
+        );
+        return yield* account;
+      }),
+    )
+    .handle("remove", () =>
+      Effect.gen(function* () {
+        const userId = yield* requireUser;
+        yield* query(() => deleteUser(cf, userId));
+      }),
+    ),
 );
 
 const ApiLive = HttpApiBuilder.layer(Api, { openapiPath: "/openapi.json" }).pipe(

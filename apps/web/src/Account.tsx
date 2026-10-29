@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, auth, currentUser, type RunListItem, setUser } from "./api.ts";
+import { type AccountInfo, api, auth, currentUser, type RunListItem, setUser } from "./api.ts";
 import { Dialog } from "./Dialog.tsx";
 import { Nav } from "./Nav.tsx";
 import { navigate } from "./router.ts";
@@ -20,6 +20,14 @@ export const Account = () => {
   const [error, setError] = useState<string | null>(null);
   const [typed, setTyped] = useState("");
   const [runs, setRuns] = useState<ReadonlyArray<RunListItem> | null>(null);
+  const [info, setInfo] = useState<AccountInfo | null>(null);
+  useEffect(() => {
+    if (user) api.account().then(setInfo, () => setInfo(null));
+  }, [user]);
+  const toggleNotify = () => {
+    if (info === null) return;
+    api.setNotify(!info.notifyOnDone).then(setInfo, (e: unknown) => setError(String(e)));
+  };
   useEffect(() => {
     if (confirm) api.runs().then(setRuns, () => setRuns([]));
   }, [confirm]);
@@ -49,6 +57,23 @@ export const Account = () => {
       </section>
       {user && (
         <section style={{ maxWidth: 880, padding: "48px var(--gutter) 72px" }}>
+          <div style={row}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, maxWidth: 520 }}>
+              <div style={{ fontSize: 15 }}>Email me when a report is ready</div>
+              <div style={{ color: "var(--muted)", fontSize: 13, lineHeight: "20px" }}>
+                One email per run, with the scores and a link. Also sent if a run fails.
+              </div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={info?.notifyOnDone ?? false}
+              aria-label="Email me when a report is ready"
+              className={`switch${info?.notifyOnDone ? " on" : ""}`}
+              disabled={info === null}
+              onClick={toggleNotify}
+            />
+          </div>
           <div style={row}>
             <div style={{ fontSize: 15 }}>Sign out of this browser</div>
             <button type="button" className="btn" onClick={signOut}>
@@ -92,7 +117,7 @@ export const Account = () => {
             </div>
             {runs?.some((r) => r.status === "queued" || r.status === "running") && (
               <div style={{ color: "var(--bad)" }}>
-                <span>Run in progress. Wait for it to finish first.</span>
+                <span>Runs in progress, stopped now</span>
                 <span>{runs.filter((r) => r.status === "queued" || r.status === "running").length}</span>
               </div>
             )}

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api, currentUser, type Preset, type RunListItem } from "./api.ts";
 import { Dialog } from "./Dialog.tsx";
 import { Nav } from "./Nav.tsx";
+import { ShareDialog, visibilityLabel } from "./Share.tsx";
 import { shortName } from "./names.ts";
 import { navigate } from "./router.ts";
 
@@ -43,6 +44,7 @@ export const Runs = () => {
   const [presets, setPresets] = useState<ReadonlyArray<Preset>>([]);
   const [search, setSearch] = useState("");
   const [menu, setMenu] = useState<string | null>(null);
+  const [sharing, setSharing] = useState<RunListItem | null>(null);
   const [renaming, setRenaming] = useState<RunListItem | null>(null);
   const [deleting, setDeleting] = useState<RunListItem | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -144,7 +146,7 @@ export const Runs = () => {
         </div>
       </section>
       {error && <div style={{ color: "var(--bad)", fontSize: 13, padding: "0 var(--gutter) 12px" }}>{error}</div>}
-      <section className="scroll-x" style={{ padding: "0 var(--gutter) 72px" }}>
+      <section style={{ padding: "0 var(--gutter) 72px" }}>
         <table className="runs-table">
           <thead>
             <tr>
@@ -152,6 +154,7 @@ export const Runs = () => {
               <th>Started</th>
               <th>Status</th>
               <th>Top mean score</th>
+              <th>Who can open</th>
               <th aria-label="Actions" />
             </tr>
           </thead>
@@ -172,6 +175,7 @@ export const Runs = () => {
                   <Status run={run} />
                 </td>
                 <td>{run.top === null ? "—" : `${provider(run.top.presetId)} · ${run.top.meanScore.toFixed(1)}`}</td>
+                <td>{visibilityLabel(run.visibility)}</td>
                 <td style={{ position: "relative", textAlign: "right" }}>
                   <button
                     type="button"
@@ -201,6 +205,9 @@ export const Runs = () => {
                       <button type="button" onClick={() => navigator.clipboard.writeText(shareUrl(run))}>
                         Copy share link
                       </button>
+                      <button type="button" onClick={() => setSharing(run)}>
+                        Sharing settings
+                      </button>
                       <button type="button" onClick={() => setRenaming(run)}>
                         Rename
                       </button>
@@ -217,7 +224,7 @@ export const Runs = () => {
             ))}
             {runs !== null && shown.length === 0 && (
               <tr>
-                <td colSpan={5} style={{ color: "var(--muted)" }}>
+                <td colSpan={6} style={{ color: "var(--muted)" }}>
                   {runs.length === 0 ? "No runs yet." : "No runs match."}
                 </td>
               </tr>
@@ -225,6 +232,16 @@ export const Runs = () => {
           </tbody>
         </table>
       </section>
+      {sharing && (
+        <ShareDialog
+          runId={sharing.id}
+          shareId={sharing.shareId}
+          visibility={sharing.visibility}
+          owned
+          onClose={() => setSharing(null)}
+          onChange={load}
+        />
+      )}
       {renaming && <Rename run={renaming} onClose={() => setRenaming(null)} onDone={load} />}
       {deleting && <DeleteDialog run={deleting} onClose={() => setDeleting(null)} onDone={load} />}
     </div>

@@ -1,0 +1,108 @@
+import { useState } from "react";
+import { api, type Visibility } from "./api.ts";
+import { CopyButton } from "./CopyButton.tsx";
+import { Dialog } from "./Dialog.tsx";
+
+const OPTIONS: ReadonlyArray<{ readonly value: Visibility; readonly label: string; readonly note: string }> = [
+  { value: "link", label: "Anyone with the link", note: "They can open the report and every page, without signing in." },
+  { value: "private", label: "Only you", note: "The link stops working for everyone else. You can turn it back on." },
+];
+
+export const visibilityLabel = (visibility: Visibility) => (visibility === "link" ? "Anyone with the link" : "Only you");
+
+/** Who can open a run's share link, the link itself, and a new link that turns off the old one. */
+export const ShareDialog = ({
+  runId,
+  shareId: initialShareId,
+  visibility: initialVisibility,
+  owned,
+  onClose,
+  onChange,
+}: {
+  readonly runId: string;
+  readonly shareId: string;
+  readonly visibility: Visibility;
+  readonly owned: boolean;
+  readonly onClose: () => void;
+  readonly onChange?: (change: { shareId: string; visibility: Visibility }) => void;
+}) => {
+  const [visibility, setVisibility] = useState(initialVisibility);
+  const [shareId, setShareId] = useState(initialShareId);
+  const [error, setError] = useState<string | null>(null);
+  const url = `${location.origin}/r/${shareId}`;
+  const choose = (next: Visibility) => {
+    setError(null);
+    api.setVisibility(runId, next).then(
+      () => {
+        setVisibility(next);
+        onChange?.({ shareId, visibility: next });
+      },
+      (e: unknown) => setError(String(e)),
+    );
+  };
+  const rotate = () => {
+    setError(null);
+    api.rotateLink(runId).then(
+      (r) => {
+        setShareId(r.shareId);
+        onChange?.({ shareId: r.shareId, visibility });
+      },
+      (e: unknown) => setError(String(e)),
+    );
+  };
+  return (
+    <Dialog title="Share this report">
+      {owned && (
+        <div style={{ display: "grid", gap: 8 }}>
+          <div className="eyebrow">Who can open</div>
+          {OPTIONS.map((o) => (
+            <label key={o.value} style={{ alignItems: "start", cursor: "pointer", display: "flex", gap: 10 }}>
+              <input
+                type="radio"
+                name="visibility"
+                checked={visibility === o.value}
+                onChange={() => choose(o.value)}
+                style={{ marginTop: 3 }}
+              />
+              <span style={{ display: "grid", gap: 2 }}>
+                <span style={{ fontSize: 15 }}>{o.label}</span>
+                <span style={{ color: "var(--muted)", fontSize: 13 }}>{o.note}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      )}
+      <div
+        style={{
+          alignItems: "center",
+          border: "1px solid var(--line)",
+          borderRadius: 4,
+          display: "flex",
+          gap: 12,
+          justifyContent: "space-between",
+          padding: "10px 12px",
+        }}
+      >
+        <span className="mono" style={{ fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {url}
+        </span>
+        <CopyButton text={url} label="Copy" />
+      </div>
+      {owned && (
+        <div style={{ color: "var(--muted)", fontSize: 13 }}>
+          Sent the link to the wrong person?{" "}
+          <button type="button" className="u" onClick={rotate} style={{ fontSize: 13 }}>
+            Make a new link
+          </button>{" "}
+          and the old one stops working.
+        </div>
+      )}
+      {error && <div style={{ color: "var(--bad)", fontSize: 13 }}>{error}</div>}
+      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        <button type="button" className="btn" onClick={onClose}>
+          Done
+        </button>
+      </div>
+    </Dialog>
+  );
+};
