@@ -556,9 +556,9 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
         const owned = yield* query(() =>
           cf.DB.prepare(
             `SELECT COALESCE(SUM(page_count), 0) AS pages, COUNT(*) AS n FROM documents
-             WHERE user_id = ? AND id IN (${payload.documentIds.map(() => "?").join(", ")})`,
+             WHERE user_id = ? AND id IN (SELECT value FROM json_each(?))`,
           )
-            .bind(userId, ...payload.documentIds)
+            .bind(userId, JSON.stringify(payload.documentIds))
             .first<{ pages: number; n: number }>(),
         );
         if (owned?.n !== payload.documentIds.length || owned.pages > Number(cf.MAX_PAGES_PER_RUN)) {
@@ -568,9 +568,9 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
           payload.title?.trim().slice(0, 80) ||
           (yield* query(async () => {
             const rows = await cf.DB.prepare(
-              `SELECT filename FROM documents WHERE user_id = ? AND id IN (${payload.documentIds.map(() => "?").join(", ")})`,
+              `SELECT filename FROM documents WHERE user_id = ? AND id IN (SELECT value FROM json_each(?))`,
             )
-              .bind(userId, ...payload.documentIds)
+              .bind(userId, JSON.stringify(payload.documentIds))
               .all<{ filename: string }>();
             return generateTitle(
               cf,
