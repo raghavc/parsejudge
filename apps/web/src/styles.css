@@ -1444,3 +1444,12 @@ button.table-flag:hover {
   min-width: 56px;
   text-align: center;
 }
+svg.caret {
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+.issues-more {
+  align-items: center;
+  display: inline-flex;
+  gap: 4px;
+}

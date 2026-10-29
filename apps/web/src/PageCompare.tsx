@@ -9,6 +9,12 @@ import { navigate } from "./router.ts";
 type View = "side" | "all";
 type Severity = JudgedError["severity"];
 
+const Caret = () => (
+  <svg className="caret" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+    <path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" strokeWidth="1.3" />
+  </svg>
+);
+
 interface PageStat {
   readonly id: string;
   readonly filename: string;
@@ -290,7 +296,7 @@ const ProviderMenu = ({
       <button type="button" className="provider-trigger" aria-expanded={open} onClick={() => setOpen(!open)}>
         <span className="slot">{otherSlot === "B" ? "A" : "B"}</span>
         <span className="clip">{name(current)}</span>
-        <span className="caret">⌄</span>
+        <Caret />
       </button>
       {open && (
         <div className="popover menu">
@@ -365,8 +371,7 @@ const Issues = ({
           ))
         )}
         <span className="issues-more">
-          {flags.length === 0 ? "Judge's note" : `${flags.length} issue${flags.length === 1 ? "" : "s"}`}{" "}
-          <span className="caret">⌄</span>
+          {flags.length === 0 ? "Judge's note" : `${flags.length} issue${flags.length === 1 ? "" : "s"}`} <Caret />
         </span>
       </button>
       {open && (
@@ -487,7 +492,7 @@ const DocPicker = ({
           {current.filename}
         </span>
         <span style={{ color: "var(--muted)", flexShrink: 0 }}>p. {current.index + 1}</span>
-        <span className="caret">⌄</span>
+        <Caret />
       </button>
       {open && (
         <div className="popover picker" style={{ width: `min(${380 + presetIds.length * 72}px, calc(100vw - 32px))` }}>
