@@ -16,12 +16,16 @@ import { openRouterUsage, recordUsage } from "./usage.ts";
 
 export interface RunWorkflowParams {
   readonly runId: string;
+  /** Parse these pages again with these presets, re-judge them and re-summarize the run. */
+  readonly retry?: { readonly pageIds: ReadonlyArray<string>; readonly presetIds: ReadonlyArray<string> };
 }
 
 export interface PageWorkflowParams {
   readonly runId: string;
   readonly pageId: string;
   readonly presetIds: ReadonlyArray<string>;
+  /** Presets to parse; defaults to presetIds. The judge still compares every preset that has a parse. */
+  readonly parsePresetIds?: ReadonlyArray<string>;
 }
 
 const RETRY: WorkflowStepConfig = { retries: { limit: 5, delay: "5 seconds", backoff: "exponential" }, timeout: "5 minutes" };
@@ -59,7 +63,8 @@ export class DocumentWorkflow extends WorkflowEntrypoint<Env, DocumentWorkflowPa
 /** One run: split documents into pages, fan out one PageWorkflow per page, wait for all, then summarize. */
 export class RunWorkflow extends WorkflowEntrypoint<Env, RunWorkflowParams> {
   override async run(event: Readonly<WorkflowEvent<RunWorkflowParams>>, step: WorkflowStep) {
-    const { runId } = event.payload;
+    const { runId, retry } = event.payload;
+    if (retry !== undefined) return this.retry(event.instanceId, runId, retry, step);
     try {
       const run = await step.do("load run", async () => {
         await this.env.DB.prepare("UPDATE runs SET status = 'running' WHERE id = ?").bind(runId).run();
@@ -109,6 +114,32 @@ export class RunWorkflow extends WorkflowEntrypoint<Env, RunWorkflowParams> {
       });
       await this.emailOwner(step, runId);
     }
+  }
+
+  private async retry(
+    instanceId: string,
+    runId: string,
+    retry: NonNullable<RunWorkflowParams["retry"]>,
+    step: WorkflowStep,
+  ): Promise<void> {
+    await step.do("fan out retry", RETRY, async () => {
+      const row = await this.env.DB.prepare("SELECT preset_ids FROM runs WHERE id = ?")
+        .bind(runId)
+        .first<{ preset_ids: string }>();
+      await this.env.DB.prepare("UPDATE runs SET status = 'running', completed_at = NULL WHERE id = ?").bind(runId).run();
+      await events(this.env, runId).reopen(instanceId, retry.pageIds);
+      for (let offset = 0; offset < retry.pageIds.length; offset += 100) {
+        await this.env.PAGE_WORKFLOW.createBatch(
+          retry.pageIds.slice(offset, offset + 100).map((pageId) => ({
+            id: `${instanceId}-${pageId}`,
+            params: { runId, pageId, presetIds: JSON.parse(row?.preset_ids ?? "[]"), parsePresetIds: retry.presetIds },
+          })),
+        );
+      }
+    });
+    await step.waitForEvent("pages done", { type: "pages-done", timeout: "6 hours" });
+    await step.do("summarize", RETRY, () => this.summarize(runId));
+    await step.do("notify done", () => events(this.env, runId).runDone("succeeded"));
   }
 
   private async emailOwner(step: WorkflowStep, runId: string): Promise<void> {
@@ -195,9 +226,9 @@ export class RunWorkflow extends WorkflowEntrypoint<Env, RunWorkflowParams> {
  */
 export class PageWorkflow extends WorkflowEntrypoint<Env, PageWorkflowParams> {
   override async run(event: Readonly<WorkflowEvent<PageWorkflowParams>>, step: WorkflowStep) {
-    const { runId, pageId: page, presetIds } = event.payload;
+    const { runId, pageId: page, presetIds, parsePresetIds = presetIds } = event.payload;
     await step.do("render", RETRY, () => renderPage(this.env, page));
-    await Promise.all(presetIds.map((presetId) => this.parse(step, event.instanceId, { runId, pageId: page, presetId })));
+    await Promise.all(parsePresetIds.map((presetId) => this.parse(step, event.instanceId, { runId, pageId: page, presetId })));
     try {
       const pool = judgePool(this.env);
       await this.withSlot(step, event.instanceId, "judge", pool, () => step.do("judge", RETRY, () => this.judge(runId, page)));

@@ -29,6 +29,12 @@ export class RunEvents extends DurableObject<Env> {
     await this.ctx.storage.put({ runId, total });
   }
 
+  /** Re-opens finished pages for a retry; `pages-done` then goes to the retry's workflow instance. */
+  async reopen(workflowId: string, pageIds: ReadonlyArray<string>): Promise<void> {
+    await this.ctx.storage.delete(pageIds.map((id) => `page:${id}`));
+    await this.ctx.storage.put("workflow", workflowId);
+  }
+
   /** Idempotent: a retried call does not count or broadcast the page twice, but does resend `pages-done`. */
   async pageDone(pageId: string): Promise<void> {
     const runId = await this.ctx.storage.get<string>("runId");
@@ -38,7 +44,8 @@ export class RunEvents extends DurableObject<Env> {
     const done = (await this.ctx.storage.list({ prefix: "page:" })).size;
     if (!known) this.broadcast({ type: "page_done", pageId, done, total });
     if (runId !== undefined && done === total) {
-      await (await this.env.RUN_WORKFLOW.get(runId)).sendEvent({ type: "pages-done", payload: { done } });
+      const workflow = (await this.ctx.storage.get<string>("workflow")) ?? runId;
+      await (await this.env.RUN_WORKFLOW.get(workflow)).sendEvent({ type: "pages-done", payload: { done } });
     }
   }
 
