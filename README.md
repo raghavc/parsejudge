@@ -16,7 +16,7 @@ latency, head-to-head results and a list-price vs accuracy curve.
 | --------------------------- | ------------------------------------- | ------------------ |
 | Reducto                     | R-1                                   | yes                |
 | Azure Document Intelligence | layout, high-res                      | yes                |
-| AWS Textract                | layout, tables, forms, signatures     | yes                |
+| AWS Textract                | layout, tables                        | yes                |
 | Mistral                     | OCR 4.1                               | bring your own key |
 | Extend                      | performance, agentic                  | bring your own key |
 | LlamaParse                  | agentic-plus, agentic, cost-effective | bring your own key |

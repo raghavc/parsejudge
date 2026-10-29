@@ -47,10 +47,10 @@ export const PRESETS: ReadonlyArray<Preset> = [
   {
     id: "aws_textract",
     provider: "aws_textract",
-    label: "AWS Textract (layout, tables, forms, signatures)",
-    mode: "Layout, tables, forms, signatures",
-    config: { featureTypes: ["LAYOUT", "TABLES", "FORMS", "SIGNATURES"] },
-    listPriceUsdPerPage: 0.0685,
+    label: "AWS Textract (layout, tables)",
+    mode: "Layout, tables",
+    config: { featureTypes: ["LAYOUT", "TABLES"] },
+    listPriceUsdPerPage: 0.015,
     hosted: true,
   },
   {
