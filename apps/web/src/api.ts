@@ -189,7 +189,28 @@ const ok = async (response: Response) => {
   if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
 };
 
+export interface RunListItem {
+  readonly id: string;
+  readonly shareId: string;
+  readonly title: string | null;
+  readonly status: string;
+  readonly presetIds: ReadonlyArray<string>;
+  readonly documents: number;
+  readonly pages: number;
+  readonly judged: number;
+  readonly top: { readonly presetId: string; readonly meanScore: number } | null;
+  readonly createdAt: number;
+  readonly dataDeletedAt: number | null;
+}
+
 export const api = {
+  runs: () => fetch("/v1/runs").then(json<ReadonlyArray<RunListItem>>),
+  rename: (runId: string, title: string) =>
+    fetch(`/v1/runs/${runId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title }),
+    }).then(ok),
   presets: () => fetch("/v1/presets").then(json<ReadonlyArray<Preset>>),
   upload: (file: File) =>
     fetch(`/v1/documents?filename=${encodeURIComponent(file.name)}`, {
@@ -214,6 +235,7 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ filenames }),
     }).then(json<{ title: string | null }>),
+  run: (runId: string) => fetch(`/v1/runs/${runId}`).then(json<Run>),
   shared: (shareId: string) => fetch(`/v1/share/${shareId}`).then(json<Run>),
   deleteRun: (runId: string, scope: "data" | "report") =>
     fetch(`/v1/runs/${runId}?scope=${scope}`, { method: "DELETE" }).then(ok),

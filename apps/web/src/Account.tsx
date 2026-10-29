@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { api, auth, currentUser, setUser } from "./api.ts";
+import { useEffect, useState } from "react";
+import { api, auth, currentUser, type RunListItem, setUser } from "./api.ts";
 import { Dialog } from "./Dialog.tsx";
 import { Nav } from "./Nav.tsx";
 import { navigate } from "./router.ts";
@@ -18,6 +18,11 @@ export const Account = () => {
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [typed, setTyped] = useState("");
+  const [runs, setRuns] = useState<ReadonlyArray<RunListItem> | null>(null);
+  useEffect(() => {
+    if (confirm) api.runs().then(setRuns, () => setRuns([]));
+  }, [confirm]);
   const leave = () => {
     setUser(null);
     navigate("/");
@@ -64,28 +69,60 @@ export const Account = () => {
         </section>
       )}
       {confirm && (
-        <Dialog title="Delete all your data">
+        <Dialog title="Delete all your data?">
           <div style={{ color: "var(--muted)", fontSize: 14, lineHeight: "22px" }}>
-            Every document, run, report and share link for {user} is deleted. This cannot be undone.
+            This permanently deletes everything you've added to Parse Judge:
           </div>
-          <button
-            type="button"
-            className="btn primary"
-            disabled={busy}
-            style={{ background: "var(--bad)", borderColor: "var(--bad)", height: 44, justifyContent: "center" }}
-            onClick={removeAll}
-          >
-            Delete everything
-          </button>
-          <button
-            type="button"
-            className="btn"
-            disabled={busy}
-            style={{ height: 44, justifyContent: "center" }}
-            onClick={() => setConfirm(false)}
-          >
-            Cancel
-          </button>
+          <div className="delete-counts">
+            <div>
+              <span>Runs and reports</span>
+              <span>{runs?.length ?? "…"}</span>
+            </div>
+            <div>
+              <span>Uploaded documents</span>
+              <span>
+                {runs === null
+                  ? "…"
+                  : `${runs.reduce((n, r) => n + (r.dataDeletedAt === null ? r.documents : 0), 0)} · ${runs.reduce((n, r) => n + (r.dataDeletedAt === null ? r.pages : 0), 0)} pages`}
+              </span>
+            </div>
+            <div>
+              <span>Share links that will stop working</span>
+              <span>{runs?.length ?? "…"}</span>
+            </div>
+            {runs?.some((r) => r.status === "queued" || r.status === "running") && (
+              <div style={{ color: "var(--bad)" }}>
+                <span>Run in progress. Wait for it to finish first.</span>
+                <span>{runs.filter((r) => r.status === "queued" || r.status === "running").length}</span>
+              </div>
+            )}
+          </div>
+          <div style={{ color: "var(--muted)", fontSize: 13, lineHeight: "20px" }}>
+            Your account stays, so you can still sign in. To delete runs one at a time, use the menu on each run instead.
+          </div>
+          <label style={{ display: "grid", fontSize: 13, gap: 8 }}>
+            <span>
+              Type <span className="mono">delete my data</span> to confirm
+            </span>
+            <input
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              style={{ border: "1px solid var(--ink)", borderRadius: 4, fontSize: 15, height: 44, padding: "0 12px" }}
+            />
+          </label>
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <button type="button" className="btn" disabled={busy} onClick={() => setConfirm(false)}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="btn primary danger-fill"
+              disabled={busy || typed.trim().toLowerCase() !== "delete my data"}
+              onClick={removeAll}
+            >
+              Delete all data
+            </button>
+          </div>
           {error && <div style={{ color: "var(--bad)", fontSize: 13 }}>{error}</div>}
         </Dialog>
       )}

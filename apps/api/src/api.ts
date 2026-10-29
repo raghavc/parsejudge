@@ -32,6 +32,23 @@ const CreateRun = Schema.Struct({
   credentials: Schema.optional(Schema.Record(Schema.String, Schema.Record(Schema.String, Schema.String))),
 });
 
+/** One row of the signed-in user's run list. */
+const RunListItem = Schema.Struct({
+  id: Schema.String,
+  shareId: Schema.String,
+  title: Schema.NullOr(Schema.String),
+  status: Schema.String,
+  presetIds: Schema.Array(Schema.String),
+  documents: Schema.Number,
+  pages: Schema.Number,
+  /** Pages the judge has finished. */
+  judged: Schema.Number,
+  /** The preset with the highest mean score, once the run is summarized. */
+  top: Schema.NullOr(Schema.Struct({ presetId: Schema.String, meanScore: Schema.Number })),
+  createdAt: Schema.Number,
+  dataDeletedAt: Schema.NullOr(Schema.Number),
+});
+
 const Interval = Schema.Struct({ low: Schema.Number, high: Schema.Number });
 
 /** Mirrors `RunSummary` in @parsejudge/core. */
@@ -177,6 +194,14 @@ export const Api = HttpApi.make("parsejudge")
           payload: CreateRun,
           success: Schema.Struct({ runId: Schema.String, shareId: Schema.String }),
           error: [HttpApiError.BadRequest, HttpApiError.Unauthorized],
+        }),
+      )
+      .add(HttpApiEndpoint.get("mine", "/v1/runs", { success: Schema.Array(RunListItem), error: HttpApiError.Unauthorized }))
+      .add(
+        HttpApiEndpoint.patch("rename", "/v1/runs/:runId", {
+          params: { runId: Schema.String },
+          payload: Schema.Struct({ title: Schema.String }),
+          error: [HttpApiError.Unauthorized, HttpApiError.NotFound, HttpApiError.BadRequest],
         }),
       )
       .add(
@@ -552,6 +577,70 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
         if (row === null || row.user_id !== userId) return yield* new HttpApiError.NotFound({});
         if (row.status === "queued" || row.status === "running") return yield* new HttpApiError.Conflict({});
         yield* query(() => deleteRun(cf, params.runId, scope));
+      }),
+    )
+    .handle("mine", () =>
+      Effect.gen(function* () {
+        const userId = yield* requireUser;
+        const rows = yield* query(() =>
+          cf.DB.prepare(
+            `SELECT r.id, r.share_id, r.title, r.status, r.preset_ids, r.summary, r.created_at, r.data_deleted_at,
+               (SELECT COUNT(*) FROM run_documents rd WHERE rd.run_id = r.id) AS documents,
+               (SELECT COALESCE(SUM(d.page_count), 0) FROM run_documents rd JOIN documents d ON d.id = rd.document_id
+                 WHERE rd.run_id = r.id) AS pages,
+               (SELECT COUNT(DISTINCT page_id) FROM verdicts v WHERE v.run_id = r.id) AS judged
+             FROM runs r WHERE r.user_id = ? ORDER BY r.created_at DESC LIMIT 500`,
+          )
+            .bind(userId)
+            .all<{
+              id: string;
+              share_id: string;
+              title: string | null;
+              status: string;
+              preset_ids: string;
+              summary: string | null;
+              created_at: number;
+              data_deleted_at: number | null;
+              documents: number;
+              pages: number;
+              judged: number;
+            }>(),
+        );
+        return rows.results.map((row) => {
+          const summary = row.summary === null ? null : (JSON.parse(row.summary) as typeof RunSummary.Type);
+          const top = (summary?.presets ?? []).reduce<{ presetId: string; meanScore: number } | null>(
+            (best, preset) =>
+              preset.meanScore !== null && (best === null || preset.meanScore > best.meanScore)
+                ? { presetId: preset.presetId, meanScore: preset.meanScore }
+                : best,
+            null,
+          );
+          const presetIds = JSON.parse(row.preset_ids) as Array<string>;
+          return {
+            id: row.id,
+            shareId: row.share_id,
+            title: row.title,
+            status: row.status,
+            presetIds,
+            documents: row.documents,
+            pages: row.pages,
+            judged: row.judged,
+            top,
+            createdAt: row.created_at,
+            dataDeletedAt: row.data_deleted_at,
+          };
+        });
+      }),
+    )
+    .handle("rename", ({ params, payload }) =>
+      Effect.gen(function* () {
+        const userId = yield* requireUser;
+        const title = payload.title.trim().slice(0, 80);
+        if (title.length === 0) return yield* new HttpApiError.BadRequest({});
+        const updated = yield* query(() =>
+          cf.DB.prepare("UPDATE runs SET title = ? WHERE id = ? AND user_id = ?").bind(title, params.runId, userId).run(),
+        );
+        if (updated.meta.changes !== 1) return yield* new HttpApiError.NotFound({});
       }),
     )
     .handle("get", ({ params }) => findRun("id", params.runId))

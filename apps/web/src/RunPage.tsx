@@ -190,7 +190,11 @@ export const RunPage = ({ shareId }: { readonly shareId: string }) => {
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    api.shared(shareId).then(setRun, (e: unknown) => setError(String(e)));
+    api
+      .shared(shareId)
+      .then(setRun, (e: unknown) =>
+        setError(String(e).includes("404") ? "This run was deleted or the link is wrong." : String(e)),
+      );
   }, [shareId]);
 
   useEffect(() => {

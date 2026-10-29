@@ -801,3 +801,119 @@ mark.flag.medium {
     width: auto !important;
   }
 }
+
+.runs-table {
+  border-collapse: collapse;
+  font-size: 14px;
+  min-width: 760px;
+  width: 100%;
+}
+.runs-table th {
+  border-bottom: 1px solid var(--ink);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  padding: 10px 16px 10px 0;
+  text-align: left;
+  text-transform: uppercase;
+}
+.runs-table td {
+  border-bottom: 1px solid var(--line);
+  padding: 14px 16px 14px 0;
+  vertical-align: middle;
+}
+.runs-table tbody tr {
+  cursor: pointer;
+}
+.runs-table tbody tr:hover {
+  background: rgb(0 0 0 / 0.02);
+}
+.run-menu {
+  display: grid;
+  min-width: 188px;
+  padding: 6px;
+  right: 0;
+  text-align: left;
+  transform-origin: top right;
+}
+.run-menu button {
+  border-radius: 4px;
+  font-size: 14px;
+  padding: 8px 10px;
+  text-align: left;
+}
+.run-menu button:hover:not(:disabled) {
+  background: rgb(0 0 0 / 0.04);
+}
+.run-menu button:disabled {
+  color: var(--muted);
+}
+.run-menu .danger {
+  border-top: 1px solid var(--line);
+  color: var(--bad);
+  margin-top: 4px;
+}
+.delete-list {
+  background: rgb(0 0 0 / 0.025);
+  display: grid;
+  font-size: 14px;
+  gap: 8px;
+  line-height: 20px;
+  list-style: none;
+  margin: 0;
+  padding: 14px 16px;
+}
+.delete-list li::before {
+  content: "· ";
+}
+.btn.danger-fill {
+  background: var(--bad);
+  border-color: var(--bad);
+}
+.delete-counts {
+  background: rgb(0 0 0 / 0.025);
+  display: grid;
+  font-size: 14px;
+  padding: 4px 14px;
+}
+.delete-counts > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 0;
+}
+.delete-counts > div + div {
+  border-top: 1px solid var(--line);
+}
+@media (max-width: 720px) {
+  .runs-table {
+    min-width: 0;
+  }
+  .runs-table thead {
+    display: none;
+  }
+  .runs-table tbody tr {
+    border-bottom: 1px solid var(--line);
+    display: grid;
+    gap: 4px 16px;
+    grid-template-columns: 1fr auto;
+    padding: 14px 0;
+  }
+  .runs-table td {
+    border: 0;
+    padding: 0;
+  }
+  .runs-table td:first-child {
+    grid-column: 1;
+  }
+  .runs-table td:last-child {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .runs-table td:not(:first-child):not(:last-child) {
+    color: var(--muted);
+    font-size: 13px;
+    grid-column: 1 / -1;
+  }
+}

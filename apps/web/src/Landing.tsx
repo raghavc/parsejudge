@@ -361,7 +361,7 @@ export const Landing = () => {
       <section className="split" style={section}>
         <div style={aside}>
           <div style={h2}>Documents</div>
-          <div style={note}>PDF, DOCX or PPTX. Up to {MAX_PAGES_PER_RUN} pages per run.</div>
+          <div style={note}>PDF, DOCX or PPTX. Up to {MAX_PAGES_PER_RUN.toLocaleString("en-US")} pages per run.</div>
         </div>
         <div style={{ display: "flex", flexDirection: "column", flexGrow: 1 }}>
           <button
@@ -475,7 +475,7 @@ export const Landing = () => {
         <div style={{ alignItems: "center", display: "flex", gap: 16 }}>
           {(overLimit || error) && (
             <span className="enter" style={{ color: "var(--bad)", fontSize: 13 }}>
-              {overLimit ? `${pages} pages selected. The limit is ${MAX_PAGES_PER_RUN} per run.` : error}
+              {overLimit ? `${pages} pages selected. The limit is ${MAX_PAGES_PER_RUN.toLocaleString("en-US")} per run.` : error}
             </span>
           )}
           <button
