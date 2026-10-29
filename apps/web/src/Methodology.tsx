@@ -5,12 +5,12 @@ import { BlindRequestFigure, SampleSizeFigure, SubsetFigure } from "./figures.ts
 import { Nav } from "./Nav.tsx";
 
 const SECTIONS = [
-  ["why", "Why your own documents"],
-  ["scored", "What is scored"],
-  ["judge", "Why a model judge"],
+  ["why", "The trouble with vendor benchmarks"],
+  ["scored", "What counts as a good parse"],
+  ["judge", "Why a model grades"],
   ["run", "How a run works"],
   ["output", "What the judge returns"],
-  ["rule", "A short scoring rule"],
+  ["rule", "Why the rule is short"],
   ["report", "What a report shows"],
   ["review", "Checking the judge"],
   ["limits", "Limits"],
@@ -60,9 +60,8 @@ export const Methodology = () => {
       <header className="article-head">
         <h1>How Parse Judge scores document parsers</h1>
         <p>
-          Parse Judge runs parsers on your documents, renders every page to one image, and asks a vision-language model to grade
-          all outputs for that page in one blind request. This page describes the procedure, what the scores mean, and where they
-          stop being reliable.
+          Run any set of parsers on your own documents. A vision model grades every output against the page image, without knowing
+          which parser wrote it. This page explains how that works, what the scores mean, and where they stop being reliable.
         </p>
       </header>
       <div className="article-wrap">
@@ -76,178 +75,181 @@ export const Methodology = () => {
         <article className="article">
           <Section id="why">
             <p>
-              Published benchmarks use different document sets, different definitions of a correct output, and different settings
-              for the systems they test. A result from one benchmark supports conclusions about that benchmark. It says less about
-              your documents.
+              If you shop for a document parser, you will find that almost every vendor has published a benchmark. Each one comes
+              with its own documents, its own scoring code and its own rules for what counts as correct. And in almost every one,
+              the vendor that wrote it comes first.
             </p>
             <p>
-              Two problems are hard to see from a published number. The first is subset selection. A development run may cover
-              1,000 candidate pages while the release contains 100. A smaller release is not a problem in itself. Choosing it
-              after the scores are known is. The score then describes the chosen pages, and a reader cannot tell from the release
-              how they were chosen.
+              That is not necessarily dishonest. A vendor builds its benchmark from the documents it cares about and scores what
+              its own system does well. But the result tells you how parsers do on that vendor's test, not on your documents.
+            </p>
+            <p>
+              Two things make published numbers harder to trust than they look. The first is how the pages were picked. A team can
+              test on 1,000 pages and publish 100. Publishing fewer pages is fine. Picking them after seeing the scores is not,
+              and nothing in the published pages shows which one happened.
             </p>
             <SubsetFigure />
             <p>
-              The second is sensitivity to small changes in the files. White padding or a slight rotation leaves the reading task
-              unchanged for a person, but has produced large score drops on public benchmarks, including for the benchmark
-              author's own system. A drop of that size shows that part of the score belonged to the exact files.
+              The second is how fragile the scores are. Adding white margins or rotating a page slightly changes nothing for a
+              person reading it. On public benchmarks, changes like these have caused large score drops, including for the
+              benchmark author's own system. Part of the score was about the exact files, not about reading them.
             </p>
             <p>
-              Shared benchmarks are still useful for screening and regression tests. A purchase or deployment decision needs more:
-              a sample from the documents the parser will process, fixed before scoring, graded blind, with every exclusion
-              reported.
+              Parse Judge does not ship a dataset or a leaderboard. It is a general method: you bring the documents, you pick the
+              providers, and every parser is graded by the same blind judge under the same rules. The prompt and the scoring code
+              are public, so anyone can check them or run them on their own machines.
             </p>
           </Section>
 
           <Section id="scored">
             <p>
-              The score measures information preservation: how much of the visible content of the page, and of the relations
-              within it, can be recovered from the output. Relations include table cells to rows and columns, labels to values,
-              checkbox states, and reading order. Omitted content is an error. Content that is not on the page is an error.
+              A good parse keeps the information on the page: the text, and how it fits together. That includes which table cell
+              belongs to which row and column, which label goes with which value, whether a box is checked, and the order the page
+              is meant to be read in. Leaving something out is an error. Adding something that is not on the page is an error.
             </p>
             <p>
-              Syntax gets no credit of its own. A table may be Markdown or HTML, a checked box a symbol or a word, an empty field
-              blank or an explicit marker. Each is scored on the information it carries.
+              Format does not matter by itself. A table can be Markdown or HTML. A checked box can be a symbol or a word. Each is
+              judged by whether the information is right.
             </p>
           </Section>
 
           <Section id="judge">
             <p>
-              Human transcription of a test set is costly, and it forces a choice of reference syntax before scoring. Exact
-              matching against one reference then measures agreement with that reference, not preservation of information.
+              The usual alternative is to have people type out the correct text for every test page and compare each parser
+              against it. That is slow and expensive. It also forces you to pick one format for the correct answer, and then you
+              are measuring how closely a parser matches that format.
             </p>
             <p>
-              Current vision-language models read page images well enough to check a parse that already exists. The judge gets the
-              image and the outputs and reports where they disagree: omitted text, invented values, wrong cells, wrong checkbox
-              states, wrong order. Checking needs no reference syntax, and every reported error can be verified against the image.
+              Current vision models read page images well enough to check a parse that already exists. The judge looks at the
+              image and the outputs and lists where they disagree: missing text, invented values, wrong cells, wrong checkbox
+              states, wrong order. Every error it reports can be checked against the image.
             </p>
             <p>
-              A large model may be too slow or expensive to run on every production page. Evaluation covers a fixed sample, so the
-              judge is paid for on sample pages only. Its accuracy still has to be checked for each document type (see{" "}
-              <a href="#review">Checking the judge</a>). Scores are judge scores under a stated model and prompt.
+              The judge is still a model and can be wrong, so a person should check its grades for each kind of document (see{" "}
+              <a href="#review">Checking the judge</a>). Scores are always reported with the judge model and prompt that produced
+              them.
             </p>
           </Section>
 
           <Section id="run">
             <ol>
               <li>
-                <b>Fix the sample.</b> Choose the pages before any parser runs. Record the sampling rule and every later exclusion
-                with its reason. Do not drop a page because a parser did badly on it.
+                <b>Fix the sample.</b> Pick the pages before any parser runs. Write down how you picked them, and why any page was
+                removed later. Never drop a page because a parser did badly on it.
               </li>
               <li>
-                <b>Render.</b> DOCX and PPTX are converted to PDF. Each page is rendered once with PDFium at 200 DPI, at most
-                2,400 px on the long side. Every parser and the judge get the same PNG.
+                <b>Render.</b> Word and PowerPoint files are converted to PDF. Each page is rendered once to a PNG at 200 DPI, at
+                most 2,400 px on the long side. Every parser and the judge get that same image.
               </li>
               <li>
                 <b>Parse.</b> Each parser runs once per page with fixed settings, and its raw response is saved. Latency runs from
-                submit until the result is available. Time spent waiting for a Parse Judge concurrency slot is tracked separately.
-                An error or timeout is a failed parse.
+                submit to result. Time spent waiting in Parse Judge's own queue is not counted. An error or timeout is a failed
+                parse.
               </li>
               <li>
-                <b>Convert.</b> Each response becomes one Markdown string per page, in reading order. Tables stay in the form the
-                parser returned.
+                <b>Convert.</b> Each response becomes one Markdown text per page, in reading order. Tables stay in whatever form
+                the parser returned.
               </li>
               <li>
-                <b>Judge.</b> One request per page carries the image and every successful parse under blind labels. Provider
+                <b>Judge.</b> One request per page sends the image and every successful parse under neutral labels. Provider
                 names, file names and settings are not sent.
               </li>
               <li>
-                <b>Validate.</b> The response must match a fixed JSON schema: every label scored once, integer scores from 1 to
-                10. Invalid responses are retried. A page with no valid response is recorded as a judge failure.
+                <b>Check.</b> The response must match a fixed JSON schema, with every label scored once from 1 to 10. Bad
+                responses are retried. A page with no valid response counts as a judge failure.
               </li>
             </ol>
             <BlindRequestFigure />
             <p>
-              A run uses one judge model, one reasoning setting, one prompt version and one schema for every page and every
-              parser. All of them are stored on the run and shown at the bottom of its report.
+              Every page in a run uses the same judge model, reasoning setting, prompt and schema. All of them are saved with the
+              run and listed at the bottom of its report.
             </p>
           </Section>
 
           <Section id="output">
             <p>
-              For each output the judge lists errors first, then scores. Each error has a severity, one of 17 categories, a region
-              type, a location on the page, and a one-sentence description that quotes the page text and what the parse wrote
-              instead. Categories name the visible defect, not a cause inside the parser.
+              For each output, the judge first lists errors, then gives a score. Each error has a severity, one of 17 categories,
+              the type of region, where it is on the page, and one sentence that quotes the page and what the parse wrote instead.
             </p>
             <dl className="severity">
               <dt>
                 <span className="tag high">high</span>
               </dt>
               <dd>
-                Removes information needed to use the page, or supplies false information: an omitted section, an invented value,
-                a value under the wrong label, broken reading order.
+                Information is lost or wrong: a missing section, an invented value, a value under the wrong label, scrambled
+                reading order.
               </dd>
               <dt>
                 <span className="tag">medium</span>
               </dt>
-              <dd>A real error whose correct reading can usually be inferred from context.</dd>
+              <dd>A real error, but the right reading can usually be worked out from context.</dd>
               <dt>
                 <span className="tag low">low</span>
               </dt>
-              <dd>Affects form only. Meaning and recovery are unchanged.</dd>
+              <dd>Formatting only. Nothing is lost.</dd>
             </dl>
             <p>
-              Scores run from 1 (empty or largely wrong) to 10 (no errors found) and must agree with the error list. A
-              high-severity error keeps a score well below 10. Low-severity errors alone can still score 9 or 10. The judge also
-              tags the page itself, for example table, form or handwriting, independently of any output.
+              Scores run from 1 (empty or mostly wrong) to 10 (no errors found) and must match the error list. One high-severity
+              error keeps a score well below 10. Low-severity errors alone can still get a 9 or 10. The judge also tags the page
+              itself, for example table, form or handwriting.
             </p>
             <p>
-              All outputs for a page are graded in one request against one image, so every score for that page comes from the same
-              reading of it. Grading each parser in a separate request would let that reading vary between parsers.
+              All outputs for a page are graded in one request, against one image. That way every parser on the page is graded by
+              the same reading of it.
             </p>
           </Section>
 
           <Section id="rule">
             <p>
-              The prompt defines a correct parse in a few lines rather than in a long format specification. A long specification
-              would mix two things in one score, information loss and compliance with a chosen syntax, and real documents always
-              contain elements it did not anticipate. The short rule asks the same question of every page: did the information
-              survive, and can a reader recover it?
+              The prompt defines a correct parse in a few lines instead of a long format spec. A long spec mixes two things into
+              one score: lost information, and how well the output follows the spec. And real documents always contain something
+              the spec did not plan for. The short rule asks one question of every page: did the information survive, and can a
+              reader get it back?
             </p>
-            <p>Five cases get explicit rules, because the image alone leaves them ambiguous:</p>
+            <p>Five cases have their own rule, because the image alone leaves them unclear:</p>
             <ul>
-              <li>Page text is copied as shown. Matching an unusual spelling is correct. Correcting it is an error.</li>
+              <li>Text is copied as printed. Keeping an odd spelling is correct. Fixing it is an error.</li>
               <li>
-                Markers for empty values, checkbox states, signatures, redactions or illegible text are accepted when they
-                describe the visible state correctly.
+                Markers for empty fields, checkboxes, signatures, redactions or unreadable text are fine if they describe what is
+                on the page.
               </li>
-              <li>A figure or chart description is graded on whether it agrees with the image, not penalized for existing.</li>
-              <li>Link targets from PDF metadata are neutral whether present or absent. Visible link text is graded.</li>
               <li>
-                Whitespace, apostrophe style and repeated list markers are ignored when content, order and list structure are
-                unchanged.
+                A description of a figure or chart is graded on whether it matches the image. It is not penalized for existing.
+              </li>
+              <li>Link targets from PDF metadata do not count either way. Visible link text is graded.</li>
+              <li>
+                Whitespace, apostrophe style and repeated list markers are ignored if content, order and list structure match.
               </li>
             </ul>
           </Section>
 
           <Section id="report">
-            <p>For each parser, over the pages with a valid judge response:</p>
+            <p>For each parser, over the pages the judge scored:</p>
             <ul>
               <li>mean and median score;</li>
-              <li>page-by-page wins, ties and losses against each other parser, where a failed parse counts as 1;</li>
+              <li>wins, ties and losses against each other parser, page by page (a failed parse counts as 1);</li>
               <li>share of pages with at least one high-severity error, with a 95% Wilson interval;</li>
               <li>error counts by category, and failed pages;</li>
-              <li>latency p50 and p95, list price per 1,000 pages, and price against mean score.</li>
+              <li>latency (p50 and p95), list price per 1,000 pages, and price against score.</li>
             </ul>
             <p>
-              Scores, head-to-head outcomes and error rates carry the comparison. Error counts are secondary, because the judge
-              may report one defect as one error or as several. Small samples support limited conclusions: treat a run of fewer
-              than about 100 pages as a check of the pipeline.
+              Scores, head-to-head results and error rates are the main comparison. Error counts matter less, because the judge
+              may report one problem as one error or as several. Small runs say little: treat a run of fewer than about 100 pages
+              as a test of the setup, not a result.
             </p>
             <SampleSizeFigure />
             <p>
-              Two reporting rules follow from the problems at the top of this page. First, report the full sample: pages sampled,
-              pages excluded and why, pages scored, and pages lost to parser or judge failure. Second, where the decision matters,
-              run a robustness check. Apply a change a reader would ignore, such as white padding or a small rotation, to a fixed
-              subset, rerun it, and report it separately. A score that holds says something about documents in general. A score
-              that falls says something about those files.
+              Two habits make a result easier to trust. First, report the full sample: pages picked, pages removed and why, pages
+              scored, and pages lost to parser or judge failures. Second, when the decision matters, test robustness. Add white
+              margins or a small rotation to a fixed set of pages, run it again, and report it separately. A score that holds up
+              says something about documents in general. A score that falls says something about those files.
             </p>
           </Section>
 
           <Section id="review">
             <p>
-              Before a run is used for a decision, compare the judge with human grades. Review the pages where judge error is most
-              likely to change a conclusion:
+              Before you use a run to make a decision, compare the judge with a person. Start with the pages where a judge mistake
+              is most likely to change the answer:
             </p>
             <ul>
               <li>pages where parser scores differ by 3 or more;</li>
@@ -256,75 +258,71 @@ export const Methodology = () => {
               <li>a random 10% of pages where every parser scored 8 or higher.</li>
             </ul>
             <p>
-              The clean pages matter as much as the flagged ones. Flagged pages show whether reported errors are real. Clean pages
-              show whether errors were missed. Every error quotes both texts, so a reviewer checks a claim instead of reading a
-              page from scratch.
+              The clean pages matter as much as the flagged ones. Flagged pages show whether the reported errors are real. Clean
+              pages show whether errors were missed. Every error quotes both the page and the parse, so a reviewer checks one
+              claim instead of re-reading the whole page.
             </p>
             <p>
-              Look at agreement by page type, since a judge can be accurate on prose and weak on dense tables. If disagreement
-              follows a pattern, change the prompt or the judge model and regrade every page. Do not edit scores by hand. A
-              hand-corrected dataset comes from no single grading rule and cannot be rerun.
+              Compare by page type, because a judge can be good on prose and weak on dense tables. If the disagreements follow a
+              pattern, change the prompt or the judge model and grade every page again. Do not edit scores by hand: a hand-fixed
+              result no longer comes from one rule and cannot be rerun.
             </p>
           </Section>
 
           <Section id="limits">
             <ul>
               <li>
-                The unit is a page. Tables that continue across pages, cross-page reading order and repeated headers are measured
-                only in part.
+                Each page is scored on its own. Tables that span pages, reading order across pages and repeated headers are only
+                partly measured.
               </li>
               <li>The judge grades Markdown. Bounding boxes and block metadata are not scored.</li>
               <li>
-                The judge sees a PNG of at most 2,400 px on the long side. Very small type may be hard to read, so check dense
-                pages during review.
+                The judge sees an image at most 2,400 px on the long side. Very small print may be hard for it to read, so check
+                dense pages by hand.
               </li>
               <li>
-                A judge can share failure modes with a parser built on a similar model, and blinding hides names but not style.
-                For a close comparison, repeat the run with a second judge model.
+                A judge can make the same mistakes as a parser built on a similar model, and hiding names does not hide style. For
+                a close call, repeat the run with a second judge model.
               </li>
               <li>
-                Scores are ordered categories. A drop from 9 to 8 is not known to equal a drop from 5 to 4, which is why the
-                median, head-to-head and error rates are reported with the mean.
+                Scores are ranks, not measurements. A drop from 9 to 8 is not known to equal a drop from 5 to 4. That is why the
+                median, head-to-head results and error rates are shown next to the mean.
               </li>
               <li>
-                Judge failures are outside the scored set. If they cluster on hard pages, scores are optimistic. Failure counts
-                are in the report.
+                Pages the judge failed on are left out of the scores. If those are mostly hard pages, scores look better than they
+                are. The report shows how many there were.
               </li>
               <li>
-                Runs are comparable only when the sample, judge model, prompt, schema and parser settings are the same, or the
-                changes are stated.
+                Two runs are comparable only if the pages, judge model, prompt, schema and parser settings are the same, or the
+                differences are stated.
               </li>
-              <li>
-                Latency is wall-clock time during one run, including network and vendor queueing. It is not a service level.
-              </li>
+              <li>Latency is wall-clock time during one run, including network and vendor queues. It is not a service level.</li>
             </ul>
           </Section>
 
           <Section id="data">
             <ul>
               <li>
-                Documents go only to the parsers selected for the run and to the judge model provider. After judging, a smaller
-                model writes page summaries and locates quoted errors in the output. It does not change scores.
+                Documents go only to the parsers you pick and to the judge model's provider. After judging, a smaller model writes
+                page summaries and finds the quoted errors in each output. It does not change scores.
               </li>
-              <li>Your own API keys are encrypted, used only for that run, and deleted when it ends.</li>
+              <li>API keys you add are encrypted, used only for that run, and deleted when it ends.</li>
               <li>
-                Reports can be private or shared by link. Documents, reports and all account data can be deleted from Settings.
+                Reports can be private or shared by link. You can delete documents, reports or all account data in Settings.
               </li>
-              <li>Check each provider's data terms before you upload restricted documents.</li>
+              <li>Check each provider's data terms before you upload sensitive documents.</li>
             </ul>
             <p>
-              A parser is added through an adapter with a small contract: accept a page, save the raw response, and return
-              Markdown. Providers are welcome to correct their own settings and prices. An evaluation that grades an old model or
-              a wrong price helps nobody.
+              Adding a parser takes a small adapter: accept a page, save the raw response, return Markdown. Providers are welcome
+              to correct their own settings and prices. A comparison that uses an old model or a wrong price helps nobody.
             </p>
           </Section>
 
           <Section id="prompt">
             <p>
-              This is the prompt the judge receives, exactly as the code sends it. <code>{"{parse_sections}"}</code> holds one
-              section per blind label, in label order, each with the label as a heading and that parse's Markdown in a fenced
-              block. <code>{"{labels}"}</code> holds the labels joined by a comma and a space, for example{" "}
-              <code>parse_a, parse_b</code>.
+              This is the exact prompt the judge receives. <code>{"{parse_sections}"}</code> holds one section per label, in label
+              order, each with the label as a heading and that parse's Markdown in a code block. <code>{"{labels}"}</code> holds
+              the labels separated by commas, for example <code>parse_a, parse_b</code>.
             </p>
             <details className="prompt">
               <summary>Show the judge prompt</summary>

@@ -199,10 +199,10 @@ export const BlindRequestFigure = () => {
       controls={<Steps items={PAGES} active={page} />}
       caption={
         <>
-          Each page is one judge request. Every parser gets the same page image. Their outputs are relabeled <code>parse_a</code>,{" "}
-          <code>parse_b</code>, … in the order of <code>sha256(page_id:parser_id)</code>, so each page has its own order and the
-          order can be reproduced. The judge lists errors (red: high, outlined: medium, grey: low) and then scores each label.
-          Names are restored only after the response.
+          Each page is one judge request, and every parser gets the same page image. Outputs are relabeled <code>parse_a</code>,{" "}
+          <code>parse_b</code>, … in an order set by <code>sha256(page_id:parser_id)</code>, so the order changes from page to
+          page but can be reproduced. The judge lists errors (red: high, outlined: medium, grey: low), then scores each label.
+          Names are put back only after the response.
         </>
       }
     >
@@ -397,13 +397,12 @@ export const SubsetFigure = () => {
   return (
     <Figure
       n={2}
-      controls={<Steps items={["100 pages fixed in advance", "100 pages chosen after scoring"]} active={step % 2} />}
+      controls={<Steps items={["100 pages picked before scoring", "100 pages picked after scoring"]} active={step % 2} />}
       caption={
         <>
-          Simulated. Each dot is one of 1,000 candidate pages, placed by parser A’s score minus parser B’s. A release keeps 100
-          (blue). The figure alternates between two ways of choosing them. Drawn at random, the subset tracks the full set: B is
-          ahead. Drawn only from pages where A did at least as well as B, the same parsers swap places, and nothing in the
-          released pages shows it.
+          Simulated. Each dot is one of 1,000 test pages, placed by parser A’s score minus parser B’s. 100 of them are published
+          (blue). The figure switches between two ways of picking them. Picked at random, the 100 match the full set: B is ahead.
+          Picked only from pages where A did at least as well as B, the order flips, and nothing in the published pages shows it.
         </>
       }
     >
@@ -441,7 +440,7 @@ export const SubsetFigure = () => {
       </div>
       <div className="bars-grid">
         <ScoreBars title="All 1,000 pages" pages={pages} />
-        <ScoreBars title="Released 100 pages" pages={chosen} />
+        <ScoreBars title="Published 100 pages" pages={chosen} />
       </div>
     </Figure>
   );
@@ -475,8 +474,8 @@ export const SampleSizeFigure = () => {
       caption={
         <>
           Share of pages with a high-severity error for two parsers whose true rates are 10% and 16%, with 95% Wilson intervals,
-          at five run sizes. The intervals stop overlapping at about {SEPARATE_AT} pages. Below that, a run cannot say which
-          parser makes fewer serious errors. A run can include up to 1,000 pages.
+          at five run sizes. The intervals only stop overlapping at about {SEPARATE_AT} pages. Below that, the run cannot tell
+          which parser makes fewer serious errors. A run can have up to 1,000 pages.
         </>
       }
     >
