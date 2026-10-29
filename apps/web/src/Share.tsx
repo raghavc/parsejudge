@@ -68,7 +68,7 @@ export const ShareDialog = ({
     );
   };
   return (
-    <Dialog title="Share this report">
+    <Dialog title="Share this report" onClose={onClose}>
       {owned && (
         <div style={{ display: "grid", gap: 8 }}>
           <div className="eyebrow">Who can open</div>

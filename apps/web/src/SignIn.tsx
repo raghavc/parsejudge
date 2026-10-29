@@ -23,6 +23,11 @@ export const SignIn = ({
   const [sent, setSent] = useState(false);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && !busy && onCancel();
+    addEventListener("keydown", onKey);
+    return () => removeEventListener("keydown", onKey);
+  }, [busy, onCancel]);
   const [error, setError] = useState<string | null>(null);
   const valid = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email);
 
@@ -105,8 +110,11 @@ export const SignIn = ({
     checking.current = false;
   };
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: a backdrop click closes the modal; Escape does the same from the keyboard.
     <div
       className="modal-backdrop"
+      role="presentation"
+      onMouseDown={(e) => e.target === e.currentTarget && !busy && onCancel()}
       style={{
         position: "fixed",
         inset: 0,

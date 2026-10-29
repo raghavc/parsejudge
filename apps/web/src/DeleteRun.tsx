@@ -27,7 +27,7 @@ export const DeleteRun = ({ runId, dataDeleted }: { readonly runId: string; read
         Delete
       </button>
       {open && (
-        <Dialog title="Delete this run">
+        <Dialog title="Delete this run" onClose={() => busy || setOpen(false)}>
           <div style={{ color: "var(--muted)", fontSize: 14, lineHeight: "22px" }}>
             Deleting documents removes the uploaded files, page images, parser outputs and judge notes. The scores and charts stay
             on this report. Deleting the report also removes the report and its share link. Both cannot be undone.

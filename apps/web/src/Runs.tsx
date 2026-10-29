@@ -250,7 +250,7 @@ const Rename = ({
       (e: unknown) => setError(e instanceof Error ? e.message : String(e)),
     );
   return (
-    <Dialog title="Rename run">
+    <Dialog title="Rename run" onClose={onClose}>
       <input
         value={title}
         maxLength={80}
@@ -296,7 +296,7 @@ const DeleteDialog = ({
     );
   };
   return (
-    <Dialog title={`Delete "${run.title ?? "Untitled run"}"?`}>
+    <Dialog title={`Delete "${run.title ?? "Untitled run"}"?`} onClose={() => busy || onClose()}>
       <div style={{ color: "var(--muted)", fontSize: 14 }}>This permanently deletes:</div>
       <ul className="delete-list">
         {run.dataDeletedAt === null && (

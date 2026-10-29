@@ -142,7 +142,7 @@ export const Account = () => {
         </section>
       )}
       {confirm && (
-        <Dialog title="Delete all your data?">
+        <Dialog title="Delete all your data?" onClose={() => busy || setConfirm(false)}>
           <div style={{ color: "var(--muted)", fontSize: 14, lineHeight: "22px" }}>
             This permanently deletes everything you've added to Parse Judge:
           </div>
