@@ -54,19 +54,6 @@ export const PRESETS: ReadonlyArray<Preset> = [
     hosted: true,
   },
   {
-    id: "google_layout_v1_6",
-    provider: "google_document_ai",
-    label: "Google Document AI Layout Parser v1.6",
-    mode: "Layout Parser v1.6",
-    config: {
-      processorVersion: "pretrained-layout-parser-v1.6-2026-01-13",
-      enableTableAnnotation: true,
-      enableImageAnnotation: true,
-    },
-    listPriceUsdPerPage: 0.01,
-    hosted: true,
-  },
-  {
     id: "mistral_ocr_4_1",
     provider: "mistral_ocr",
     label: "Mistral OCR 4.1",

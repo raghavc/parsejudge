@@ -2,7 +2,6 @@ export const PROVIDER_NAMES: Record<string, string> = {
   reducto: "Reducto",
   azure_document_intelligence: "Azure Document Intelligence",
   aws_textract: "AWS Textract",
-  google_document_ai: "Google Document AI",
   mistral_ocr: "Mistral OCR",
   extend: "Extend",
   llamaparse: "LlamaParse",
@@ -15,7 +14,6 @@ export const SHORT_NAMES: Record<string, string> = {
   ...PROVIDER_NAMES,
   azure_document_intelligence: "Azure",
   aws_textract: "Textract",
-  google_document_ai: "Google",
   mistral_ocr: "Mistral",
 };
 
@@ -38,7 +36,6 @@ export const seconds = (ms: number | null) => (ms === null ? "–" : `${(ms / 10
 export const PROVIDER_ORDER = [
   "aws_textract",
   "azure_document_intelligence",
-  "google_document_ai",
   "reducto",
   "llamaparse",
   "mistral_ocr",
