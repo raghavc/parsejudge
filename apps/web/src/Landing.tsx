@@ -5,7 +5,7 @@ import { BYOK_KEY, numberWord, PROVIDER_ORDER, perThousand, providerName } from 
 import { navigate } from "./router.ts";
 import { SignIn } from "./SignIn.tsx";
 
-const MAX_PAGES_PER_RUN = 50;
+const MAX_PAGES_PER_RUN = 1000;
 
 interface Upload {
   readonly id: string;
