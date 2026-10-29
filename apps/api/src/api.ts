@@ -51,6 +51,7 @@ const RunListItem = Schema.Struct({
   createdAt: Schema.Number,
   dataDeletedAt: Schema.NullOr(Schema.Number),
   visibility: Schema.String,
+  shareContent: Schema.Boolean,
 });
 
 const Visibility = Schema.Literals(["private", "link"]);
@@ -142,6 +143,10 @@ const Run = Schema.Struct({
   dataDeletedAt: Schema.NullOr(Schema.Number),
   /** Who can open the share link: "link" (anyone with it) or "private" (only the owner). */
   visibility: Schema.String,
+  /** Whether link viewers get the documents, page images and parser output, or only the summary. */
+  shareContent: Schema.Boolean,
+  documentCount: Schema.Number,
+  pageCount: Schema.Number,
   /** Whether the signed-in caller owns this run. */
   owned: Schema.Boolean,
 });
@@ -245,7 +250,11 @@ export const Api = HttpApi.make("parsejudge")
       .add(
         HttpApiEndpoint.patch("rename", "/v1/runs/:runId", {
           params: { runId: Schema.String },
-          payload: Schema.Struct({ title: Schema.optional(Schema.String), visibility: Schema.optional(Visibility) }),
+          payload: Schema.Struct({
+            title: Schema.optional(Schema.String),
+            visibility: Schema.optional(Visibility),
+            shareContent: Schema.optional(Schema.Boolean),
+          }),
           error: [HttpApiError.Unauthorized, HttpApiError.NotFound, HttpApiError.BadRequest],
         }),
       )
@@ -352,16 +361,16 @@ const uploader = Effect.gen(function* () {
 
 const newShareId = () => crypto.randomUUID().replace(/-/g, "").slice(0, 16);
 
-/** Whether the caller may read a run's pages: its owner, or anyone while the share link is open. */
+/** Whether the caller may read a run's pages: its owner, or anyone while the share link is open and shares content. */
 export const canOpenRun = (runId: string) =>
   Effect.gen(function* () {
     const row = yield* query(() =>
-      cf.DB.prepare("SELECT user_id, visibility FROM runs WHERE id = ?")
+      cf.DB.prepare("SELECT user_id, visibility, share_content FROM runs WHERE id = ?")
         .bind(runId)
-        .first<{ user_id: string; visibility: string }>(),
+        .first<{ user_id: string; visibility: string; share_content: number }>(),
     );
     if (row === null) return false;
-    return row.visibility === "link" || (yield* signedInUser) === row.user_id;
+    return (row.visibility === "link" && row.share_content === 1) || (yield* signedInUser) === row.user_id;
   });
 
 const sha256 = async (bytes: Uint8Array) =>
@@ -382,6 +391,7 @@ type RunRow = {
   user_id: string;
   data_deleted_at: number | null;
   visibility: string;
+  share_content: number;
 };
 
 const toRun = (row: RunRow) => ({
@@ -398,6 +408,7 @@ const toRun = (row: RunRow) => ({
   completedAt: row.completed_at,
   dataDeletedAt: row.data_deleted_at,
   visibility: row.visibility,
+  shareContent: row.share_content === 1,
 });
 
 const pageImageUrl = (pageId: string) => signedBlobUrl(cf.PUBLIC_URL, cf.BLOB_SIGNING_KEY, pagePngKey(pageId));
@@ -453,7 +464,13 @@ const findRun = (column: "id" | "share_id", value: string) =>
     if (row === null) return yield* new HttpApiError.NotFound({});
     const owned = (yield* signedInUser) === row.user_id;
     if (!owned && (column === "id" || row.visibility !== "link")) return yield* new HttpApiError.NotFound({});
-    return { ...toRun(row), owned, documents: yield* runDocuments(row.id), scores: yield* runScores(row.id) };
+    const documents = yield* runDocuments(row.id);
+    const counts = {
+      documentCount: documents.length,
+      pageCount: documents.reduce((n, d) => n + d.pages.length, 0),
+    };
+    if (!owned && row.share_content !== 1) return { ...toRun(row), ...counts, owned, documents: [], scores: [] };
+    return { ...toRun(row), ...counts, owned, documents, scores: yield* runScores(row.id) };
   });
 
 const PresetsLive = HttpApiBuilder.group(Api, "presets", (handlers) =>
@@ -699,7 +716,7 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
         const userId = yield* requireUser;
         const rows = yield* query(() =>
           cf.DB.prepare(
-            `SELECT r.id, r.share_id, r.title, r.status, r.preset_ids, r.summary, r.created_at, r.data_deleted_at, r.visibility,
+            `SELECT r.id, r.share_id, r.title, r.status, r.preset_ids, r.summary, r.created_at, r.data_deleted_at, r.visibility, r.share_content,
                (SELECT COUNT(*) FROM run_documents rd WHERE rd.run_id = r.id) AS documents,
                (SELECT COALESCE(SUM(d.page_count), 0) FROM run_documents rd JOIN documents d ON d.id = rd.document_id
                  WHERE rd.run_id = r.id) AS pages,
@@ -717,6 +734,7 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
               created_at: number;
               data_deleted_at: number | null;
               visibility: string;
+              share_content: number;
               documents: number;
               pages: number;
               judged: number;
@@ -745,6 +763,7 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
             createdAt: row.created_at,
             dataDeletedAt: row.data_deleted_at,
             visibility: row.visibility,
+            shareContent: row.share_content === 1,
           };
         });
       }),
@@ -753,12 +772,15 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
       Effect.gen(function* () {
         const userId = yield* requireUser;
         const title = payload.title?.trim().slice(0, 80) ?? null;
-        if (title === "" || (title === null && payload.visibility === undefined)) return yield* new HttpApiError.BadRequest({});
+        const shareContent = payload.shareContent === undefined ? null : payload.shareContent ? 1 : 0;
+        if (title === "" || (title === null && payload.visibility === undefined && shareContent === null))
+          return yield* new HttpApiError.BadRequest({});
         const updated = yield* query(() =>
           cf.DB.prepare(
-            "UPDATE runs SET title = COALESCE(?, title), visibility = COALESCE(?, visibility) WHERE id = ? AND user_id = ?",
+            `UPDATE runs SET title = COALESCE(?, title), visibility = COALESCE(?, visibility),
+               share_content = COALESCE(?, share_content) WHERE id = ? AND user_id = ?`,
           )
-            .bind(title, payload.visibility ?? null, params.runId, userId)
+            .bind(title, payload.visibility ?? null, shareContent, params.runId, userId)
             .run(),
         );
         if (updated.meta.changes !== 1) return yield* new HttpApiError.NotFound({});

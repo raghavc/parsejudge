@@ -4,17 +4,21 @@ import { CopyButton } from "./CopyButton.tsx";
 import { Dialog } from "./Dialog.tsx";
 
 const OPTIONS: ReadonlyArray<{ readonly value: Visibility; readonly label: string; readonly note: string }> = [
-  { value: "link", label: "Anyone with the link", note: "They can open the report and every page, without signing in." },
+  { value: "link", label: "Anyone with the link", note: "They can open the report without signing in." },
   { value: "private", label: "Only you", note: "The link stops working for everyone else. You can turn it back on." },
 ];
 
-export const visibilityLabel = (visibility: Visibility) => (visibility === "link" ? "Anyone with the link" : "Only you");
+export const visibilityLabel = (visibility: Visibility, shareContent: boolean) =>
+  visibility === "private" ? "Only you" : shareContent ? "Anyone with the link" : "Anyone with the link, scores only";
+
+type Sharing = { shareId: string; visibility: Visibility; shareContent: boolean };
 
 /** Who can open a run's share link, the link itself, and a new link that turns off the old one. */
 export const ShareDialog = ({
   runId,
   shareId: initialShareId,
   visibility: initialVisibility,
+  shareContent: initialShareContent,
   owned,
   onClose,
   onChange,
@@ -22,11 +26,13 @@ export const ShareDialog = ({
   readonly runId: string;
   readonly shareId: string;
   readonly visibility: Visibility;
+  readonly shareContent: boolean;
   readonly owned: boolean;
   readonly onClose: () => void;
-  readonly onChange?: (change: { shareId: string; visibility: Visibility }) => void;
+  readonly onChange?: (change: Sharing) => void;
 }) => {
   const [visibility, setVisibility] = useState(initialVisibility);
+  const [shareContent, setShareContent] = useState(initialShareContent);
   const [shareId, setShareId] = useState(initialShareId);
   const [error, setError] = useState<string | null>(null);
   const url = `${location.origin}/r/${shareId}`;
@@ -35,7 +41,7 @@ export const ShareDialog = ({
     api.setVisibility(runId, next).then(
       () => {
         setVisibility(next);
-        onChange?.({ shareId, visibility: next });
+        onChange?.({ shareId, visibility: next, shareContent });
       },
       (e: unknown) => setError(String(e)),
     );
@@ -45,7 +51,18 @@ export const ShareDialog = ({
     api.rotateLink(runId).then(
       (r) => {
         setShareId(r.shareId);
-        onChange?.({ shareId: r.shareId, visibility });
+        onChange?.({ shareId: r.shareId, visibility, shareContent });
+      },
+      (e: unknown) => setError(String(e)),
+    );
+  };
+  const toggleContent = () => {
+    const next = !shareContent;
+    setError(null);
+    api.setShareContent(runId, next).then(
+      () => {
+        setShareContent(next);
+        onChange?.({ shareId, visibility, shareContent: next });
       },
       (e: unknown) => setError(String(e)),
     );
@@ -70,6 +87,27 @@ export const ShareDialog = ({
               </span>
             </label>
           ))}
+        </div>
+      )}
+      {owned && visibility === "link" && (
+        <div style={{ alignItems: "center", display: "flex", gap: 16, justifyContent: "space-between" }}>
+          <span style={{ display: "grid", gap: 2 }}>
+            <span style={{ fontSize: 15 }}>Include document content</span>
+            <span style={{ color: "var(--muted)", fontSize: 13 }}>
+              {shareContent
+                ? "They can open every page: the images, each parser's output and the judge's notes."
+                : "They see only the scores, latency and cost. Pages, images and parser output stay private."}
+            </span>
+          </span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={shareContent}
+            aria-label="Include document content"
+            className={`switch${shareContent ? " on" : ""}`}
+            onClick={toggleContent}
+            style={{ flexShrink: 0 }}
+          />
         </div>
       )}
       <div

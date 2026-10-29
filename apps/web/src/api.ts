@@ -65,6 +65,9 @@ export interface Run {
   readonly completedAt: number | null;
   readonly dataDeletedAt: number | null;
   readonly visibility: Visibility;
+  readonly shareContent: boolean;
+  readonly documentCount: number;
+  readonly pageCount: number;
   readonly owned: boolean;
 }
 
@@ -203,6 +206,7 @@ export interface RunListItem {
   readonly createdAt: number;
   readonly dataDeletedAt: number | null;
   readonly visibility: Visibility;
+  readonly shareContent: boolean;
 }
 
 export type Visibility = "private" | "link";
@@ -227,6 +231,7 @@ export const api = {
   disconnectAgent: (id: string) => fetch(`/v1/agents/${encodeURIComponent(id)}`, { method: "DELETE" }).then(ok),
   setNotify: (notifyOnDone: boolean) => patch("/v1/account", { notifyOnDone }).then(json<AccountInfo>),
   setVisibility: (runId: string, visibility: Visibility) => patch(`/v1/runs/${runId}`, { visibility }).then(ok),
+  setShareContent: (runId: string, shareContent: boolean) => patch(`/v1/runs/${runId}`, { shareContent }).then(ok),
   rotateLink: (runId: string) => fetch(`/v1/runs/${runId}/share-link`, { method: "POST" }).then(json<{ shareId: string }>),
   runs: () => fetch("/v1/runs").then(json<ReadonlyArray<RunListItem>>),
   rename: (runId: string, title: string) =>

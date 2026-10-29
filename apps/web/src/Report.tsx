@@ -272,7 +272,11 @@ export const Report = ({
   }, [run.id, shownIds]);
 
   const [sharing, setSharing] = useState(false);
-  const [shared, setShared] = useState({ shareId: run.shareId, visibility: run.visibility });
+  const [shared, setShared] = useState({
+    shareId: run.shareId,
+    visibility: run.visibility,
+    shareContent: run.shareContent,
+  });
   if (summary === null) return <div style={{ ...note, padding: "72px var(--gutter)" }}>This run failed: {run.error}</div>;
 
   const scored = ranked.filter(
@@ -287,7 +291,8 @@ export const Report = ({
       accent: false,
     }));
   const minScore = Math.max(0, Math.floor(Math.min(10, ...scored.map((p) => p.meanScore)) - 1));
-  const pageCount = pages.length;
+  const pageCount = run.pageCount;
+  const contentHidden = !run.owned && !run.shareContent;
   const date = new Date(run.createdAt).toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" });
   const mcp = `claude mcp add --transport http parsejudge ${location.origin}/mcp`;
   const h2h = (a: string, b: string) => summary.headToHead.find((h) => h.presetId === a && h.opponentId === b);
@@ -314,7 +319,7 @@ export const Report = ({
             {title}
           </div>
           <div style={{ color: "var(--muted)", fontSize: 15 }}>
-            {run.documents.length} documents · {pageCount} pages · {run.presetIds.length} providers ·{" "}
+            {run.documentCount} documents · {pageCount} pages · {run.presetIds.length} providers ·{" "}
             {pageCount * run.presetIds.length} parses judged blind
           </div>
         </div>
@@ -463,7 +468,7 @@ export const Report = ({
                           type="button"
                           className="tally"
                           style={{ color: "var(--good)" }}
-                          disabled={h.wins === 0}
+                          disabled={contentHidden || h.wins === 0}
                           onClick={() => pick(r.presetId, c.presetId, "win")}
                         >
                           {h.wins}
@@ -472,7 +477,7 @@ export const Report = ({
                         <button
                           type="button"
                           className="tally"
-                          disabled={h.ties === 0}
+                          disabled={contentHidden || h.ties === 0}
                           onClick={() => pick(r.presetId, c.presetId, "tie")}
                         >
                           {h.ties}
@@ -482,7 +487,7 @@ export const Report = ({
                           type="button"
                           className="tally"
                           style={{ color: "var(--bad)" }}
-                          disabled={h.losses === 0}
+                          disabled={contentHidden || h.losses === 0}
                           onClick={() => pick(r.presetId, c.presetId, "loss")}
                         >
                           {h.losses}
@@ -552,6 +557,10 @@ export const Report = ({
       {run.dataDeletedAt !== null ? (
         <section style={{ ...note, borderTop: "1px solid var(--line)", padding: "40px var(--gutter)" }}>
           The documents for this run were deleted on {new Date(run.dataDeletedAt).toLocaleDateString()}. Scores and charts remain.
+        </section>
+      ) : contentHidden ? (
+        <section style={{ ...note, borderTop: "1px solid var(--line)", padding: "40px var(--gutter)" }}>
+          The owner shared the scores only. The documents, page images and parser output are private.
         </section>
       ) : (
         <section
@@ -734,6 +743,7 @@ export const Report = ({
           runId={run.id}
           shareId={shared.shareId}
           visibility={shared.visibility}
+          shareContent={shared.shareContent}
           owned={run.owned}
           onClose={() => setSharing(false)}
           onChange={(c) => {

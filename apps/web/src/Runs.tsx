@@ -159,7 +159,7 @@ export const Runs = () => {
                   <Status run={run} />
                 </td>
                 <td>{run.top === null ? "—" : `${provider(run.top.presetId)} · ${run.top.meanScore.toFixed(1)}`}</td>
-                <td>{visibilityLabel(run.visibility)}</td>
+                <td>{visibilityLabel(run.visibility, run.shareContent)}</td>
                 <td style={{ position: "relative", textAlign: "right" }}>
                   <button
                     type="button"
@@ -218,6 +218,7 @@ export const Runs = () => {
           runId={sharing.id}
           shareId={sharing.shareId}
           visibility={sharing.visibility}
+          shareContent={sharing.shareContent}
           owned
           onClose={() => setSharing(null)}
           onChange={load}

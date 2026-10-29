@@ -316,9 +316,11 @@ const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
           error: run.error,
           owned: run.owned,
           visibility: run.visibility,
+          shareContent: run.shareContent,
           presetIds: run.presetIds,
           judge: { version: run.judgeVersion, model: run.judgeModel },
-          documentCount: documents.length,
+          documentCount: run.documentCount,
+          pageCount: run.pageCount,
           documents: includeDocuments
             ? documents.map((d) => ({ id: d.id, filename: d.filename, pages: d.pages.length }))
             : undefined,
@@ -511,13 +513,28 @@ const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
   server.registerTool(
     "set_sharing",
     {
-      description: 'Who can open a run\'s report: "link" (anyone with the report URL, no sign-in) or "private" (only you).',
-      inputSchema: { runId: z.string(), visibility: z.enum(["link", "private"]) },
+      description:
+        'Who can open a run\'s report: "link" (anyone with the report URL, no sign-in) or "private" (only you). shareContent false gives link viewers only the scores, latency and cost: no documents, page images or parser output. Omitted fields stay as they are.',
+      inputSchema: {
+        runId: z.string(),
+        visibility: z.enum(["link", "private"]).optional(),
+        shareContent: z.boolean().optional(),
+      },
     },
-    tool(async ({ runId, visibility }: { runId: string; visibility: "link" | "private" }) => {
-      await call("PATCH", `/v1/runs/${encodeURIComponent(runId)}`, { visibility });
-      return { runId, visibility };
-    }),
+    tool(
+      async ({
+        runId,
+        visibility,
+        shareContent,
+      }: {
+        runId: string;
+        visibility?: "link" | "private" | undefined;
+        shareContent?: boolean | undefined;
+      }) => {
+        await call("PATCH", `/v1/runs/${encodeURIComponent(runId)}`, { visibility, shareContent });
+        return { runId, visibility, shareContent };
+      },
+    ),
   );
 
   server.registerTool(
