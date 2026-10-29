@@ -32,7 +32,7 @@ const flaggedPages = (run: Run): ReadonlyArray<{ pageId: string; spread: number;
       spread: scores.length > 1 ? Math.max(...scores) - Math.min(...scores) : 0,
       failed,
     }))
-    .filter((page) => page.failed || page.spread >= 2)
+    .filter((page) => page.failed || page.spread >= 3)
     .sort((a, b) => Number(b.failed) - Number(a.failed) || b.spread - a.spread);
 };
 
@@ -185,7 +185,12 @@ export const PageCompare = ({
           <span>
             Page {position + 1} of {pages.length}
           </span>
-          <button type="button" className="plain" disabled={position >= pages.length - 1} onClick={() => go(pages[position + 1]?.id)}>
+          <button
+            type="button"
+            className="plain"
+            disabled={position >= pages.length - 1}
+            onClick={() => go(pages[position + 1]?.id)}
+          >
             ›
           </button>
           <button type="button" className="plain" disabled={flagged.length === 0} onClick={nextFlagged}>
@@ -233,7 +238,9 @@ export const PageCompare = ({
                 }}
               >
                 <span>{pageName(page.pageId)}</span>
-                <span style={{ color: page.failed ? "var(--bad)" : "var(--muted)" }}>{page.failed ? "failed" : page.spread}</span>
+                <span style={{ marginLeft: "auto", color: page.failed ? "var(--bad)" : "var(--muted)" }}>
+                  {page.failed ? "failed" : `gap ${page.spread}`}
+                </span>
               </button>
             ))}
           </aside>

@@ -282,7 +282,7 @@ export const Landing = () => {
       <section style={section}>
         <div style={aside}>
           <div style={h2}>Documents</div>
-          <div style={note}>PDF, DOCX or PPTX. Up to 1,000 pages per run.</div>
+          <div style={note}>PDF, DOCX or PPTX. Up to 50 pages per run.</div>
         </div>
         <div style={{ display: "flex", flexDirection: "column", flexGrow: 1 }}>
           <button
