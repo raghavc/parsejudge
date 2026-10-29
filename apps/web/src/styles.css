@@ -1453,3 +1453,104 @@ svg.caret {
   display: inline-flex;
   gap: 4px;
 }
+.dots {
+  border-top: 1px solid var(--rule);
+  height: 0;
+  margin: 14px 0;
+  position: relative;
+}
+.score-dot {
+  height: 20px;
+  margin-left: -10px;
+  position: absolute;
+  top: -10px;
+  width: 20px;
+}
+.dot-mark {
+  background: var(--ink);
+  border: 1px solid var(--ink);
+  border-radius: 50%;
+  box-sizing: border-box;
+  height: 8px;
+  left: 6px;
+  position: absolute;
+  top: 6px;
+  transition: transform 125ms var(--ease-out);
+  width: 8px;
+}
+.best .dot-mark {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.worst .dot-mark {
+  background: #fff;
+}
+.failed .dot-mark {
+  background: #fff;
+  border-color: var(--bad);
+  border-radius: 1px;
+  transform: rotate(45deg);
+}
+.dot-tip {
+  background: var(--ink);
+  border-radius: 4px;
+  bottom: calc(100% + 2px);
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+  gap: 2px;
+  left: 50%;
+  line-height: 16px;
+  opacity: 0;
+  padding: 6px 8px;
+  pointer-events: none;
+  position: absolute;
+  transform: translateX(-50%) scale(0.97);
+  transform-origin: bottom center;
+  transition:
+    opacity 125ms var(--ease-out),
+    transform 125ms var(--ease-out);
+  white-space: nowrap;
+  z-index: 10;
+}
+.dot-tip b {
+  font-weight: 500;
+  margin-left: 6px;
+}
+.dot-tip.start {
+  left: 2px;
+  transform: scale(0.97);
+  transform-origin: bottom left;
+}
+.dot-tip.end {
+  left: auto;
+  right: 2px;
+  transform: scale(0.97);
+  transform-origin: bottom right;
+}
+@media (hover: hover) {
+  .score-dot:hover {
+    z-index: 11;
+  }
+  .score-dot:hover .dot-mark {
+    transform: scale(1.5);
+  }
+  .failed.score-dot:hover .dot-mark {
+    transform: rotate(45deg) scale(1.5);
+  }
+  .score-dot:hover .dot-tip {
+    opacity: 1;
+    transform: translateX(-50%);
+  }
+  .score-dot:hover .dot-tip.start,
+  .score-dot:hover .dot-tip.end {
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dot-mark,
+  .dot-tip {
+    transition: none;
+  }
+}

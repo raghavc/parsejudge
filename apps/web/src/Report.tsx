@@ -165,30 +165,31 @@ const Dots = ({ scores, names }: { readonly scores: ReadonlyArray<number | null>
   const ok = scores.filter((s): s is number => s !== null);
   const best = Math.max(...ok);
   const worst = Math.min(...ok);
+  const groups = new Map<number | null, string[]>();
+  scores.forEach((s, i) => groups.set(s, [...(groups.get(s) ?? []), names[i] ?? ""]));
   return (
-    <div style={{ borderTop: "1px solid var(--rule)", height: 0, margin: "14px 0", position: "relative" }}>
-      {scores.map((s, i) => {
+    <div className="dots">
+      {[...groups].map(([s, who]) => {
         const failed = s === null;
-        const left = `${((failed ? 1 : s) - 1) * (100 / 9)}%`;
-        const fill = failed ? "#fff" : s === best ? "var(--accent)" : s === worst && best !== worst ? "#fff" : "var(--ink)";
-        const border = failed ? "var(--bad)" : s === best ? "var(--accent)" : "var(--ink)";
+        const at = failed ? 1 : s;
+        const kind = failed ? "failed" : s === best ? "best" : s === worst && best !== worst ? "worst" : "mid";
+        const side = at <= 3 ? "start" : at >= 8 ? "end" : "mid";
         return (
-          <div
-            // biome-ignore lint/suspicious/noArrayIndexKey: scores have no identity beyond their slot
-            key={i}
-            title={`${names[i] ?? ""}: ${failed ? "failed" : `${s} / 10`}`}
-            style={{
-              background: fill,
-              border: `1px solid ${border}`,
-              borderRadius: failed ? 1 : 4,
-              height: 8,
-              left,
-              position: "absolute",
-              top: -4,
-              transform: failed ? "rotate(45deg)" : undefined,
-              width: 8,
-            }}
-          />
+          <span
+            key={String(s)}
+            className={`score-dot ${kind}`}
+            style={{ left: `${(at - 1) * (100 / 9)}%` }}
+            aria-label={`${who.join(", ")}: ${failed ? "failed" : `${s} out of 10`}`}
+          >
+            <span className="dot-mark" />
+            <span className={`dot-tip ${side}`} role="tooltip">
+              {who.map((n) => (
+                <span key={n}>
+                  {n} <b>{failed ? "failed" : s}</b>
+                </span>
+              ))}
+            </span>
+          </span>
         );
       })}
     </div>
@@ -729,7 +730,7 @@ export const Report = ({
                   <span style={{ color: "var(--bad)" }}>◇</span> failed
                 </span>
               )}
-              <span>Each dot is one provider's score on this page, from 1 to 10. Hover a dot to see the provider.</span>
+              <span>Each dot is one provider's score on this page, from 1 to 10. Hover a dot to see the provider and score.</span>
             </div>
             {pages[0] && (
               <button
