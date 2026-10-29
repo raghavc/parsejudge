@@ -96,8 +96,10 @@ input {
   color: var(--muted);
 }
 
-/* Parser output: IBM Plex Sans tells apart look-alike glyphs (I l 1, 0 O) that Inter draws the same. */
-.markdown {
+/* Parser output and the judge's notes on it: IBM Plex Sans tells apart look-alike glyphs (I l 1, 0 O) that Inter draws the same. */
+.markdown,
+.flag-card p,
+.table-flag {
   font-family: "IBM Plex Sans", "Inter", system-ui, sans-serif;
 }
 
