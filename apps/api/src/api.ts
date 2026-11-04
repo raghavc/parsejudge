@@ -195,6 +195,7 @@ const PageDetail = Schema.Struct({
 class BadRequest extends Schema.TaggedError<BadRequest>()("BadRequest", { error: Schema.String }, { httpApiStatus: 400 }) {}
 class Unauthorized extends Schema.TaggedError<Unauthorized>()("Unauthorized", { error: Schema.String }, { httpApiStatus: 401 }) {}
 class NotFound extends Schema.TaggedError<NotFound>()("NotFound", { error: Schema.String }, { httpApiStatus: 404 }) {}
+class Conflict extends Schema.TaggedError<Conflict>()("Conflict", { error: Schema.String }, { httpApiStatus: 409 }) {}
 class TooManyRequests extends Schema.TaggedError<TooManyRequests>()(
   "TooManyRequests",
   { error: Schema.String },
@@ -313,7 +314,7 @@ export const Api = HttpApi.make("parsejudge")
         HttpApiEndpoint.post("continue", "/v1/runs/:runId/continue", {
           params: { runId: Schema.String },
           success: Schema.Struct({ skipped: Schema.Number }),
-          error: [HttpApiError.Unauthorized, HttpApiError.NotFound, HttpApiError.Conflict],
+          error: [Unauthorized, NotFound, Conflict],
         }),
       )
       .add(
@@ -910,9 +911,9 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
         const row = yield* query(() =>
           cf.DB.prepare("SELECT user_id FROM runs WHERE id = ?").bind(params.runId).first<{ user_id: string }>(),
         );
-        if (row === null || row.user_id !== userId) return yield* new HttpApiError.NotFound({});
+        if (row === null || row.user_id !== userId) return yield* notFound;
         return yield* continueRun(cf, params.runId).pipe(
-          Effect.catchTag("RunNotStarted", () => Effect.fail(new HttpApiError.Conflict({}))),
+          Effect.catchTag("RunNotStarted", () => Effect.fail(new Conflict({ error: "This run has not started its pages yet." }))),
           Effect.orDie,
         );
       }),
