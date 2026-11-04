@@ -1,7 +1,16 @@
 import { env } from "cloudflare:workers";
-import { DEFAULT_PRESET_IDS, ErrorCategory, findPreset, JUDGE_VERSION, PRESETS, sniffFormat, splitPages } from "@parsejudge/core";
+import {
+  DEFAULT_PRESET_IDS,
+  decodeJson,
+  ErrorCategory,
+  findPreset,
+  JUDGE_VERSION,
+  PRESETS,
+  sniffFormat,
+  splitPages,
+} from "@parsejudge/core";
 import { Cause, Data, Effect, Layer, Schedule, Schema } from "effect";
-import { HttpRouter, HttpServer, HttpServerRequest, HttpServerResponse } from "effect/http";
+import { FetchHttpClient, HttpRouter, HttpServer, HttpServerRequest, HttpServerResponse } from "effect/http";
 import { HttpApi, HttpApiBuilder, HttpApiEndpoint, HttpApiError, HttpApiGroup, HttpApiMiddleware } from "effect/http-api";
 import { PENDING_USER, pendingLogin, sessionUser } from "./auth.ts";
 import { signedBlobUrl } from "./blobs.ts";
@@ -153,12 +162,17 @@ const Run = Schema.Struct({
 });
 
 /** The judge's errors, each with the excerpts the locate step found for it. Errors that were not located have no quotes. */
-const withQuotes = (errors: string | null, quotes: string | null): ReadonlyArray<unknown> => {
-  const located = JSON.parse(quotes ?? "[]") as ReadonlyArray<unknown>;
-  return (JSON.parse(errors ?? "[]") as ReadonlyArray<Record<string, unknown>>).map(({ quotes: _, ...error }, i) =>
-    located[i] === undefined ? error : { ...error, quotes: located[i] },
+const withQuotes = (errors: string | null, quotes: string | null) =>
+  Effect.all([decodeJson(quotes ?? "[]"), decodeJson(errors ?? "[]")]).pipe(
+    Effect.map(
+      ([located, judged]): ReadonlyArray<unknown> =>
+        (judged as ReadonlyArray<Record<string, unknown>>).map(({ quotes: _, ...error }, i) => {
+          const found = (located as ReadonlyArray<unknown>)[i];
+          return found === undefined ? error : { ...error, quotes: found };
+        }),
+    ),
+    Effect.orDie,
   );
-};
 
 /** Every judged parse of a run that has at least one error, with its page and document. */
 const RunErrors = Schema.Array(
@@ -333,15 +347,18 @@ export const Api = HttpApi.make("parsejudge")
   )
   .middleware(Dependencies);
 
+const storageUnavailable = (cause: unknown) =>
+  Effect.logError("Storage call failed", cause).pipe(
+    Effect.andThen(Effect.fail(new ServiceUnavailable({ error: "A storage call failed. Retry the request." }))),
+  );
+
 /** A D1, R2, Workflows or rate-limiter call. A rejection is logged and becomes ServiceUnavailable. */
 const query = <A>(promise: () => Promise<A>) =>
-  Effect.tryPromise({
-    try: promise,
-    catch: (cause) => {
-      console.error("Storage call failed", cause);
-      return new ServiceUnavailable({ error: "A storage call failed. Retry the request." });
-    },
-  });
+  Effect.tryPromise(promise).pipe(Effect.catch((error) => storageUnavailable(error.cause)));
+
+/** An Effect of storage calls (auth, deletion). Any failure or defect is logged and becomes ServiceUnavailable. */
+const stored = <A, E>(effect: Effect.Effect<A, E>) =>
+  effect.pipe(Effect.catchCause((cause) => storageUnavailable(Cause.squash(cause))));
 
 class WorkflowNotStarted extends Data.TaggedError("WorkflowNotStarted")<{ readonly id: string; readonly cause: unknown }> {}
 
@@ -350,10 +367,10 @@ class WorkflowNotStarted extends Data.TaggedError("WorkflowNotStarted")<{ readon
  * earlier attempt) counts as created.
  */
 const createWorkflow = <P>(binding: Workflow<P>, id: string, params: P) =>
-  Effect.tryPromise({
-    try: () => binding.create({ id, params }).catch((error: unknown) => binding.get(id).catch(() => Promise.reject(error))),
-    catch: (cause) => new WorkflowNotStarted({ id, cause }),
-  }).pipe(Effect.retry({ schedule: Schedule.exponential("250 millis"), times: 3 }));
+  Effect.tryPromise({ try: () => binding.create({ id, params }), catch: (cause) => new WorkflowNotStarted({ id, cause }) }).pipe(
+    Effect.catch((error) => Effect.tryPromise({ try: () => binding.get(id), catch: () => error })),
+    Effect.retry({ schedule: Schedule.exponential("250 millis"), times: 3 }),
+  );
 
 /** The x-parsejudge-user header, trusted only in dev auth mode on localhost. */
 const devHeaderEmail = Effect.gen(function* () {
@@ -372,7 +389,7 @@ const signedInUser = Effect.gen(function* () {
     const user = yield* query(() => cf.DB.prepare("SELECT id FROM users WHERE id = ?").bind(internal).first<{ id: string }>());
     return user?.id ?? null;
   }
-  const session = yield* query(() => sessionUser(cf, request.headers.cookie));
+  const session = yield* stored(sessionUser(cf, request.headers.cookie));
   if (session !== null) return session.id;
   const email = yield* devHeaderEmail;
   if (email === null) return null;
@@ -407,7 +424,7 @@ const uploader = Effect.gen(function* () {
   const user = yield* signedInUser;
   if (user !== null) return { userId: user, loginId: null };
   const request = yield* HttpServerRequest.HttpServerRequest;
-  const loginId = yield* query(() => pendingLogin(cf, request.headers.cookie));
+  const loginId = yield* stored(pendingLogin(cf, request.headers.cookie));
   if (loginId !== null) return { userId: PENDING_USER, loginId };
   return { userId: yield* currentUser, loginId: null };
 });
@@ -426,8 +443,10 @@ export const canOpenRun = (runId: string) =>
     return (row.visibility === "link" && row.share_content === 1) || (yield* signedInUser) === row.user_id;
   });
 
-const sha256 = async (bytes: Uint8Array) =>
-  [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map((b) => b.toString(16).padStart(2, "0")).join("");
+const sha256 = (bytes: Uint8Array) =>
+  Effect.promise(() => crypto.subtle.digest("SHA-256", bytes)).pipe(
+    Effect.map((digest) => [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("")),
+  );
 
 type RunRow = {
   id: string;
@@ -447,69 +466,77 @@ type RunRow = {
   share_content: number;
 };
 
-const toRun = (row: RunRow) => ({
-  id: row.id,
-  shareId: row.share_id,
-  title: row.title,
-  status: row.status,
-  presetIds: JSON.parse(row.preset_ids) as Array<string>,
-  judgeVersion: row.judge_version,
-  judgeModel: row.judge_model,
-  summary: row.summary === null ? null : (JSON.parse(row.summary) as typeof RunSummary.Type),
-  error: row.error,
-  createdAt: row.created_at,
-  completedAt: row.completed_at,
-  dataDeletedAt: row.data_deleted_at,
-  visibility: row.visibility,
-  shareContent: row.share_content === 1,
+const toRun = Effect.fn("toRun")(function* (row: RunRow) {
+  const presetIds = (yield* Effect.orDie(decodeJson(row.preset_ids))) as Array<string>;
+  const summary = row.summary === null ? null : ((yield* Effect.orDie(decodeJson(row.summary))) as typeof RunSummary.Type);
+  return {
+    id: row.id,
+    shareId: row.share_id,
+    title: row.title,
+    status: row.status,
+    presetIds,
+    judgeVersion: row.judge_version,
+    judgeModel: row.judge_model,
+    summary,
+    error: row.error,
+    createdAt: row.created_at,
+    completedAt: row.completed_at,
+    dataDeletedAt: row.data_deleted_at,
+    visibility: row.visibility,
+    shareContent: row.share_content === 1,
+  };
 });
 
 const pageImageUrl = (pageId: string) => signedBlobUrl(cf.PUBLIC_URL, cf.BLOB_SIGNING_KEY, pagePngKey(pageId));
 
-const runDocuments = (runId: string) =>
-  query(async () => {
-    const rows = await cf.DB.prepare(
+const runDocuments = Effect.fn("runDocuments")(function* (runId: string) {
+  const rows = yield* query(() =>
+    cf.DB.prepare(
       `SELECT d.id, d.filename, d.format, d.page_count FROM run_documents r JOIN documents d ON d.id = r.document_id
        WHERE r.run_id = ? ORDER BY d.created_at, d.id`,
     )
       .bind(runId)
-      .all<{ id: string; filename: string; format: string; page_count: number }>();
-    const notes = await cf.DB.prepare("SELECT page_id, note FROM page_notes WHERE run_id = ?")
-      .bind(runId)
-      .all<{ page_id: string; note: string }>();
-    const noteOf = new Map(notes.results.map((n) => [n.page_id, n.note]));
-    return Promise.all(
-      rows.results.map(async (row) => ({
-        id: row.id,
-        filename: row.filename,
-        format: row.format,
-        pages: await Promise.all(
-          Array.from({ length: row.page_count }, async (_, index) => {
-            const id = pageIdOf(row.id, index);
-            return { id, index, imageUrl: await pageImageUrl(id), note: noteOf.get(id) ?? null };
-          }),
-        ),
-      })),
-    );
-  });
+      .all<{ id: string; filename: string; format: string; page_count: number }>(),
+  );
+  const notes = yield* query(() =>
+    cf.DB.prepare("SELECT page_id, note FROM page_notes WHERE run_id = ?").bind(runId).all<{ page_id: string; note: string }>(),
+  );
+  const noteOf = new Map(notes.results.map((n) => [n.page_id, n.note]));
+  return yield* Effect.forEach(
+    rows.results,
+    (row) =>
+      Effect.forEach(
+        Array.from({ length: row.page_count }, (_, index) => index),
+        (index) => {
+          const id = pageIdOf(row.id, index);
+          return pageImageUrl(id).pipe(Effect.map((imageUrl) => ({ id, index, imageUrl, note: noteOf.get(id) ?? null })));
+        },
+        { concurrency: "unbounded" },
+      ).pipe(Effect.map((pages) => ({ id: row.id, filename: row.filename, format: row.format, pages }))),
+    { concurrency: "unbounded" },
+  );
+});
 
 const runScores = (runId: string) =>
-  query(async () => {
-    const rows = await cf.DB.prepare(
+  query(() =>
+    cf.DB.prepare(
       `SELECT p.page_id, p.preset_id, p.status, v.score,
          (SELECT COUNT(*) FROM json_each(v.errors) e WHERE json_extract(e.value, '$.severity') = 'high') AS high
        FROM parses p LEFT JOIN verdicts v USING (run_id, page_id, preset_id) WHERE p.run_id = ?`,
     )
       .bind(runId)
-      .all<{ page_id: string; preset_id: string; status: string; score: number | null; high: number }>();
-    return rows.results.map((row) => ({
-      pageId: row.page_id,
-      presetId: row.preset_id,
-      status: row.status,
-      score: row.score,
-      high: row.high,
-    }));
-  });
+      .all<{ page_id: string; preset_id: string; status: string; score: number | null; high: number }>(),
+  ).pipe(
+    Effect.map((rows) =>
+      rows.results.map((row) => ({
+        pageId: row.page_id,
+        presetId: row.preset_id,
+        status: row.status,
+        score: row.score,
+        high: row.high,
+      })),
+    ),
+  );
 
 const findRun = (column: "id" | "share_id", value: string) =>
   Effect.gen(function* () {
@@ -520,10 +547,7 @@ const findRun = (column: "id" | "share_id", value: string) =>
       const runId = row.id;
       const failed = yield* reconcileRun(cf, runId).pipe(
         Effect.catchTag("ContinueFailed", (error) =>
-          Effect.sync(() => {
-            console.warn("Could not check run workflow", runId, error.step, error.message);
-            return false;
-          }),
+          Effect.logWarning("Could not check run workflow", runId, error.step, error.message).pipe(Effect.as(false)),
         ),
       );
       if (failed) row = (yield* query(select)) ?? row;
@@ -535,8 +559,9 @@ const findRun = (column: "id" | "share_id", value: string) =>
       documentCount: documents.length,
       pageCount: documents.reduce((n, d) => n + d.pages.length, 0),
     };
-    if (!owned && row.share_content !== 1) return { ...toRun(row), ...counts, owned, documents: [], scores: [] };
-    return { ...toRun(row), ...counts, owned, documents, scores: yield* runScores(row.id) };
+    const run = yield* toRun(row);
+    if (!owned && row.share_content !== 1) return { ...run, ...counts, owned, documents: [], scores: [] };
+    return { ...run, ...counts, owned, documents, scores: yield* runScores(row.id) };
   });
 
 const PresetsLive = HttpApiBuilder.group(Api, "presets", (handlers) =>
@@ -582,10 +607,13 @@ const DocumentsLive = HttpApiBuilder.group(Api, "documents", (handlers) =>
         );
         const format = yield* sniffFormat(bytes);
         const pdf = yield* toPdf(cf, format, bytes).pipe(
-          Effect.catchTag("ConverterUnavailable", (error) => {
-            console.error("Document conversion failed", error.message);
-            return Effect.fail(new ServiceUnavailable({ error: "Document conversion is unavailable. Retry in a minute." }));
-          }),
+          Effect.catchTag("ConverterUnavailable", (error) =>
+            Effect.logError("Document conversion failed", error.message).pipe(
+              Effect.andThen(
+                Effect.fail(new ServiceUnavailable({ error: "Document conversion is unavailable. Retry in a minute." })),
+              ),
+            ),
+          ),
         );
         const pages = yield* splitPages(pdf, Number(cf.MAX_PAGES_PER_RUN));
         const documentId = crypto.randomUUID();
@@ -595,53 +623,58 @@ const DocumentsLive = HttpApiBuilder.group(Api, "documents", (handlers) =>
           documentKey(documentId),
           ...pages.map((_, index) => pagePdfKey(pageIdOf(documentId, index))),
         ];
-        yield* Effect.gen(function* () {
-          yield* query(() => cf.BLOBS.put(sourceKey(documentId, format), bytes));
-          yield* query(() => cf.BLOBS.put(documentKey(documentId), pdf));
+        const hash = yield* sha256(bytes);
+        const store = query(() => cf.BLOBS.put(sourceKey(documentId, format), bytes)).pipe(
+          Effect.andThen(query(() => cf.BLOBS.put(documentKey(documentId), pdf))),
           // Before sign-in completes, one check-and-insert caps the pages a login holds (one run) and the pages
           // waiting under all open logins from its client (two runs), so parallel uploads cannot pass the cap together.
-          const inserted = yield* query(async () =>
-            cf.DB.prepare(
-              // A sign-in that completes while this upload runs has already set logins.user_id; the upload goes to that user.
-              `INSERT INTO documents (id, user_id, login_id, filename, format, sha256, page_count, created_at, upload_id)
+          Effect.andThen(
+            query(() =>
+              cf.DB.prepare(
+                // A sign-in that completes while this upload runs has already set logins.user_id; the upload goes to that user.
+                `INSERT INTO documents (id, user_id, login_id, filename, format, sha256, page_count, created_at, upload_id)
              SELECT ?1, COALESCE((SELECT user_id FROM logins WHERE id = ?2), ?3), ?2, ?4, ?5, ?6, ?7, ?8, ?11
              WHERE ?2 IS NULL OR (
                (SELECT COALESCE(SUM(page_count), 0) FROM documents WHERE login_id = ?2) + ?7 <= ?9 AND
                (SELECT COALESCE(SUM(page_count), 0) FROM documents WHERE user_id = ?10 AND login_id IN
                  (SELECT id FROM logins WHERE ip = (SELECT ip FROM logins WHERE id = ?2))) + ?7 <= ?9 * 2
              )`,
-            )
-              .bind(
-                documentId,
-                loginId,
-                userId,
-                filename ?? `document.${format}`,
-                format,
-                await sha256(bytes),
-                pages.length,
-                Date.now(),
-                max,
-                PENDING_USER,
-                loginId === null ? (upload ?? null) : null,
               )
-              .run(),
-          );
-          if (inserted.meta.changes !== 1) return yield* overCap;
-          yield* query(() =>
-            Promise.all(pages.map((page, index) => cf.BLOBS.put(pagePdfKey(pageIdOf(documentId, index)), page))),
-          );
-          yield* query(() =>
-            cf.DB.batch(
-              pages.map((_, index) =>
-                cf.DB.prepare("INSERT OR IGNORE INTO pages (id, document_id, page_index, rendered) VALUES (?, ?, ?, 0)").bind(
-                  pageIdOf(documentId, index),
+                .bind(
                   documentId,
-                  index,
+                  loginId,
+                  userId,
+                  filename ?? `document.${format}`,
+                  format,
+                  hash,
+                  pages.length,
+                  Date.now(),
+                  max,
+                  PENDING_USER,
+                  loginId === null ? (upload ?? null) : null,
+                )
+                .run(),
+            ),
+          ),
+          Effect.flatMap((inserted) => (inserted.meta.changes === 1 ? Effect.void : Effect.fail(overCap))),
+          Effect.andThen(
+            query(() => Promise.all(pages.map((page, index) => cf.BLOBS.put(pagePdfKey(pageIdOf(documentId, index)), page)))),
+          ),
+          Effect.andThen(
+            query(() =>
+              cf.DB.batch(
+                pages.map((_, index) =>
+                  cf.DB.prepare("INSERT OR IGNORE INTO pages (id, document_id, page_index, rendered) VALUES (?, ?, ?, 0)").bind(
+                    pageIdOf(documentId, index),
+                    documentId,
+                    index,
+                  ),
                 ),
               ),
             ),
-          );
-        }).pipe(
+          ),
+        );
+        yield* store.pipe(
           // Remove whatever was written, so a failed upload leaves no blobs or rows behind.
           Effect.onError(() =>
             Effect.all([
@@ -652,13 +685,13 @@ const DocumentsLive = HttpApiBuilder.group(Api, "documents", (handlers) =>
                   cf.DB.prepare("DELETE FROM documents WHERE id = ?").bind(documentId),
                 ]),
               ),
-            ]).pipe(Effect.catch(() => Effect.sync(() => console.error("Upload cleanup failed", documentId)))),
+            ]).pipe(Effect.catch(() => Effect.logError("Upload cleanup failed", documentId))),
           ),
         );
         yield* createWorkflow(cf.DOCUMENT_WORKFLOW, documentId, { documentId, pageCount: pages.length }).pipe(
           // It only renders page images ahead of a run; each PageWorkflow renders its own page if this never ran.
           Effect.catchTag("WorkflowNotStarted", (error) =>
-            Effect.sync(() => console.error("Document workflow not started", documentId, error.cause)),
+            Effect.logError("Document workflow not started", documentId, error.cause),
           ),
         );
         return { documentId, pageCount: pages.length };
@@ -689,7 +722,7 @@ const TitlesLive = HttpApiBuilder.group(Api, "titles", (handlers) =>
     Effect.gen(function* () {
       const { filenames } = payload;
       const request = yield* HttpServerRequest.HttpServerRequest;
-      const key = (yield* signedInUser) ?? (yield* query(() => pendingLogin(cf, request.headers.cookie)));
+      const key = (yield* signedInUser) ?? (yield* stored(pendingLogin(cf, request.headers.cookie)));
       if (key === null) return yield* unauthorized;
       const limiter = cf.TITLE_LIMIT;
       if (limiter !== undefined && !(yield* query(() => limiter.limit({ key }))).success) {
@@ -699,11 +732,9 @@ const TitlesLive = HttpApiBuilder.group(Api, "titles", (handlers) =>
         return yield* new BadRequest({ error: "Send between 1 and 1,000 filenames." });
       }
       return {
-        title: yield* query(() =>
-          generateTitle(
-            cf,
-            filenames.map((name) => name.slice(0, 200)),
-          ),
+        title: yield* generateTitle(
+          cf,
+          filenames.map((name) => name.slice(0, 200)),
         ),
       };
     }),
@@ -751,71 +782,74 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
         if (earlier !== null) return earlier;
         const title =
           payload.title?.trim().slice(0, 80) ||
-          (yield* query(async () => {
-            const rows = await cf.DB.prepare(
-              `SELECT filename FROM documents WHERE user_id = ? AND id IN (SELECT value FROM json_each(?))`,
-            )
+          (yield* query(() =>
+            cf.DB.prepare(`SELECT filename FROM documents WHERE user_id = ? AND id IN (SELECT value FROM json_each(?))`)
               .bind(userId, JSON.stringify(documentIds))
-              .all<{ filename: string }>();
-            return generateTitle(
-              cf,
-              rows.results.map((row) => row.filename),
-            );
-          }));
+              .all<{ filename: string }>(),
+          ).pipe(
+            Effect.flatMap((rows) =>
+              generateTitle(
+                cf,
+                rows.results.map((row) => row.filename),
+              ),
+            ),
+          ));
         const runId = crypto.randomUUID();
         const shareId = newShareId();
-        const credentials = yield* query(() =>
-          Promise.all(
-            Object.entries(payload.credentials ?? {}).map(async ([provider, values]) => ({
-              provider,
-              ...(await encryptCredentials(cf.CREDENTIALS_KEY, runId, values)),
-            })),
+        const credentials = yield* stored(
+          Effect.forEach(
+            Object.entries(payload.credentials ?? {}),
+            ([provider, values]) =>
+              encryptCredentials(cf.CREDENTIALS_KEY, runId, values).pipe(Effect.map((sealed) => ({ provider, ...sealed }))),
+            { concurrency: "unbounded" },
           ),
         );
-        const inserted = yield* query(async () => {
-          try {
-            await cf.DB.batch([
-              cf.DB.prepare(
-                `INSERT INTO runs (id, user_id, share_id, title, status, preset_ids, judge_version, judge_model, created_at, idempotency_key)
+        const inserted = yield* Effect.tryPromise(() =>
+          cf.DB.batch([
+            cf.DB.prepare(
+              `INSERT INTO runs (id, user_id, share_id, title, status, preset_ids, judge_version, judge_model, created_at, idempotency_key)
                VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?)`,
-              ).bind(runId, userId, shareId, title, JSON.stringify(presetIds), JUDGE_VERSION, cf.JUDGE_MODEL, Date.now(), key),
-              ...documentIds.map((documentId) =>
-                cf.DB.prepare("INSERT INTO run_documents (run_id, document_id) VALUES (?, ?)").bind(runId, documentId),
+            ).bind(runId, userId, shareId, title, JSON.stringify(presetIds), JUDGE_VERSION, cf.JUDGE_MODEL, Date.now(), key),
+            ...documentIds.map((documentId) =>
+              cf.DB.prepare("INSERT INTO run_documents (run_id, document_id) VALUES (?, ?)").bind(runId, documentId),
+            ),
+            ...credentials.map((c) =>
+              cf.DB.prepare("INSERT INTO run_credentials (run_id, provider, iv, ciphertext) VALUES (?, ?, ?, ?)").bind(
+                runId,
+                c.provider,
+                c.iv,
+                c.ciphertext,
               ),
-              ...credentials.map((c) =>
-                cf.DB.prepare("INSERT INTO run_credentials (run_id, provider, iv, ciphertext) VALUES (?, ?, ?, ?)").bind(
-                  runId,
-                  c.provider,
-                  c.iv,
-                  c.ciphertext,
-                ),
-              ),
-            ]);
-            return null;
-          } catch (error) {
-            const raced = await existing();
-            if (raced === null) throw error;
-            return raced;
-          }
-        });
+            ),
+          ]),
+        ).pipe(
+          Effect.as(null),
+          // A parallel request with the same idempotency key inserted first; answer with its run.
+          Effect.catch((error) =>
+            query(existing).pipe(
+              Effect.flatMap((raced) => (raced === null ? storageUnavailable(error.cause) : Effect.succeed(raced))),
+            ),
+          ),
+        );
         if (inserted !== null) return inserted;
         yield* createWorkflow(cf.RUN_WORKFLOW, runId, { runId }).pipe(
           Effect.catchTag("WorkflowNotStarted", (error) =>
-            Effect.gen(function* () {
-              console.error("Run workflow not started", runId, error.cause);
+            Effect.logError("Run workflow not started", runId, error.cause).pipe(
               // Fail the run now so it is never stuck in queued, drop its keys, and free the idempotency key so a
               // retry creates a new run.
-              yield* query(() =>
-                cf.DB.batch([
-                  cf.DB.prepare(
-                    `UPDATE runs SET status = 'failed', error = 'The run could not be started.', completed_at = ?,
+              Effect.andThen(
+                query(() =>
+                  cf.DB.batch([
+                    cf.DB.prepare(
+                      `UPDATE runs SET status = 'failed', error = 'The run could not be started.', completed_at = ?,
                        idempotency_key = NULL WHERE id = ? AND status = 'queued'`,
-                  ).bind(Date.now(), runId),
-                  cf.DB.prepare("DELETE FROM run_credentials WHERE run_id = ?").bind(runId),
-                ]),
-              );
-              return yield* new ServiceUnavailable({ error: "The run could not be started. Retry the request." });
-            }),
+                    ).bind(Date.now(), runId),
+                    cf.DB.prepare("DELETE FROM run_credentials WHERE run_id = ?").bind(runId),
+                  ]),
+                ),
+              ),
+              Effect.andThen(Effect.fail(new ServiceUnavailable({ error: "The run could not be started. Retry the request." }))),
+            ),
           ),
         );
         return { runId, shareId };
@@ -830,7 +864,7 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
             .first<{ user_id: string; status: string }>(),
         );
         if (row === null || row.user_id !== userId) return yield* notFound;
-        yield* query(() => deleteRun(cf, params.runId, scope));
+        yield* stored(deleteRun(cf, params.runId, scope));
       }),
     )
     .handle("mine", () =>
@@ -862,32 +896,37 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
               judged: number;
             }>(),
         );
-        return rows.results.map((row) => {
-          const summary = row.summary === null ? null : (JSON.parse(row.summary) as typeof RunSummary.Type);
-          const top = (summary?.presets ?? []).reduce<{ presetId: string; meanScore: number } | null>(
-            (best, preset) =>
-              preset.meanScore !== null && (best === null || preset.meanScore > best.meanScore)
-                ? { presetId: preset.presetId, meanScore: preset.meanScore }
-                : best,
-            null,
-          );
-          const presetIds = JSON.parse(row.preset_ids) as Array<string>;
-          return {
-            id: row.id,
-            shareId: row.share_id,
-            title: row.title,
-            status: row.status,
-            presetIds,
-            documents: row.documents,
-            pages: row.pages,
-            judged: row.judged,
-            top,
-            createdAt: row.created_at,
-            dataDeletedAt: row.data_deleted_at,
-            visibility: row.visibility,
-            shareContent: row.share_content === 1,
-          };
-        });
+        return yield* Effect.forEach(rows.results, (row) =>
+          Effect.all([row.summary === null ? Effect.succeed(null) : decodeJson(row.summary), decodeJson(row.preset_ids)]).pipe(
+            Effect.orDie,
+            Effect.map(([decodedSummary, decodedPresetIds]) => {
+              const summary = decodedSummary as typeof RunSummary.Type | null;
+              const top = (summary?.presets ?? []).reduce<{ presetId: string; meanScore: number } | null>(
+                (best, preset) =>
+                  preset.meanScore !== null && (best === null || preset.meanScore > best.meanScore)
+                    ? { presetId: preset.presetId, meanScore: preset.meanScore }
+                    : best,
+                null,
+              );
+              const presetIds = decodedPresetIds as Array<string>;
+              return {
+                id: row.id,
+                shareId: row.share_id,
+                title: row.title,
+                status: row.status,
+                presetIds,
+                documents: row.documents,
+                pages: row.pages,
+                judged: row.judged,
+                top,
+                createdAt: row.created_at,
+                dataDeletedAt: row.data_deleted_at,
+                visibility: row.visibility,
+                shareContent: row.share_content === 1,
+              };
+            }),
+          ),
+        );
       }),
     )
     .handle("rename", ({ params, payload }) =>
@@ -956,15 +995,19 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
               quotes: string | null;
             }>(),
         );
-        return rows.results.map((row) => ({
-          pageId: row.page_id,
-          document: row.filename,
-          page: row.page_index + 1,
-          presetId: row.preset_id,
-          score: row.score,
-          reasoning: row.reasoning,
-          errors: withQuotes(row.errors, row.quotes),
-        }));
+        return yield* Effect.forEach(rows.results, (row) =>
+          withQuotes(row.errors, row.quotes).pipe(
+            Effect.map((errors) => ({
+              pageId: row.page_id,
+              document: row.filename,
+              page: row.page_index + 1,
+              presetId: row.preset_id,
+              score: row.score,
+              reasoning: row.reasoning,
+              errors,
+            })),
+          ),
+        );
       }),
     )
     .handle("page", ({ params }) =>
@@ -991,23 +1034,31 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
             }>(),
         );
         if (rows.results.length === 0) return yield* notFound;
-        const parses = yield* query(() =>
-          Promise.all(
-            rows.results.map(async (row) => ({
-              presetId: row.preset_id,
-              status: row.status,
-              latencyMs: row.latency_ms,
-              queueMs: row.queue_ms,
-              markdown: (await (await cf.BLOBS.get(markdownKey(params.runId, params.pageId, row.preset_id)))?.text()) ?? null,
-              error: row.error,
-              warning: row.warning,
-              score: row.score,
-              reasoning: row.reasoning,
-              errors: withQuotes(row.errors, row.quotes),
-            })),
-          ),
+        const parses = yield* Effect.forEach(
+          rows.results,
+          (row) =>
+            Effect.all([
+              query(() => cf.BLOBS.get(markdownKey(params.runId, params.pageId, row.preset_id))).pipe(
+                Effect.flatMap((object) => (object === null ? Effect.succeed(null) : query(() => object.text()))),
+              ),
+              withQuotes(row.errors, row.quotes),
+            ]).pipe(
+              Effect.map(([markdown, errors]) => ({
+                presetId: row.preset_id,
+                status: row.status,
+                latencyMs: row.latency_ms,
+                queueMs: row.queue_ms,
+                markdown,
+                error: row.error,
+                warning: row.warning,
+                score: row.score,
+                reasoning: row.reasoning,
+                errors,
+              })),
+            ),
+          { concurrency: "unbounded" },
         );
-        return { pageId: params.pageId, imageUrl: yield* query(() => pageImageUrl(params.pageId)), parses };
+        return { pageId: params.pageId, imageUrl: yield* pageImageUrl(params.pageId), parses };
       }),
     ),
 );
@@ -1040,7 +1091,7 @@ const AccountLive = HttpApiBuilder.group(Api, "account", (handlers) =>
     .handle("remove", () =>
       Effect.gen(function* () {
         const userId = yield* requireUser;
-        yield* query(() => deleteUser(cf, userId));
+        yield* stored(deleteUser(cf, userId));
       }),
     ),
 );
@@ -1057,9 +1108,8 @@ const DefectsAsJson = HttpRouter.middleware(
         const error = `Invalid request ${defect.kind.toLowerCase()}: ${defect.cause.message}`;
         return Effect.succeed(HttpServerResponse.jsonUnsafe({ _tag: "BadRequest", error }, { status: 400 }));
       }
-      console.error("Unhandled API error", Cause.pretty(cause));
-      return Effect.succeed(
-        HttpServerResponse.jsonUnsafe({ _tag: "InternalServerError", error: "Internal error." }, { status: 500 }),
+      return Effect.logError("Unhandled API error", Cause.pretty(cause)).pipe(
+        Effect.as(HttpServerResponse.jsonUnsafe({ _tag: "InternalServerError", error: "Internal error." }, { status: 500 })),
       );
     }),
   { global: true },
@@ -1068,7 +1118,8 @@ const DefectsAsJson = HttpRouter.middleware(
 const ApiLive = HttpApiBuilder.layer(Api, { openapiPath: "/openapi.json" }).pipe(
   Layer.provide([AccountLive, PresetsLive, DocumentsLive, TitlesLive, RunsLive]),
   Layer.provide(DependenciesLive),
+  Layer.provide(FetchHttpClient.layer),
   Layer.provide(HttpServer.layerServices),
 );
 
-export const { handler } = HttpRouter.toWebHandler(Layer.mergeAll(ApiLive, DefectsAsJson));
+export const { handler } = HttpRouter.toWebHandler(Layer.mergeAll(ApiLive, DefectsAsJson, FetchHttpClient.layer));
