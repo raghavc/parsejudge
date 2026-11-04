@@ -5,7 +5,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { beforeEach, describe, expect, it } from "vitest";
-import { handleAuth, pendingLogin, sessionUser } from "../src/auth.ts";
+import { cleanUpAuth, handleAuth, pendingLogin, sessionUser } from "../src/auth.ts";
 import type { Env } from "../src/env.ts";
 
 // Workers-only API.
@@ -40,6 +40,11 @@ beforeEach(() => {
     AUTH_KEY: "test-key-test-key-test-key-test-key",
     PUBLIC_URL: "https://parsejudge.test",
     EMAIL_FROM: "noreply@parsejudge.test",
+    AUTH_MODE: "email",
+    CREDENTIALS_KEY: btoa("c".repeat(32)),
+    BLOB_SIGNING_KEY: "test-blob-key",
+    JUDGE_REASONING_EFFORT: "medium",
+    MAX_PAGES_PER_RUN: "1000",
     EMAIL: { send: async (m: { to: string; subject: string; text: string }) => void sent.push(m) },
   } as unknown as Env;
 });
@@ -252,5 +257,18 @@ describe("email sign-in", () => {
     const session = cookiePair((await call("/v1/auth/verify", { code }, login)).setCookies, "__Host-pj_session");
     await call("/v1/auth/signout", {}, session);
     expect(await sessionUser(env, session)).toBeNull();
+  });
+});
+
+describe("cleanUpAuth", () => {
+  it("still deletes expired sessions when the upload sweep fails, then rejects", async () => {
+    db.prepare("INSERT INTO users (id, email, created_at) VALUES ('u', 'a@b.com', 0)").run();
+    db.prepare("INSERT INTO sessions (id_hash, user_id, created_at, expires_at) VALUES ('h', 'u', 0, 1)").run();
+    db.prepare(
+      "INSERT INTO documents (id, user_id, filename, format, sha256, page_count, created_at) VALUES ('old', 'pending', 'a.pdf', 'pdf', 'x', 1, 1)",
+    ).run();
+    env = { ...env, BLOBS: { delete: () => Promise.reject(new Error("R2 down")) } } as unknown as Env;
+    await expect(cleanUpAuth(env)).rejects.toMatchObject({ _tag: "CleanUpFailed", step: "uploads" });
+    expect(db.prepare("SELECT COUNT(*) AS n FROM sessions").get()).toEqual({ n: 0 });
   });
 });

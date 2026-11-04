@@ -1,4 +1,5 @@
-import { findPreset, type JudgedError, type RunSummary } from "@parsejudge/core";
+import { findPreset, JudgedError, type RunSummary } from "@parsejudge/core";
+import { Schema } from "effect";
 import type { Env } from "./env.ts";
 
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
@@ -53,6 +54,8 @@ interface RunRow {
   readonly notify_on_done: number;
 }
 
+const decodeErrors = Schema.decodeUnknownExit(Schema.fromJsonString(Schema.Array(JudgedError)));
+
 /** Pages where scores differ by 3 or more, or a parse failed (the report's "flagged" pages), largest gap first. */
 const flaggedPages = async (env: Env, runId: string, presetCount: number) => {
   const [{ results: parses }, { results: verdicts }] = await Promise.all([
@@ -70,7 +73,9 @@ const flaggedPages = async (env: Env, runId: string, presetCount: number) => {
   for (const p of parses) if (p.status === "failed") page(p.page_id).failed++;
   for (const v of verdicts) {
     page(v.page_id).scores.push(v.score);
-    page(v.page_id).errors.push(...(JSON.parse(v.errors) as Array<JudgedError>));
+    const errors = decodeErrors(v.errors);
+    if (errors._tag === "Success") page(v.page_id).errors.push(...errors.value);
+    else console.error(JSON.stringify({ event: "notify_bad_verdict_errors", runId, pageId: v.page_id }));
   }
   const flagged = [...pages]
     .map(([id, p]) => ({ id, ...p, gap: p.scores.length > 1 ? Math.max(...p.scores) - Math.min(...p.scores) : 0 }))

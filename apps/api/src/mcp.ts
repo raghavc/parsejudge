@@ -4,13 +4,14 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { DEFAULT_PRESET_IDS, PRESETS, PROVIDERS } from "@parsejudge/core";
 import * as z from "zod";
 import { handler } from "./api.ts";
-import type { Env } from "./env.ts";
+import { type Env, envError } from "./env.ts";
 import { INTERNAL_HEADER, internalHeader } from "./internal.ts";
 import { type AgentProps, listAgents, revokeAgents } from "./oauth.ts";
 import { countErrors, flattenErrors, type PageRow, paginate, type RunErrorRow, selectPages } from "./results.ts";
 import { signedUploadUrl } from "./uploads.ts";
 
 const MAX_FETCH_BYTES = 100 * 1024 * 1024;
+const FETCH_TIMEOUT_MS = 120_000;
 
 const INSTRUCTIONS = `ParseJudge compares document parsers on your documents. A blind judge model scores each parser's output on every page.
 
@@ -86,7 +87,8 @@ const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
     const key = /\/r\/([^/?#]+)/.exec(ref)?.[1] ?? ref.trim();
     try {
       return (await call("GET", `/v1/runs/${encodeURIComponent(key)}`)) ?? {};
-    } catch {
+    } catch (error) {
+      if (!(error instanceof ApiError && error.status === 404)) throw error;
       return (await call("GET", `/v1/share/${encodeURIComponent(key)}`)) ?? {};
     }
   };
@@ -166,12 +168,32 @@ const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
     tool(async ({ url, filename }: { url: string; filename?: string | undefined }) => {
       const source = new URL(url);
       if (source.protocol !== "https:" && source.protocol !== "http:") throw new ApiError("Only http and https URLs work.");
-      const response = await fetch(source, { redirect: "follow" });
-      if (!response.ok) throw new ApiError(`Downloading the file returned HTTP ${response.status}.`);
-      if (Number(response.headers.get("content-length") ?? 0) > MAX_FETCH_BYTES) throw new ApiError("The file is over 100 MB.");
-      const bytes = await response.arrayBuffer();
+      const download = async () => {
+        const response = await fetch(source, { redirect: "follow", signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+        if (!response.ok) throw new ApiError(`Downloading the file returned HTTP ${response.status}.`);
+        if (Number(response.headers.get("content-length") ?? 0) > MAX_FETCH_BYTES) throw new ApiError("The file is over 100 MB.");
+        return response.arrayBuffer();
+      };
+      const bytes = await download().catch((error: unknown) => {
+        if (error instanceof ApiError) throw error;
+        throw new ApiError(
+          error instanceof Error && error.name === "TimeoutError"
+            ? `Downloading the file took over ${FETCH_TIMEOUT_MS / 1000} s.`
+            : `Could not download the file: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      });
       if (bytes.byteLength > MAX_FETCH_BYTES) throw new ApiError("The file is over 100 MB.");
-      const name = filename ?? (decodeURIComponent(source.pathname.split("/").pop() ?? "") || "document");
+      const last = source.pathname.split("/").pop() ?? "";
+      const name =
+        filename ??
+        ((() => {
+          try {
+            return decodeURIComponent(last);
+          } catch {
+            return last;
+          }
+        })() ||
+          "document");
       return call("POST", `/v1/documents?filename=${encodeURIComponent(name)}`, bytes);
     }),
   );
@@ -608,7 +630,10 @@ const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
     },
     tool(async () => {
       await call("DELETE", "/v1/account");
-      await revokeAgents(oauth, userId);
+      await revokeAgents(oauth, userId).catch((error: unknown) => {
+        console.error(JSON.stringify({ event: "mcp_revoke_after_delete_failed", error: String(error) }));
+        throw new ApiError("Your data is deleted, but disconnecting your agents failed. Their access no longer works.", 500);
+      });
       return { deleted: true };
     }),
   );
@@ -616,13 +641,25 @@ const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
   return server;
 };
 
+const jsonRpcError = (status: number, code: number, message: string) =>
+  Response.json({ jsonrpc: "2.0", error: { code, message }, id: null }, { status });
+
 /** The MCP endpoint (Streamable HTTP, stateless). OAuthProvider has already checked the token. */
 export const mcpHandler = (oauth: (env: Env) => OAuthHelpers) => ({
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    const { userId } = ctx.props as AgentProps;
-    const server = buildServer(env, userId, oauth(env));
-    const transport = new WebStandardStreamableHTTPServerTransport({ enableJsonResponse: true });
-    await server.connect(transport);
-    return transport.handleRequest(request);
+    if (envError(env) !== null) return jsonRpcError(503, -32603, "ParseJudge is not configured on this server.");
+    const userId = (ctx.props as Partial<AgentProps> | undefined)?.userId;
+    if (typeof userId !== "string" || userId === "") {
+      return jsonRpcError(401, -32001, "This connection has no user. Connect ParseJudge again.");
+    }
+    try {
+      const server = buildServer(env, userId, oauth(env));
+      const transport = new WebStandardStreamableHTTPServerTransport({ enableJsonResponse: true });
+      await server.connect(transport);
+      return await transport.handleRequest(request);
+    } catch (error) {
+      console.error(JSON.stringify({ event: "mcp_request_failed", error: String(error) }));
+      return jsonRpcError(500, -32603, "ParseJudge failed to handle the request. Retry.");
+    }
   },
 });

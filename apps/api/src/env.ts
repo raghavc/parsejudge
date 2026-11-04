@@ -1,3 +1,4 @@
+import { Data, Schema } from "effect";
 import type { Converter } from "./converter.ts";
 import type { DocumentWorkflowParams, PageWorkflowParams, RunWorkflowParams } from "./workflows.ts";
 
@@ -40,3 +41,43 @@ export interface Env {
   /** Hosted provider credentials (REDUCTO_API_KEY, AZURE_DI_KEY, ...). */
   readonly [credential: string]: unknown;
 }
+
+const positiveInt = Schema.String.check(Schema.isPattern(/^[1-9][0-9]*$/));
+
+/** The vars and secrets every Worker entry point relies on. Provider keys are checked per preset when a run starts. */
+export const EnvVars = Schema.Struct({
+  PUBLIC_URL: Schema.String.check(Schema.isPattern(/^https?:\/\/[^/\s]+/)),
+  AUTH_MODE: Schema.Literals(["email", "dev"]),
+  AUTH_KEY: Schema.String.check(Schema.isMinLength(32)),
+  /** 32 bytes, base64. */
+  CREDENTIALS_KEY: Schema.String.check(Schema.isPattern(/^[A-Za-z0-9+/]{43}=$/)),
+  BLOB_SIGNING_KEY: Schema.NonEmptyString,
+  EMAIL_FROM: Schema.String.check(Schema.isPattern(/^[^@\s]+@[^@\s]+$/)),
+  JUDGE_REASONING_EFFORT: Schema.Literals(["low", "medium", "high"]),
+  MAX_PAGES_PER_RUN: positiveInt,
+  MAX_CONCURRENCY: Schema.optional(
+    Schema.fromJsonString(Schema.Record(Schema.String, Schema.Int.check(Schema.isGreaterThan(0)))),
+  ),
+  TURNSTILE_SITEKEY: Schema.optional(Schema.String),
+  TURNSTILE_SECRET: Schema.optional(Schema.String),
+}).check(
+  Schema.makeFilter((vars) =>
+    vars.TURNSTILE_SITEKEY && !vars.TURNSTILE_SECRET ? "TURNSTILE_SITEKEY is set without TURNSTILE_SECRET" : undefined,
+  ),
+);
+
+export class InvalidEnv extends Data.TaggedError("InvalidEnv")<{ readonly message: string }> {}
+
+const decoded = new WeakMap<object, InvalidEnv | null>();
+
+/** Why the deployment's env is unusable, or null. Decoded once per env object. */
+export const envError = (env: Env): InvalidEnv | null => {
+  let error = decoded.get(env);
+  if (error === undefined) {
+    const result = Schema.decodeUnknownExit(EnvVars)(env, { errors: "all" });
+    error = result._tag === "Success" ? null : new InvalidEnv({ message: String(result.cause) });
+    decoded.set(env, error);
+    if (error !== null) console.error(JSON.stringify({ event: "invalid_env", error: error.message }));
+  }
+  return error;
+};

@@ -1,5 +1,6 @@
+import { Data, Effect, Schema } from "effect";
 import { deleteExpiredUploads } from "./deletion.ts";
-import type { Env } from "./env.ts";
+import { type Env, envError } from "./env.ts";
 
 const LOGIN_TTL_MS = 15 * 60_000;
 const SESSION_TTL_MS = 30 * 24 * 3_600_000;
@@ -129,7 +130,16 @@ const start = async (env: Env, request: Request) => {
   const presetIds = Array.isArray(body.presetIds)
     ? body.presetIds.filter((id): id is string => typeof id === "string" && id.length <= 100).slice(0, 50)
     : [];
-  if (!(await human(env, request, body.turnstile))) return fail(400, "Could not check that you are a person. Try again.");
+  const isHuman = await Effect.runPromise(
+    human(env, request, body.turnstile).pipe(
+      Effect.catchTag("TurnstileUnavailable", (error) => {
+        console.error(JSON.stringify({ event: "auth_turnstile_unavailable", error: error.message }));
+        return Effect.succeed(null);
+      }),
+    ),
+  );
+  if (isHuman === null) return fail(503, "Could not run the check that you are a person. Try again in a minute.");
+  if (!isHuman) return fail(400, "Could not check that you are a person. Try again.");
   const ip = ipKey(request.headers.get("cf-connecting-ip") ?? "");
   const key = emailKey(email);
   const now = Date.now();
@@ -217,19 +227,52 @@ const TOO_MANY_TODAY = "Too many wrong codes for this address today. Use the lin
 /** The login `?1` and every earlier login from its browser that it replaced. */
 const CHAIN = `WITH RECURSIVE chain(id) AS (SELECT ?1 UNION SELECT logins.id FROM logins JOIN chain ON logins.replaced_by = chain.id)`;
 
-/** Cloudflare Turnstile, when the deployment sets TURNSTILE_SECRET. */
-const human = async (env: Env, request: Request, token: unknown) => {
-  if (!env.TURNSTILE_SECRET) return !env.TURNSTILE_SITEKEY;
+class TurnstileUnavailable extends Data.TaggedError("TurnstileUnavailable")<{ readonly message: string }> {}
+
+const SiteVerify = Schema.Struct({
+  success: Schema.Boolean,
+  "error-codes": Schema.optional(Schema.Array(Schema.String)),
+});
+/** Siteverify codes that mean our secret is wrong, not that the visitor failed the check. */
+const OUR_FAULT = new Set(["missing-input-secret", "invalid-input-secret", "internal-error"]);
+
+/**
+ * Cloudflare Turnstile, when the deployment sets TURNSTILE_SITEKEY. Fails with TurnstileUnavailable when the
+ * check itself could not run. No retry: siteverify may have used up the single-use token.
+ */
+const human = (env: Env, request: Request, token: unknown): Effect.Effect<boolean, TurnstileUnavailable> => {
+  if (!env.TURNSTILE_SITEKEY) return Effect.succeed(true);
+  const secret = env.TURNSTILE_SECRET;
+  if (!secret) return Effect.fail(new TurnstileUnavailable({ message: "TURNSTILE_SITEKEY is set without TURNSTILE_SECRET" }));
   const form = new FormData();
-  form.set("secret", env.TURNSTILE_SECRET);
+  form.set("secret", secret);
   form.set("response", typeof token === "string" ? token : "");
   const ip = request.headers.get("cf-connecting-ip");
   if (ip) form.set("remoteip", ip);
-  const result = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", { method: "POST", body: form }).then(
-    (r) => r.json<{ success?: boolean }>(),
-    () => ({ success: false }),
+  return Effect.tryPromise({
+    try: async (signal) => {
+      const response = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+        method: "POST",
+        body: form,
+        signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
+      });
+      if (!response.ok) throw new Error(`siteverify returned HTTP ${response.status}`);
+      return response.json();
+    },
+    catch: (error) => new TurnstileUnavailable({ message: String(error) }),
+  }).pipe(
+    Effect.flatMap((body) =>
+      Schema.decodeUnknownEffect(SiteVerify)(body).pipe(
+        Effect.mapError((error) => new TurnstileUnavailable({ message: `siteverify answered ${error.message}` })),
+      ),
+    ),
+    Effect.flatMap((result) => {
+      const ours = (result["error-codes"] ?? []).filter((code) => OUR_FAULT.has(code));
+      return !result.success && ours.length > 0
+        ? Effect.fail(new TurnstileUnavailable({ message: `siteverify: ${ours.join(", ")}` }))
+        : Effect.succeed(result.success);
+    }),
   );
-  return result.success === true;
 };
 
 /**
@@ -368,27 +411,62 @@ const me = async (env: Env, request: Request) => {
   return user === null ? fail(401, "Not signed in.") : reply({ email: user.email });
 };
 
+/** A route that throws answers with a logged 500 in the `{ error }` shape the sign-in page reads. */
+const guarded = (env: Env, pathname: string, route: () => Promise<Response>) => {
+  if (envError(env) !== null) return Promise.resolve(fail(503, "Sign-in is not configured on this server."));
+  return route().catch((error: unknown) => {
+    console.error(JSON.stringify({ event: "auth_route_failed", path: pathname, error: String(error) }));
+    return fail(500, "Sign-in failed. Try again.");
+  });
+};
+
 /** Routes /v1/auth/* and /v1/me; null for any other path. */
 export const handleAuth = (env: Env, request: Request): Promise<Response> | null => {
   const { pathname } = new URL(request.url);
   const post = request.method === "POST";
-  if (pathname === "/v1/auth/start" && post) return start(env, request);
+  if (pathname === "/v1/auth/start" && post) return guarded(env, pathname, () => start(env, request));
   if (pathname === "/v1/auth/config" && request.method === "GET") {
     return Promise.resolve(reply({ turnstileSiteKey: env.TURNSTILE_SITEKEY ?? null }));
   }
-  if (pathname === "/v1/auth/link" && post) return peek(env, request);
-  if (pathname === "/v1/auth/verify" && post) return verify(env, request);
-  if (pathname === "/v1/auth/signout" && post) return signOut(env, request);
-  if (pathname === "/v1/me" && request.method === "GET") return me(env, request);
+  if (pathname === "/v1/auth/link" && post) return guarded(env, pathname, () => peek(env, request));
+  if (pathname === "/v1/auth/verify" && post) return guarded(env, pathname, () => verify(env, request));
+  if (pathname === "/v1/auth/signout" && post) return guarded(env, pathname, () => signOut(env, request));
+  if (pathname === "/v1/me" && request.method === "GET") return guarded(env, pathname, () => me(env, request));
   return null;
 };
 
-/** Hourly: drops uploads of sign-ins that never completed, old logins and expired sessions. */
-export const cleanUpAuth = async (env: Env) => {
+class CleanUpFailed extends Data.TaggedError("CleanUpFailed")<{ readonly step: string; readonly message: string }> {}
+
+const cleanUpStep = (step: string, run: () => Promise<unknown>) =>
+  Effect.tryPromise({ try: run, catch: (error) => new CleanUpFailed({ step, message: String(error) }) }).pipe(
+    Effect.tapError((error) => Effect.sync(() => console.error(JSON.stringify({ event: "auth_cleanup_failed", ...error })))),
+  );
+
+/**
+ * Hourly: drops uploads of sign-ins that never completed, old logins and expired sessions. The two steps are
+ * independent, so one failing does not skip the other; it still rejects so the cron run shows as failed.
+ */
+export const cleanUpAuth = (env: Env): Promise<void> => {
   const dayAgo = Date.now() - 24 * 3_600_000;
-  await deleteExpiredUploads(env, dayAgo);
-  await env.DB.batch([
-    env.DB.prepare("DELETE FROM logins WHERE created_at < ?").bind(dayAgo),
-    env.DB.prepare("DELETE FROM sessions WHERE expires_at < ?").bind(Date.now()),
-  ]);
+  return Effect.runPromise(
+    Effect.all(
+      [
+        cleanUpStep("uploads", () => deleteExpiredUploads(env, dayAgo)),
+        cleanUpStep("logins and sessions", () =>
+          env.DB.batch([
+            env.DB.prepare("DELETE FROM logins WHERE created_at < ?").bind(dayAgo),
+            env.DB.prepare("DELETE FROM sessions WHERE expires_at < ?").bind(Date.now()),
+          ]),
+        ),
+      ],
+      { concurrency: "unbounded", mode: "result" },
+    ).pipe(
+      Effect.flatMap((results) => {
+        const failed = results.flatMap((result) => (result._tag === "Failure" ? [result.failure.step] : []));
+        return failed.length === 0
+          ? Effect.void
+          : Effect.fail(new CleanUpFailed({ step: failed.join(", "), message: "Auth clean-up failed" }));
+      }),
+    ),
+  );
 };

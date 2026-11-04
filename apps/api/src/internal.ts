@@ -15,5 +15,6 @@ export const internalHeader = (userId: string) => `${isolateToken()}:${userId}`;
 
 export const internalUser = (value: string | undefined): string | null => {
   const prefix = `${isolateToken()}:`;
-  return value?.startsWith(prefix) ? value.slice(prefix.length) : null;
+  const userId = value?.startsWith(prefix) ? value.slice(prefix.length) : "";
+  return userId === "" ? null : userId;
 };

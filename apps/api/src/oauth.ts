@@ -4,6 +4,7 @@ import {
   type ConsentDescription,
   type OAuthHelpers,
 } from "@cloudflare/workers-oauth-provider";
+import { Data, Effect } from "effect";
 import { sessionUser } from "./auth.ts";
 import type { Env } from "./env.ts";
 
@@ -64,7 +65,9 @@ export const authorize = async (request: Request, env: Env, oauth: OAuthHelpers)
     const user = await sessionUser(env, request.headers.get("cookie"));
     if (request.method === "POST") {
       if (user === null) return page("Sign in", "<h1>Your session ended</h1><p>Start connecting again from your agent.</p>", 401);
-      const form = await request.formData();
+      const form = await request.formData().catch(() => null);
+      if (form === null)
+        return page("Could not connect", "<h1>Could not connect</h1><p>Start connecting again from your agent.</p>", 400);
       const handle = String(form.get("handle") ?? "");
       if (form.get("decision") !== "approve") {
         const denied = await oauth.denyConsent(request, handle);
@@ -102,7 +105,8 @@ export const authorize = async (request: Request, env: Env, oauth: OAuthHelpers)
       const message = error instanceof AuthorizationError ? error.description : "This app could not be verified.";
       return page("Could not connect", `<h1>Could not connect</h1><p>${escapeHtml(message ?? "")}</p>`, 400);
     }
-    throw error;
+    console.error(JSON.stringify({ event: "oauth_authorize_failed", method: request.method, error: String(error) }));
+    return page("Could not connect", "<h1>Could not connect</h1><p>Something went wrong on our side. Try again.</p>", 500);
   }
 };
 
@@ -131,9 +135,28 @@ export const listAgents = async (oauth: OAuthHelpers, userId: string) =>
     )
   ).sort((a, b) => b.connectedAt - a.connectedAt);
 
-export const revokeAgents = async (oauth: OAuthHelpers, userId: string) => {
-  for (const grant of await grants(oauth, userId)) await oauth.revokeGrant(grant.id, userId);
-};
+export class RevokeFailed extends Data.TaggedError("RevokeFailed")<{ readonly message: string }> {}
+
+/** Revokes every grant, carrying on past a failed one; fails afterwards if any could not be revoked. */
+export const revokeAgents = (oauth: OAuthHelpers, userId: string): Promise<void> =>
+  Effect.runPromise(
+    Effect.tryPromise({ try: () => grants(oauth, userId), catch: (error) => new RevokeFailed({ message: String(error) }) }).pipe(
+      Effect.flatMap((all) =>
+        Effect.all(
+          all.map((grant) =>
+            Effect.tryPromise({ try: () => oauth.revokeGrant(grant.id, userId), catch: (error) => String(error) }),
+          ),
+          { concurrency: 8, mode: "result" },
+        ),
+      ),
+      Effect.flatMap((results) => {
+        const failed = results.flatMap((result) => (result._tag === "Failure" ? [result.failure] : []));
+        return failed.length === 0
+          ? Effect.void
+          : Effect.fail(new RevokeFailed({ message: `${failed.length} of ${results.length} grants: ${failed[0]}` }));
+      }),
+    ),
+  );
 
 const AGENT_PATH = /^\/v1\/agents\/([^/]+)$/;
 
@@ -142,12 +165,17 @@ export const handleAgents = async (request: Request, env: Env, oauth: OAuthHelpe
   const { pathname } = new URL(request.url);
   const one = AGENT_PATH.exec(pathname);
   if (pathname !== "/v1/agents" && one === null) return null;
-  const user = await sessionUser(env, request.headers.get("cookie"));
-  if (user === null) return Response.json({ _tag: "Unauthorized" }, { status: 401 });
-  if (pathname === "/v1/agents" && request.method === "GET") return Response.json(await listAgents(oauth, user.id));
-  if (one?.[1] !== undefined && request.method === "DELETE") {
-    await oauth.revokeGrant(decodeURIComponent(one[1]), user.id);
-    return new Response(null, { status: 204 });
+  try {
+    const user = await sessionUser(env, request.headers.get("cookie"));
+    if (user === null) return Response.json({ _tag: "Unauthorized" }, { status: 401 });
+    if (pathname === "/v1/agents" && request.method === "GET") return Response.json(await listAgents(oauth, user.id));
+    if (one?.[1] !== undefined && request.method === "DELETE") {
+      await oauth.revokeGrant(decodeURIComponent(one[1]), user.id);
+      return new Response(null, { status: 204 });
+    }
+    return new Response("Method not allowed", { status: 405 });
+  } catch (error) {
+    console.error(JSON.stringify({ event: "agents_route_failed", method: request.method, error: String(error) }));
+    return Response.json({ error: "Could not load connected agents. Try again." }, { status: 500 });
   }
-  return new Response("Method not allowed", { status: 405 });
 };

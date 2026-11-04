@@ -1,4 +1,12 @@
 import type { Credentials } from "@parsejudge/core";
+import { Data, Schema } from "effect";
+
+/** CREDENTIALS_KEY is wrong, or the stored keys were changed. Retrying does not help. */
+export class CredentialsUnreadable extends Data.TaggedError("CredentialsUnreadable")<{ readonly message: string }> {
+  readonly retryable = false;
+}
+
+const StoredCredentials = Schema.fromJsonString(Schema.Record(Schema.String, Schema.String));
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -19,11 +27,17 @@ export const encryptCredentials = async (secret: string, runId: string, credenti
   return { iv: toBase64(iv), ciphertext: toBase64(new Uint8Array(ciphertext)) };
 };
 
-export const decryptCredentials = async (secret: string, runId: string, iv: string, ciphertext: string) => {
-  const plaintext = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: fromBase64(iv), additionalData: encoder.encode(runId) },
-    await key(secret),
-    fromBase64(ciphertext),
-  );
-  return JSON.parse(decoder.decode(plaintext)) as Credentials;
+export const decryptCredentials = async (secret: string, runId: string, iv: string, ciphertext: string): Promise<Credentials> => {
+  const plaintext = await (async () =>
+    crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: fromBase64(iv), additionalData: encoder.encode(runId) },
+      await key(secret),
+      fromBase64(ciphertext),
+    ))().catch((error: unknown) => {
+    throw new CredentialsUnreadable({ message: `Could not decrypt the keys stored for run ${runId}: ${String(error)}` });
+  });
+  const decoded = Schema.decodeUnknownExit(StoredCredentials)(decoder.decode(plaintext));
+  if (decoded._tag === "Failure")
+    throw new CredentialsUnreadable({ message: `The keys stored for run ${runId} are not readable.` });
+  return decoded.value;
 };
