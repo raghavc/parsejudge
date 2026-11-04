@@ -303,12 +303,15 @@ export class RunWorkflow extends WorkflowEntrypoint<Env, RunWorkflowParams> {
           ),
         ),
         Effect.catch((error) => this.recordFailure(step, runId, error.message)),
+        // A retry re-parses part of a finished run; the owner already got the done email.
         Effect.andThen(
-          bestEffort(
-            attempt("email owner", () => step.do("email owner", RETRY, () => runStep(emailRunDone(this.env, runId)))),
-            "Run email failed",
-            runId,
-          ),
+          retry === undefined
+            ? bestEffort(
+                attempt("email owner", () => step.do("email owner", RETRY, () => runStep(emailRunDone(this.env, runId)))),
+                "Run email failed",
+                runId,
+              )
+            : Effect.void,
         ),
         Effect.andThen(
           bestEffort(
