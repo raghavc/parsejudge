@@ -19,7 +19,7 @@ vi.mock("cloudflare:workers", () => ({
 vi.mock("cloudflare:workflows", () => ({ NonRetryableError: Error }));
 
 const { RunEvents } = await import("../src/events.ts");
-const { continueRun, reconcileRun, SKIPPED, summarizeRun } = await import("../src/run.ts");
+const { continueRun, NOT_RECORDED, reconcileRun, SKIPPED, summarizeRun } = await import("../src/run.ts");
 
 /** The slice of D1 that finalize.ts uses, over node:sqlite. */
 const d1 = (db: DatabaseSync) => {
@@ -121,6 +121,14 @@ describe("continueRun", () => {
     // Idempotent.
     expect(await Effect.runPromise(continueRun(env, "r1"))).toEqual({ skipped: 0 });
     expect(parses()).toHaveLength(4);
+  });
+
+  it("counts a cell with no stored parse as a failed parse when summarizing", async () => {
+    await Effect.runPromise(summarizeRun(env, "r1"));
+
+    expect(parses()).toContainEqual({ page_id: "d1-1", preset_id: "b", status: "failed", error: NOT_RECORDED });
+    const summary = JSON.parse(run().summary ?? "null") as { presets: Array<{ presetId: string; failedPages: number }> };
+    expect(summary.presets.find((p) => p.presetId === "b")?.failedPages).toBe(1);
   });
 
   it("summarizes directly when the run workflow is gone", async () => {

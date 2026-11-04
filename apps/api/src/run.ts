@@ -220,6 +220,7 @@ export const judgePool = (env: Env) =>
 
 /** Error of a parse the owner skipped with Continue. Skipped parses are not results, so the summary leaves them out. */
 export const SKIPPED = "Skipped by user";
+export const NOT_RECORDED = "Parse result was not recorded";
 
 /** Run workflow statuses that can still receive `pages-done` and summarize. */
 const ALIVE = new Set(["queued", "running", "paused", "waiting", "waitingForPause"]);
@@ -247,8 +248,32 @@ export const finishRun = (env: Env, runId: string, status: "succeeded" | "failed
     ]),
   ).pipe(Effect.map(([updated]) => (updated?.meta.changes ?? 0) > 0));
 
+const pageIdsOf = (env: Env, runId: string) =>
+  storage(() =>
+    env.DB.prepare("SELECT d.id, d.page_count FROM run_documents r JOIN documents d ON d.id = r.document_id WHERE r.run_id = ?")
+      .bind(runId)
+      .all<{ id: string; page_count: number }>(),
+  ).pipe(
+    Effect.map((documents) =>
+      documents.results.flatMap((d) => Array.from({ length: d.page_count }, (_, index) => pageIdOf(d.id, index))),
+    ),
+  );
+
+const runPageIds = (env: Env, runId: string) => attemptEffect("list pages", pageIdsOf(env, runId));
+
 /** Computes the summary over the run's parses, stores it, and marks the run succeeded. */
 export const summarizeRun = Effect.fn("summarizeRun")(function* (env: Env, runId: string) {
+  // A cell whose parse failed and whose failure could not be stored still shows, as a failed parse.
+  const pageIds = yield* pageIdsOf(env, runId);
+  yield* storage(() =>
+    env.DB.prepare(
+      `INSERT OR IGNORE INTO parses (run_id, page_id, preset_id, status, error)
+       SELECT r.id, page.value, preset.value, 'failed', ? FROM runs r, json_each(?) page, json_each(r.preset_ids) preset
+       WHERE r.id = ?`,
+    )
+      .bind(NOT_RECORDED, JSON.stringify(pageIds), runId)
+      .run(),
+  );
   const parses = yield* storage(() =>
     env.DB.prepare(
       `SELECT p.page_id, p.preset_id, p.status, p.latency_ms, p.queue_ms, p.cost_usd, p.cost_source, v.score, v.reasoning, v.errors
@@ -299,17 +324,6 @@ const attemptEffect = <A, E extends { readonly message: string }>(step: string, 
 
 const logged = <A>(effect: Effect.Effect<A, ContinueFailed>, label: string, id: string) =>
   effect.pipe(Effect.catchTag("ContinueFailed", (error) => Effect.logError(label, id, error.step, error.message)));
-
-const runPageIds = (env: Env, runId: string) =>
-  attempt("list pages", () =>
-    env.DB.prepare("SELECT d.id, d.page_count FROM run_documents r JOIN documents d ON d.id = r.document_id WHERE r.run_id = ?")
-      .bind(runId)
-      .all<{ id: string; page_count: number }>(),
-  ).pipe(
-    Effect.map((documents) =>
-      documents.results.flatMap((d) => Array.from({ length: d.page_count }, (_, index) => pageIdOf(d.id, index))),
-    ),
-  );
 
 /** Stops a skipped page's workflow, so it does not keep a slot or write results after the summary. */
 const stopPage = (env: Env, instanceId: string) =>
