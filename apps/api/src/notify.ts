@@ -1,5 +1,5 @@
-import { findPreset, JudgedError, type RunSummary } from "@parsejudge/core";
-import { Schema } from "effect";
+import { decodeJson, findPreset, JudgedError, type RunSummary } from "@parsejudge/core";
+import { Effect, Schema } from "effect";
 import type { Env } from "./env.ts";
 
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
@@ -57,13 +57,22 @@ interface RunRow {
 const decodeErrors = Schema.decodeUnknownExit(Schema.fromJsonString(Schema.Array(JudgedError)));
 
 /** Pages where scores differ by 3 or more, or a parse failed (the report's "flagged" pages), largest gap first. */
-const flaggedPages = async (env: Env, runId: string, presetCount: number) => {
-  const [{ results: parses }, { results: verdicts }] = await Promise.all([
-    env.DB.prepare("SELECT page_id, status FROM parses WHERE run_id = ?").bind(runId).all<{ page_id: string; status: string }>(),
-    env.DB.prepare("SELECT page_id, score, errors FROM verdicts WHERE run_id = ?")
-      .bind(runId)
-      .all<{ page_id: string; score: number; errors: string }>(),
-  ]);
+const flaggedPages = Effect.fn("flaggedPages")(function* (env: Env, runId: string, presetCount: number) {
+  const [{ results: parses }, { results: verdicts }] = yield* Effect.all(
+    [
+      Effect.promise(() =>
+        env.DB.prepare("SELECT page_id, status FROM parses WHERE run_id = ?")
+          .bind(runId)
+          .all<{ page_id: string; status: string }>(),
+      ),
+      Effect.promise(() =>
+        env.DB.prepare("SELECT page_id, score, errors FROM verdicts WHERE run_id = ?")
+          .bind(runId)
+          .all<{ page_id: string; score: number; errors: string }>(),
+      ),
+    ],
+    { concurrency: "unbounded" },
+  );
   const pages = new Map<string, { scores: Array<number>; failed: number; errors: Array<JudgedError> }>();
   const page = (id: string) => {
     const entry = pages.get(id) ?? { scores: [], failed: 0, errors: [] };
@@ -75,7 +84,7 @@ const flaggedPages = async (env: Env, runId: string, presetCount: number) => {
     page(v.page_id).scores.push(v.score);
     const errors = decodeErrors(v.errors);
     if (errors._tag === "Success") page(v.page_id).errors.push(...errors.value);
-    else console.error(JSON.stringify({ event: "notify_bad_verdict_errors", runId, pageId: v.page_id }));
+    else yield* Effect.logError({ event: "notify_bad_verdict_errors", runId, pageId: v.page_id });
   }
   const flagged = [...pages]
     .map(([id, p]) => ({ id, ...p, gap: p.scores.length > 1 ? Math.max(...p.scores) - Math.min(...p.scores) : 0 }))
@@ -91,7 +100,7 @@ const flaggedPages = async (env: Env, runId: string, presetCount: number) => {
   const total = [...topics.values()].reduce((a, b) => a + b, 0);
   const [topic, count] = [...topics].sort((a, b) => b[1] - a[1])[0] ?? ["", 0];
   return { flagged, disagreed: disagreed.length, topic: count * 2 > total ? topic : null };
-};
+});
 
 const FONT = "Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif";
 const MONO = "'Geist Mono','SFMono-Regular',Menlo,Consolas,monospace";
@@ -101,25 +110,29 @@ const cell = "font-size:15px;line-height:18px;padding:12px 0;border-bottom:1px s
 const link = "color:#6B6B6B;text-decoration:underline";
 
 /** Emails the run's owner that the report is ready (or that the run failed), unless they turned it off. */
-export const emailRunDone = async (env: Env, runId: string): Promise<void> => {
-  const row = await env.DB.prepare(
-    `SELECT r.title, r.status, r.share_id, r.summary, r.error, r.visibility, r.created_at, r.completed_at, u.email, u.notify_on_done
+export const emailRunDone = Effect.fn("emailRunDone")(function* (env: Env, runId: string) {
+  const row = yield* Effect.promise(() =>
+    env.DB.prepare(
+      `SELECT r.title, r.status, r.share_id, r.summary, r.error, r.visibility, r.created_at, r.completed_at, u.email, u.notify_on_done
      FROM runs r JOIN users u ON u.id = r.user_id WHERE r.id = ?`,
-  )
-    .bind(runId)
-    .first<RunRow>();
+    )
+      .bind(runId)
+      .first<RunRow>(),
+  );
   if (row === null || row.notify_on_done !== 1 || !row.email.includes("@") || row.email.endsWith(".invalid")) return;
-  const counts = await env.DB.prepare(
-    "SELECT COUNT(*) AS documents, COALESCE(SUM(d.page_count), 0) AS pages FROM run_documents rd JOIN documents d ON d.id = rd.document_id WHERE rd.run_id = ?",
-  )
-    .bind(runId)
-    .first<{ documents: number; pages: number }>();
+  const counts = yield* Effect.promise(() =>
+    env.DB.prepare(
+      "SELECT COUNT(*) AS documents, COALESCE(SUM(d.page_count), 0) AS pages FROM run_documents rd JOIN documents d ON d.id = rd.document_id WHERE rd.run_id = ?",
+    )
+      .bind(runId)
+      .first<{ documents: number; pages: number }>(),
+  );
   const site = env.PUBLIC_URL.replace(/\/+$/, "");
   const host = site.replace(/^https?:\/\//, "");
   const url = `${site}/r/${row.share_id}`;
   const title = row.title ?? "Untitled run";
   const ok = row.status === "succeeded";
-  const summary = row.summary === null ? null : (JSON.parse(row.summary) as RunSummary);
+  const summary = row.summary === null ? null : ((yield* decodeJson(row.summary)) as RunSummary);
   const all = (summary?.presets ?? []).map((p) => ({ ...p, preset: findPreset(p.presetId) }));
   const presets = all
     .map(({ preset, ...p }) => {
@@ -130,7 +143,7 @@ export const emailRunDone = async (env: Env, runId: string): Promise<void> => {
     })
     .sort((a, b) => (b.meanScore ?? -1) - (a.meanScore ?? -1));
   const best = presets[0]?.meanScore == null ? null : presets[0];
-  const { flagged, disagreed, topic } = await flaggedPages(env, runId, presets.length);
+  const { flagged, disagreed, topic } = yield* flaggedPages(env, runId, presets.length);
 
   const facts = [
     title,
@@ -226,11 +239,13 @@ ${
 </td></tr>
 </table></td></tr></table></body></html>`;
 
-  await env.EMAIL.send({
-    from: { name: "Parse Judge", email: env.EMAIL_FROM },
-    to: row.email,
-    subject: ok ? `Your report is ready: ${title}` : `Your run failed: ${title}`,
-    text,
-    html,
-  });
-};
+  yield* Effect.promise(() =>
+    env.EMAIL.send({
+      from: { name: "Parse Judge", email: env.EMAIL_FROM },
+      to: row.email,
+      subject: ok ? `Your report is ready: ${title}` : `Your run failed: ${title}`,
+      text,
+      html,
+    }),
+  );
+});
