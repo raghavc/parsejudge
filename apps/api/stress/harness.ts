@@ -115,6 +115,33 @@ const SCENARIOS: Record<string, Scenario> = {
     deadlineMinutes: 45,
   },
   /** 10% of the steps that record a failure or report progress fail as if D1 or the RunEvents DO were down. */
+  // Every judge call on the primary model gets HTTP 429 rate_limit_exceeded: every page should be judged by a fallback.
+  "judge-fallback": {
+    runs: 4,
+    docsPerRun: 2,
+    pagesPerDoc: 10,
+    presets: PRESETS,
+    faults: { ...NO_FAULTS, rateLimitPrimary: 1 },
+    deadlineMinutes: 20,
+  },
+  // HTTP 429 insufficient_quota: the page fails its judge step at once (no fallback model), and the run still finishes.
+  "judge-quota": {
+    runs: 4,
+    docsPerRun: 2,
+    pagesPerDoc: 10,
+    presets: PRESETS,
+    faults: { ...NO_FAULTS, insufficientQuota: 0.3 },
+    deadlineMinutes: 20,
+  },
+  // Token exchange 401 (not retryable) and 503 (retryable), with a TTL that forces an exchange on every judge call.
+  token: {
+    runs: 4,
+    docsPerRun: 2,
+    pagesPerDoc: 10,
+    presets: PRESETS,
+    faults: { ...NO_FAULTS, token401: 0.1, token503: 0.3, tokenTtl: 300 },
+    deadlineMinutes: 30,
+  },
   steps: {
     runs: 4,
     docsPerRun: 2,
@@ -175,6 +202,10 @@ const wranglerArgs = (fakeUrl: string) => [
   `FAKE_URL:${fakeUrl}`,
   "--var",
   `JUDGE_BASE_URL:${fakeUrl}/openrouter`,
+  "--var",
+  `OPENAI_BASE_URL:${fakeUrl}/openai/v1`,
+  "--var",
+  `OPENAI_AUTH_URL:${fakeUrl}/oauth/token`,
   "--var",
   `STRESS_BATCH_DROP:${scenario.batchDrop ?? 0}`,
   "--var",
@@ -440,6 +471,17 @@ const main = async () => {
       await withRetry(() => startWrangler(fake.url));
       note("wrangler restarted");
     }
+    // Read every unfinished run through the API, as the web app does: reading a run reconciles one whose run workflow errored.
+    await Promise.all(
+      runIds
+        .filter((id) => !terminal.has(id))
+        .map((id) =>
+          fetch(`${API}/v1/runs/${id}`, { headers: USER }).then(
+            (res) => res.body?.cancel(),
+            () => undefined,
+          ),
+        ),
+    );
     try {
       const db = d1();
       const rows = runIds.map((id) => {

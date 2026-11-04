@@ -1,5 +1,6 @@
 /**
- * Fake provider and judge HTTP server. The stress Worker sends Reducto, Mistral and OpenRouter calls here.
+ * Fake provider and judge HTTP server. The stress Worker sends Reducto, Mistral and OpenRouter calls here, and the
+ * judge's OpenAI token exchange (`/oauth/token`) and chat completions (`/openai/v1/chat/completions`).
  * Each request gets one outcome, drawn from `Faults`: a normal answer, or one of the failure modes below.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -29,6 +30,16 @@ export interface Faults {
   readonly jobFailed: number;
   /** Reducto submit only: the job never completes (the workflow polls until its 30 minute budget ends). */
   readonly jobStuck: number;
+  /** Judge on the primary model only: HTTP 429 `rate_limit_exceeded`. The judge should fall back to the next model. */
+  readonly rateLimitPrimary?: number;
+  /** Judge, any model: HTTP 429 `insufficient_quota`. The judge should fail the page without a fallback. */
+  readonly insufficientQuota?: number;
+  /** Token exchange: HTTP 401 (bad certificate or mapping, not retryable). */
+  readonly token401?: number;
+  /** Token exchange: HTTP 503 (retryable). */
+  readonly token503?: number;
+  /** `expires_in` of a fake token. 300 or less makes the judge exchange a token on every call (it renews 5 minutes early). */
+  readonly tokenTtl?: number;
   /** Only routes whose name starts with this get faults, for example "judge". */
   readonly only?: string;
 }
@@ -48,7 +59,10 @@ export const NO_FAULTS: Faults = {
   jobStuck: 0,
 };
 
-type Outcome = "ok" | Exclude<keyof Faults, "jobFailed" | "jobStuck" | "only">;
+/** JUDGE_MODEL, then JUDGE_FALLBACK_MODELS, as in stress/wrangler.jsonc. */
+export const JUDGE_MODELS = ["stress-primary", "stress-fallback-1", "stress-fallback-2"];
+
+type Outcome = "ok" | Exclude<keyof Faults, "jobFailed" | "jobStuck" | "only" | "tokenTtl">;
 
 const HTTP_FAULTS: ReadonlyArray<Exclude<Outcome, "ok">> = [
   "status429",
@@ -114,6 +128,22 @@ export const startFake = (port: number, initial: Faults): Promise<FakeServer> =>
     return "ok";
   };
 
+  const modelOf = (body: string) => /"model"\s*:\s*"([^"]*)"/.exec(body)?.[1] ?? "?";
+
+  /** The OpenAI-specific faults, drawn before the generic HTTP faults. */
+  const drawJudgeOrToken = (route: string, body: string): Outcome | undefined => {
+    const r = Math.random();
+    if (route === "token") {
+      if (r < (faults.token401 ?? 0)) return "token401";
+      if (r < (faults.token401 ?? 0) + (faults.token503 ?? 0)) return "token503";
+      return "ok";
+    }
+    if (route !== "judge") return undefined;
+    if (r < (faults.insufficientQuota ?? 0)) return "insufficientQuota";
+    if (modelOf(body) === JUDGE_MODELS[0] && Math.random() < (faults.rateLimitPrimary ?? 0)) return "rateLimitPrimary";
+    return undefined;
+  };
+
   /** The good answer for a route, or the wrong-shape answer when `bad`. */
   const answer = (route: string, body: string, bad: boolean): unknown => {
     const parsed = (() => {
@@ -147,6 +177,7 @@ export const startFake = (port: number, initial: Faults): Promise<FakeServer> =>
     }
     if (route === "mistral.ocr") return bad ? { pages: "none" } : { pages: [{ markdown: markdown() }] };
     if (route === "openrouter.key") return { data: { usage: 0, limit: null } };
+    if (route === "token") return { access_token: "x", expires_in: faults.tokenTtl ?? 3600 };
     if (route === "judge") {
       const format = parsed.response_format as
         | {
@@ -181,6 +212,8 @@ export const startFake = (port: number, initial: Faults): Promise<FakeServer> =>
     if (method === "GET" && path === "/platform.reducto.ai/result/expired") return "reducto.expired";
     if (method === "POST" && path === "/api.mistral.ai/v1/ocr") return "mistral.ocr";
     if (method === "GET" && path === "/openrouter/key") return "openrouter.key";
+    if (method === "POST" && path === "/oauth/token") return "token";
+    if (method === "POST" && path === "/openai/v1/chat/completions") return "judge";
     if (method === "POST" && path === "/openrouter/chat/completions") {
       if (body.includes('"response_format"')) return "judge";
       return body.includes("excerpt") ? "small.locate" : "small";
@@ -197,8 +230,9 @@ export const startFake = (port: number, initial: Faults): Promise<FakeServer> =>
       return json(response, 404, { error: "no such fake route" });
     }
     const name = route.startsWith("reducto.poll") ? "reducto.poll" : route;
-    const outcome = draw(name);
+    const outcome = drawJudgeOrToken(name, body) ?? draw(name);
     count(`${name} ${outcome}`);
+    if (name === "judge") count(`judge model ${modelOf(body)} ${outcome}`);
     switch (outcome) {
       case "status429":
         response.writeHead(429, { "content-type": "text/plain" });
@@ -210,6 +244,19 @@ export const startFake = (port: number, initial: Faults): Promise<FakeServer> =>
         const code = [429, 500, 400][Math.floor(Math.random() * 3)];
         return json(response, 200, { error: { code, message: `stress upstream error ${code}` } });
       }
+      case "rateLimitPrimary":
+        return json(response, 429, {
+          error: { message: "Rate limit reached for requests (stress)", type: "requests", code: "rate_limit_exceeded" },
+        });
+      case "insufficientQuota":
+        return json(response, 429, {
+          error: { message: "You exceeded your current quota (stress)", type: "insufficient_quota", code: "insufficient_quota" },
+        });
+      case "token401":
+        return json(response, 401, { error: "invalid_client", error_description: "certificate not trusted (stress)" });
+      case "token503":
+        response.writeHead(503, { "content-type": "text/plain" });
+        return response.end("service unavailable (stress)");
       case "errorBody429":
         return json(response, 200, { error: { code: 429, message: "Rate limit exceeded (stress)" } });
       case "empty":

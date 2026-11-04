@@ -9,7 +9,13 @@
   "send_email": [{ "name": "EMAIL" }],
   "vars": {
     "PUBLIC_URL": "http://localhost:8787",
-    "JUDGE_MODEL": "stress/judge",
+    // Must match JUDGE_MODELS in fake.ts: the fake rate limits the first one only.
+    "JUDGE_MODEL": "stress-primary",
+    "JUDGE_FALLBACK_MODELS": "stress-fallback-1,stress-fallback-2",
+    "OPENAI_BASE_URL": "http://127.0.0.1:8790/openai/v1",
+    "OPENAI_AUTH_URL": "http://127.0.0.1:8790/oauth/token",
+    "OPENAI_IDENTITY_PROVIDER_ID": "idp_stress",
+    "OPENAI_SERVICE_ACCOUNT_ID": "user-stress",
     "SMALL_MODEL": "stress/small",
     "JUDGE_REASONING_EFFORT": "medium",
     "JUDGE_BASE_URL": "http://127.0.0.1:8790/openrouter",
@@ -23,7 +29,7 @@
     "AUTH_MODE": "dev",
     "EMAIL_FROM": "noreply@example.com",
     "REDUCTO_API_KEY": "fake-reducto-key",
-    "JUDGE_API_KEY": "fake-judge-key",
+    "JUDGE_API_KEY": "fake-openrouter-key",
     "BLOB_SIGNING_KEY": "stress-blob-signing-key",
     "CREDENTIALS_KEY": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
     "AUTH_KEY": "stress-auth-key-at-least-32-characters-long"
