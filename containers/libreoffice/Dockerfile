@@ -1,6 +1,6 @@
 # DOCX/PPTX -> PDF with LibreOffice, for self-hosted parsejudge. Same HTTP contract as the hosted converter:
 # POST /convert with the document as the body and its MIME type as content-type; the response is the PDF.
-FROM debian:bookworm-slim
+FROM public.ecr.aws/docker/library/debian:bookworm-slim
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     python3 libreoffice-writer-nogui libreoffice-impress-nogui \
