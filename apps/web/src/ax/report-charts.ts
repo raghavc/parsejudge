@@ -266,7 +266,7 @@ export const mountReport = (root: HTMLElement, R: ReportData): (() => void) => {
     [5, "5+"],
   ];
   const BY_GAP = P.slice().sort((a, b) => b.gap - a.gap || a.mean - b.mean);
-  let ORDER = P.slice();
+  let ORDER = BY_GAP.slice();
   const pageNo = (pg: PageRow) => P.indexOf(pg) + 1;
   const st: {
     thr: number;
@@ -277,7 +277,7 @@ export const mountReport = (root: HTMLElement, R: ReportData): (() => void) => {
     kbMode: boolean;
     view: "range" | "line" | "area";
     sort: "page" | "gap";
-  } = { thr: 0, focus: null, emph: null, sel: -1, kb: -1, kbMode: false, view: "line", sort: "page" };
+  } = { thr: 0, focus: null, emph: null, sel: -1, kb: -1, kbMode: false, view: "line", sort: "gap" };
   const VIEWS: ReadonlyArray<[typeof st.view, string, string]> = [
     ["range", "chart-candlestick", "Range"],
     ["line", "chart-line", "Lines"],
@@ -434,7 +434,7 @@ export const mountReport = (root: HTMLElement, R: ReportData): (() => void) => {
       host,
     );
     band = svgEl("rect", { class: "band", x: m.l, y: m.t - 4, height: H - m.t - m.b + 4, rx: 4 }, svg);
-    axisTitles(svg, W, H, m, st.sort === "gap" ? "Pages, widest score gap first" : "Page", "Score");
+    axisTitles(svg, W, H, m, st.sort === "gap" ? "Score gap, widest first" : "Page", "Score");
     for (let v = lo; v <= 10; v++) {
       svgEl("line", { class: v === lo ? "base" : "grid", x1: m.l, x2: W - m.r, y1: sy(v), y2: sy(v) }, svg);
       if ((v - lo) % (10 - lo > 6 ? 2 : 1) === 0 || v === 10)
@@ -459,6 +459,21 @@ export const mountReport = (root: HTMLElement, R: ReportData): (() => void) => {
           return svgEl("path", { class: `dg-line s-${e.tone}`, "data-e": e.id, d, pathLength: 1 }, svg);
         })
       : [];
+    /* gap order: one label per run of equal gaps, centred under the run, dropped when it would crowd the last */
+    const gapLabels = new Map<number, { x: number; gap: number }>();
+    if (st.sort === "gap") {
+      let start = 0;
+      let lastX = Number.NEGATIVE_INFINITY;
+      ORDER.forEach((pg, i) => {
+        if (ORDER[i + 1]?.gap === pg.gap) return;
+        const x = m.l + (slot * (start + i + 1)) / 2;
+        if (x - lastX >= 20) {
+          gapLabels.set(Math.floor((start + i) / 2), { x, gap: pg.gap });
+          lastX = x;
+        }
+        start = i + 1;
+      });
+    }
     cols = ORDER.map((pg, i) => {
       const cx = m.l + slot * (i + 0.5);
       const g = svgEl("g", { class: "dg-col", "data-i": i, style: `--d:${animate ? Math.min(i * 12, 520) : 0}ms` }, svg);
@@ -476,12 +491,13 @@ export const mountReport = (root: HTMLElement, R: ReportData): (() => void) => {
       const pts = scored(pg).map((e) =>
         svgEl("circle", { class: `pt s-${e.tone}`, "data-e": e.id, cx, cy: sy(score(pg, e.id) ?? 0), r: isLine ? 2.6 : 3.6 }, g),
       );
-      /* axis: gap under each column when sorted by gap; page numbers at a stride in page order */
+      /* axis: the gap under each run of equal gaps when sorted by gap; page numbers at a stride in page order */
       const pn = i + 1;
       const stride = n > 120 ? 50 : n > 60 ? 20 : 10;
-      if (st.sort === "gap")
-        svgEl("text", { class: "gap-l", x: cx, y: H - m.b + 16 }, g).textContent = pg.gap ? String(pg.gap) : "";
-      else if (pn === 1 || pn % stride === 0 || pn === n)
+      const gapLabel = gapLabels.get(i);
+      if (st.sort === "gap") {
+        if (gapLabel) svgEl("text", { class: "gap-l", x: gapLabel.x, y: H - m.b + 16 }, g).textContent = String(gapLabel.gap);
+      } else if (pn === 1 || pn % stride === 0 || pn === n)
         svgEl("text", { class: "ax pg-l", x: cx, y: H - m.b + 16, "text-anchor": "middle" }, g).textContent = String(pn);
       /* hit area = the plot only, never the axes */
       svgEl("rect", { class: "hit", x: cx - slot / 2, y: m.t - 4, width: slot, height: H - m.t - m.b + 4 }, g);
