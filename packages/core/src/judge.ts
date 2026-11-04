@@ -16,7 +16,7 @@ export interface JudgeConfig {
   readonly reasoningEffort: "low" | "medium" | "high";
   readonly baseUrl: string;
   /** Called with the model and `usage` object of each successful judge call. */
-  readonly onUsage?: (model: string, usage: unknown) => void;
+  readonly onUsage?: (model: string, usage: unknown) => Effect.Effect<void>;
 }
 
 export interface JudgeInput {
@@ -249,6 +249,6 @@ const judgeWith = Effect.fn("judge.model")(function* (config: JudgeConfig, model
   if (verdicts.size !== labels.length) {
     return yield* new JudgeError({ retryable: true, message: "Judge did not score every parse." });
   }
-  config.onUsage?.(model, body.usage);
+  if (config.onUsage !== undefined) yield* config.onUsage(model, body.usage);
   return [...verdicts.values()];
 });

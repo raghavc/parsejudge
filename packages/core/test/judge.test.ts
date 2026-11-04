@@ -111,7 +111,7 @@ describe("judgePage fallback", () => {
     }) as unknown as typeof globalThis.fetch;
     const used: Array<string> = [];
     const exit = Effect.runPromiseExit(
-      judgePage({ ...config, models, onUsage: (model) => used.push(model) }, input).pipe(
+      judgePage({ ...config, models, onUsage: (model) => Effect.sync(() => used.push(model)) }, input).pipe(
         Effect.provide(FetchHttpClient.layer),
         Effect.provide(Layer.succeed(FetchHttpClient.Fetch, fetch)),
       ),

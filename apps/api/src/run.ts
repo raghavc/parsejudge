@@ -28,10 +28,10 @@ export class StepRejected extends Data.TaggedError("StepRejected")<{ readonly me
 }
 
 /**
- * Runs an Effect as a workflow step's Promise. Retryable errors reject with `Error`, so the step retries;
- * non-retryable ones reject with `NonRetryableError`, so it stops.
+ * Runs an Effect as a workflow step's Promise. An error with `retryable: false` rejects with `NonRetryableError`,
+ * so the step stops; any other error rejects with `Error`, so the step retries.
  */
-export const runStep = <A, E extends { readonly message: string; readonly retryable: boolean }>(
+export const runStep = <A, E extends { readonly message: string; readonly retryable?: boolean }>(
   program: Effect.Effect<A, E, HttpClient.HttpClient>,
   fetch?: typeof globalThis.fetch,
 ) =>
@@ -40,7 +40,7 @@ export const runStep = <A, E extends { readonly message: string; readonly retrya
       Effect.provide(
         Layer.mergeAll(FetchHttpClient.layer, fetch === undefined ? Layer.empty : Layer.succeed(FetchHttpClient.Fetch, fetch)),
       ),
-      Effect.catch((error) => Effect.die(error.retryable ? new Error(error.message) : new NonRetryableError(error.message))),
+      Effect.catch((error) => Effect.die(error.retryable === false ? new NonRetryableError(error.message) : new Error(error.message))),
     ),
   );
 
