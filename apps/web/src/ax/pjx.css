@@ -5699,3 +5699,92 @@
 .pjx .lb .thead button.col-h.sorted {
   color: var(--grey-900);
 }
+
+/* Share dialog: Almanac modal fields */
+.pjx .modal .m-body {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.pjx .sh-field {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.pjx .sh-field .field-label {
+  margin-bottom: 6px;
+}
+.pjx .sh-seg {
+  align-self: stretch;
+}
+.pjx .sh-seg .mode-btn {
+  flex: 1;
+}
+.pjx .sh-note {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text-secondary);
+  text-wrap: pretty;
+}
+.pjx .sh-err {
+  color: var(--fg-error);
+}
+.pjx .sh-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.pjx .sh-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.pjx .sh-text .sh-note {
+  margin-top: 2px;
+}
+.pjx .sh-label {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.pjx .sh-link {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pjx .sh-url {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 10px;
+  border: 0.5px solid var(--grey-300);
+  border-radius: 7px;
+  background: var(--grey-50);
+  font: 12px/30px var(--mono);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pjx .sh-link .btn {
+  flex-shrink: 0;
+}
+.pjx .modal .switch {
+  width: 28px;
+  height: 16px;
+  border-radius: 8px;
+  background: var(--grey-300);
+}
+.pjx .modal .switch::after {
+  width: 12px;
+  height: 12px;
+  left: 2px;
+  top: 2px;
+}
+.pjx .modal .switch.on {
+  background: var(--grey-900);
+}
+.pjx .modal .switch.on::after {
+  transform: translateX(12px);
+}

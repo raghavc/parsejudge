@@ -4,8 +4,8 @@ import { CopyButton } from "./CopyButton.tsx";
 import { Dialog } from "./Dialog.tsx";
 
 const OPTIONS: ReadonlyArray<{ readonly value: Visibility; readonly label: string; readonly note: string }> = [
-  { value: "link", label: "Anyone with the link", note: "They can open the report without signing in." },
-  { value: "private", label: "Only you", note: "The link stops working for everyone else. You can turn it back on." },
+  { value: "link", label: "Anyone with the link", note: "No sign-in needed." },
+  { value: "private", label: "Only you", note: "The link stops working for everyone else until you turn it back on." },
 ];
 
 export const visibilityLabel = (visibility: Visibility, shareContent: boolean) =>
@@ -71,35 +71,43 @@ export const ShareDialog = ({
     );
   };
   return (
-    <Dialog title="Share this report" onClose={onClose}>
+    <Dialog
+      title="Share"
+      onClose={onClose}
+      foot={
+        <>
+          <span className="cost-wrap" />
+          <button type="button" className="btn primary" onClick={onClose}>
+            <span className="btn-label">Done</span>
+          </button>
+        </>
+      }
+    >
       {owned && (
-        <div style={{ display: "grid", gap: 8 }}>
-          <div className="eyebrow">Who can open</div>
-          {OPTIONS.map((o) => (
-            <label key={o.value} style={{ alignItems: "start", cursor: "pointer", display: "flex", gap: 10 }}>
-              <input
-                type="radio"
-                name="visibility"
-                checked={visibility === o.value}
-                onChange={() => choose(o.value)}
-                style={{ marginTop: 3 }}
-              />
-              <span style={{ display: "grid", gap: 2 }}>
-                <span style={{ fontSize: 15 }}>{o.label}</span>
-                <span style={{ color: "var(--muted)", fontSize: 13 }}>{o.note}</span>
-              </span>
-            </label>
-          ))}
+        <div className="sh-field">
+          <span className="field-label">Who can open</span>
+          <div className="mode-seg lg sh-seg" role="group" aria-label="Who can open">
+            {OPTIONS.map((o) => (
+              <button
+                key={o.value}
+                type="button"
+                aria-pressed={visibility === o.value}
+                className={`mode-btn${visibility === o.value ? " active" : ""}`}
+                onClick={() => visibility === o.value || choose(o.value)}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+          <span className="sh-note">{OPTIONS.find((o) => o.value === visibility)?.note}</span>
         </div>
       )}
       {owned && visibility === "link" && (
-        <div style={{ alignItems: "center", display: "flex", gap: 16, justifyContent: "space-between" }}>
-          <span style={{ display: "grid", gap: 2 }}>
-            <span style={{ fontSize: 15 }}>Include document content</span>
-            <span style={{ color: "var(--muted)", fontSize: 13 }}>
-              {shareContent
-                ? "They can open every page: the images, each parser's output and the judge's notes."
-                : "They see only the scores, latency and cost. Pages, images and parser output stay private."}
+        <div className="sh-row">
+          <span className="sh-text">
+            <span className="sh-label">Include document content</span>
+            <span className="sh-note">
+              {shareContent ? "Pages, parser output and judge notes are visible." : "Only scores, latency and cost are visible."}
             </span>
           </span>
           <button
@@ -109,44 +117,26 @@ export const ShareDialog = ({
             aria-label="Include document content"
             className={`switch${shareContent ? " on" : ""}`}
             onClick={toggleContent}
-            style={{ flexShrink: 0 }}
           />
         </div>
       )}
-      <div
-        style={{
-          alignItems: "center",
-          border: "1px solid var(--line)",
-          borderRadius: 4,
-          display: "flex",
-          gap: 12,
-          justifyContent: "space-between",
-          padding: "10px 12px",
-        }}
-      >
-        <span
-          className="mono"
-          style={{ fontSize: 13, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-        >
-          {url}
-        </span>
-        <CopyButton text={url} label="Copy link" />
-      </div>
-      {owned && (
-        <div style={{ color: "var(--muted)", fontSize: 13 }}>
-          Sent the link to the wrong person?{" "}
-          <button type="button" className="u" onClick={rotate} style={{ fontSize: 13 }}>
-            Make a new link
-          </button>{" "}
-          and the old one stops working.
+      <div className="sh-field">
+        <span className="field-label">Link</span>
+        <div className="sh-link">
+          <span className="sh-url">{url}</span>
+          <CopyButton text={url} label="Copy link" />
         </div>
-      )}
-      {error && <div style={{ color: "var(--bad)", fontSize: 13 }}>{error}</div>}
-      <div style={{ display: "flex", justifyContent: "flex-end" }}>
-        <button type="button" className="btn" onClick={onClose}>
-          Done
-        </button>
+        {owned && (
+          <span className="sh-note">
+            Sent it to the wrong person?{" "}
+            <button type="button" className="dl-act" onClick={rotate}>
+              Make a new link
+            </button>
+            . The old one stops working.
+          </span>
+        )}
       </div>
+      {error && <span className="sh-note sh-err">{error}</span>}
     </Dialog>
   );
 };
