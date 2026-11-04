@@ -29,6 +29,30 @@ export interface PageWorkflowParams {
 }
 
 const RETRY: WorkflowStepConfig = { retries: { limit: 5, delay: "5 seconds", backoff: "exponential" }, timeout: "5 minutes" };
+/** The judge is rate limited under load; back off for up to ~40 minutes before giving up on a page. */
+const JUDGE_RETRY: WorkflowStepConfig = {
+  retries: { limit: 8, delay: "10 seconds", backoff: "exponential" },
+  timeout: "5 minutes",
+};
+
+/** Instance already exists: a retried fan-out step created it on an earlier attempt. */
+const INSTANCE_EXISTS = 10405;
+
+/**
+ * Starts page workflows. `createBatch` reports per-instance failures in `errors` instead of throwing, so a
+ * dropped instance would leave the run waiting for a page that never runs. Throw so the step retries.
+ */
+const startPages = async (env: Env, instances: ReadonlyArray<WorkflowInstanceCreateOptions<PageWorkflowParams>>) => {
+  for (let offset = 0; offset < instances.length; offset += 100) {
+    const { errors } = await env.PAGE_WORKFLOW.createBatch({ instances: instances.slice(offset, offset + 100) });
+    const failed = errors.filter((error) => error.code !== INSTANCE_EXISTS);
+    if (failed.length > 0) {
+      throw new Error(
+        `Could not start ${failed.length} page workflows: ${failed.map((e) => `${e.id} ${e.code} ${e.message}`).join("; ")}`,
+      );
+    }
+  }
+};
 
 const events = (env: Env, runId: string) =>
   env.RUN_EVENTS.get(env.RUN_EVENTS.idFromName(runId)) as unknown as DurableObjectStub<RunEvents>;
@@ -88,14 +112,10 @@ export class RunWorkflow extends WorkflowEntrypoint<Env, RunWorkflowParams> {
 
       await step.do("fan out", RETRY, async () => {
         await events(this.env, runId).start(runId, pageIds.length);
-        for (let offset = 0; offset < pageIds.length; offset += 100) {
-          await this.env.PAGE_WORKFLOW.createBatch(
-            pageIds.slice(offset, offset + 100).map((id) => ({
-              id: `${runId}-${id}`,
-              params: { runId, pageId: id, presetIds: run.presetIds },
-            })),
-          );
-        }
+        await startPages(
+          this.env,
+          pageIds.map((id) => ({ id: `${runId}-${id}`, params: { runId, pageId: id, presetIds: run.presetIds } })),
+        );
       });
 
       await step.waitForEvent("pages done", { type: "pages-done", timeout: "6 hours" });
@@ -128,14 +148,14 @@ export class RunWorkflow extends WorkflowEntrypoint<Env, RunWorkflowParams> {
         .first<{ preset_ids: string }>();
       await this.env.DB.prepare("UPDATE runs SET status = 'running', completed_at = NULL WHERE id = ?").bind(runId).run();
       await events(this.env, runId).reopen(instanceId, retry.pageIds);
-      for (let offset = 0; offset < retry.pageIds.length; offset += 100) {
-        await this.env.PAGE_WORKFLOW.createBatch(
-          retry.pageIds.slice(offset, offset + 100).map((pageId) => ({
-            id: `${instanceId}-${pageId}`,
-            params: { runId, pageId, presetIds: JSON.parse(row?.preset_ids ?? "[]"), parsePresetIds: retry.presetIds },
-          })),
-        );
-      }
+      const presetIds = JSON.parse(row?.preset_ids ?? "[]");
+      await startPages(
+        this.env,
+        retry.pageIds.map((pageId) => ({
+          id: `${instanceId}-${pageId}`,
+          params: { runId, pageId, presetIds, parsePresetIds: retry.presetIds },
+        })),
+      );
     });
     await step.waitForEvent("pages done", { type: "pages-done", timeout: "6 hours" });
     await step.do("summarize", RETRY, () => this.summarize(runId));
@@ -227,11 +247,23 @@ export class RunWorkflow extends WorkflowEntrypoint<Env, RunWorkflowParams> {
 export class PageWorkflow extends WorkflowEntrypoint<Env, PageWorkflowParams> {
   override async run(event: Readonly<WorkflowEvent<PageWorkflowParams>>, step: WorkflowStep) {
     const { runId, pageId: page, presetIds, parsePresetIds = presetIds } = event.payload;
-    await step.do("render", RETRY, () => renderPage(this.env, page));
+    try {
+      await step.do("render", RETRY, () => renderPage(this.env, page));
+    } catch (error) {
+      // Without a page image nothing can run; record the failure and still report, so the run does not wait for this page.
+      await step.do("record render failure", async () => {
+        const message = `Page render failed: ${error instanceof Error ? error.message : String(error)}`;
+        await Promise.all(parsePresetIds.map((presetId) => saveFailure(this.env, { runId, pageId: page, presetId }, message)));
+      });
+      await step.do("report", () => events(this.env, runId).pageDone(page));
+      return;
+    }
     await Promise.all(parsePresetIds.map((presetId) => this.parse(step, event.instanceId, { runId, pageId: page, presetId })));
     try {
       const pool = judgePool(this.env);
-      await this.withSlot(step, event.instanceId, "judge", pool, () => step.do("judge", RETRY, () => this.judge(runId, page)));
+      await this.withSlot(step, event.instanceId, "judge", pool, () =>
+        step.do("judge", JUDGE_RETRY, () => this.judge(runId, page)),
+      );
     } catch (error) {
       await step.do("record judge failure", async () => {
         await this.env.DB.prepare("INSERT OR REPLACE INTO judge_failures (run_id, page_id, error) VALUES (?, ?, ?)")

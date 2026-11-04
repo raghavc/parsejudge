@@ -140,19 +140,29 @@ export const judgePage = Effect.fn("judge.page")(function* (config: JudgeConfig,
     const retryable = response.status === 429 || response.status >= 500;
     return yield* new JudgeError({ retryable, message: `HTTP ${response.status}: ${text.slice(0, 500)}` });
   }
-  config.onUsage?.(
-    (() => {
-      try {
-        return JSON.parse(text).usage;
-      } catch {
-        return undefined;
-      }
-    })(),
-  );
-  const content = yield* Effect.try({
-    try: () => String(JSON.parse(text).choices[0].message.content),
-    catch: () => new JudgeError({ retryable: true, message: "Judge response has no message content." }),
-  });
+  const body = (() => {
+    try {
+      return JSON.parse(text);
+    } catch {
+      return undefined;
+    }
+  })();
+  config.onUsage?.(body?.usage);
+  // OpenRouter can answer 200 with an `error` object (e.g. an upstream 429) instead of choices.
+  if (body?.error !== undefined && body.error !== null) {
+    const code = Number(body.error.code);
+    return yield* new JudgeError({
+      retryable: Number.isNaN(code) || code === 429 || code >= 500,
+      message: `Judge error ${body.error.code}: ${String(body.error.message).slice(0, 500)}`,
+    });
+  }
+  const content = body?.choices?.[0]?.message?.content;
+  if (typeof content !== "string" || content === "") {
+    return yield* new JudgeError({
+      retryable: true,
+      message: `Judge response has no message content: ${text.slice(0, 500)}`,
+    });
+  }
   const parsed = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(Verdicts))(content).pipe(
     Effect.mapError((error) => new JudgeError({ retryable: true, message: `Invalid judge output: ${error.message}` })),
   );

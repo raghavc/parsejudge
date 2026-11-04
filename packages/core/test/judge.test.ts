@@ -60,6 +60,20 @@ describe("judgePage", () => {
     expect(String(await judgeWith((ids) => ids.map((id) => evaluation(id, 11))))).toContain("out of range");
     expect(String(await judgeWith(() => [], 500))).toContain("HTTP 500");
   });
+
+  it("fails with the provider error when a 200 response carries an error object", async () => {
+    const fetch = (async () =>
+      new Response(JSON.stringify({ error: { code: 429, message: "Rate limit exceeded" } }), {
+        status: 200,
+      })) as unknown as typeof globalThis.fetch;
+    const exit = await Effect.runPromiseExit(
+      judgePage(config, input).pipe(
+        Effect.provide(FetchHttpClient.layer),
+        Effect.provide(Layer.succeed(FetchHttpClient.Fetch, fetch)),
+      ),
+    );
+    expect(String(exit)).toContain("Judge error 429: Rate limit exceeded");
+  });
 });
 
 describe("unblind", () => {
