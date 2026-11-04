@@ -13,7 +13,7 @@ import { createWriteStream, existsSync, mkdirSync, readdirSync, statSync, writeF
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { deserialize } from "node:v8";
-import { type Faults, NO_FAULTS, startFake } from "./fake.ts";
+import { type FakeServer, type Faults, NO_FAULTS, startFake } from "./fake.ts";
 import { makePdf } from "./pdf.ts";
 
 interface Scenario {
@@ -142,7 +142,7 @@ const SCENARIOS: Record<string, Scenario> = {
     docsPerRun: 2,
     pagesPerDoc: 10,
     presets: PRESETS,
-    faults: { ...NO_FAULTS, token401: 0.1, token503: 0.3, tokenTtl: 300 },
+    faults: { ...NO_FAULTS, token401: 0.1, token503: 0.3, tokenTtl: 60 },
     deadlineMinutes: 30,
   },
   steps: {
@@ -190,7 +190,7 @@ const note = (event: string) => {
   console.log(`[${Math.round((Date.now() - startedAt) / 1000)}s] ${event}`);
 };
 
-const wranglerArgs = (fakeUrl: string) => [
+const wranglerArgs = ({ url: fakeUrl, signingKey }: FakeServer) => [
   "wrangler",
   "dev",
   "-c",
@@ -210,6 +210,8 @@ const wranglerArgs = (fakeUrl: string) => [
   "--var",
   `OPENAI_AUTH_URL:${fakeUrl}/oauth/token`,
   "--var",
+  `OPENAI_SIGNING_KEY:${signingKey}`,
+  "--var",
   `STRESS_BATCH_DROP:${scenario.batchDrop ?? 0}`,
   "--var",
   `STRESS_BATCH_MODE:${scenario.batchMode ?? "once"}`,
@@ -223,8 +225,8 @@ const wranglerArgs = (fakeUrl: string) => [
 
 let wrangler: ChildProcess | undefined;
 
-const startWrangler = async (fakeUrl: string) => {
-  wrangler = spawn("npx", wranglerArgs(fakeUrl), { cwd: API_DIR, env: { ...process.env, CI: "1" }, detached: true });
+const startWrangler = async (fake: FakeServer) => {
+  wrangler = spawn("npx", wranglerArgs(fake), { cwd: API_DIR, env: { ...process.env, CI: "1" }, detached: true });
   wrangler.stdout?.pipe(log, { end: false });
   wrangler.stderr?.pipe(log, { end: false });
   for (let i = 0; i < 240; i++) {
@@ -420,7 +422,7 @@ const main = async () => {
     { cwd: API_DIR, env: { ...process.env, CI: "1" }, encoding: "utf8" },
   );
   if (migrate.status !== 0) throw new Error(`migrations failed: ${migrate.stderr}${migrate.stdout}`);
-  await startWrangler(fake.url);
+  await startWrangler(fake);
   note("wrangler ready");
 
   // Uploads and run creation happen without faults, so every run starts; faults begin with the runs.
@@ -471,7 +473,7 @@ const main = async () => {
       note("killing wrangler (SIGKILL)");
       await killWrangler();
       await new Promise((resolve) => setTimeout(resolve, 5000));
-      await withRetry(() => startWrangler(fake.url));
+      await withRetry(() => startWrangler(fake));
       note("wrangler restarted");
     }
     // Read every unfinished run through the API, as the web app does: reading a run reconciles one whose run workflow errored.

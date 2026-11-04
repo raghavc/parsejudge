@@ -3,6 +3,7 @@
  * judge's OpenAI token exchange (`/oauth/token`) and chat completions (`/openai/v1/chat/completions`).
  * Each request gets one outcome, drawn from `Faults`: a normal answer, or one of the failure modes below.
  */
+import { generateKeyPairSync, type KeyObject, verify } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 
 export interface Faults {
@@ -38,7 +39,7 @@ export interface Faults {
   readonly token401?: number;
   /** Token exchange: HTTP 503 (retryable). */
   readonly token503?: number;
-  /** `expires_in` of a fake token. 300 or less makes the judge exchange a token on every call (it renews 5 minutes early). */
+  /** `expires_in` of a fake token. 60 or less makes the judge exchange a token on every call (it renews 1 minute early). */
   readonly tokenTtl?: number;
   /** Only routes whose name starts with this get faults, for example "judge". */
   readonly only?: string;
@@ -107,11 +108,27 @@ export interface FakeServer {
   readonly url: string;
   /** Counts per `route outcome`, e.g. `judge status429`. */
   readonly stats: Map<string, number>;
+  /** Private P-256 JWK (JSON) for `OPENAI_SIGNING_KEY`. The token route checks subject JWTs against its public half. */
+  readonly signingKey: string;
   setFaults(faults: Faults): void;
   close(): Promise<void>;
 }
 
+/** Why an OpenAI token-exchange request is invalid, or undefined if its subject JWT is signed by `key` and unexpired. */
+const badTokenRequest = (body: string, key: KeyObject): string | undefined => {
+  const { grant_type, subject_token } = JSON.parse(body) as { grant_type?: string; subject_token?: string };
+  const [header, claims, signature] = (subject_token ?? "").split(".");
+  if (grant_type !== "urn:ietf:params:oauth:grant-type:token-exchange" || signature === undefined)
+    return "not a token exchange with a JWT";
+  const signed = Buffer.from(`${header}.${claims}`);
+  if (!verify("sha256", signed, { key, dsaEncoding: "ieee-p1363" }, Buffer.from(signature, "base64url"))) return "bad signature";
+  const { exp } = JSON.parse(Buffer.from(claims ?? "", "base64url").toString()) as { exp?: number };
+  return (exp ?? 0) * 1000 < Date.now() ? "expired JWT" : undefined;
+};
+
 export const startFake = (port: number, initial: Faults): Promise<FakeServer> => {
+  const keys = generateKeyPairSync("ec", { namedCurve: "P-256" });
+  const signingKey = JSON.stringify({ ...keys.privateKey.export({ format: "jwk" }), kid: "stress" });
   let faults = initial;
   const stats = new Map<string, number>();
   const jobs = new Map<string, Job>();
@@ -231,6 +248,13 @@ export const startFake = (port: number, initial: Faults): Promise<FakeServer> =>
     }
     const name = route.startsWith("reducto.poll") ? "reducto.poll" : route;
     const outcome = drawJudgeOrToken(name, body) ?? draw(name);
+    if (name === "token" && outcome === "ok") {
+      const problem = badTokenRequest(body, keys.publicKey);
+      if (problem !== undefined) {
+        count(`token invalid: ${problem}`);
+        return json(response, 401, { error: "invalid_grant", error_description: problem });
+      }
+    }
     count(`${name} ${outcome}`);
     if (name === "judge") count(`judge model ${modelOf(body)} ${outcome}`);
     switch (outcome) {
@@ -293,6 +317,7 @@ export const startFake = (port: number, initial: Faults): Promise<FakeServer> =>
     server.listen(port, "127.0.0.1", () =>
       resolve({
         url: `http://127.0.0.1:${port}`,
+        signingKey,
         stats,
         setFaults: (next) => {
           faults = next;
