@@ -29,8 +29,8 @@ Cloudflare calls these and needs a `Promise` back. Each one is a plain (non-`asy
 
 - the Worker `fetch` and `scheduled` handlers (`index.ts`)
 - `WorkflowEntrypoint.run` and `step.do` callbacks (`workflows.ts`, through `runStep` in `run.ts`)
-- Durable Object methods (`slots.ts`, `events.ts`, `converter.ts`)
-- `@cloudflare/workers-oauth-provider` and MCP agent callbacks (`index.ts`, `mcp.ts`)
+- Durable Object methods (`slots.ts`, `events.ts`)
+- `@cloudflare/workers-oauth-provider` and MCP agent callbacks (`index.ts`, `oauth.ts`, `mcp.ts`)
 
 Only the files listed in the second `biome.json` override are allowed to call `Effect.run*`. Add a file there only if Cloudflare calls into it directly.
 

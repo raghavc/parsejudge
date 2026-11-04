@@ -27,7 +27,8 @@
         "!apps/api/src/workflows.ts",
         "!apps/api/src/slots.ts",
         "!apps/api/src/events.ts",
-        "!apps/api/src/converter.ts",
+        "!apps/api/src/oauth.ts",
+        "!apps/api/src/run.ts",
         "!apps/api/src/mcp.ts"
       ],
       "plugins": ["./lint/no-effect-run.grit"]
