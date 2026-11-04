@@ -1,3 +1,5 @@
+import { Effect, Layer } from "effect";
+import { FetchHttpClient } from "effect/http";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env.ts";
 import { checkQuotes, locate, visibleText } from "../src/locate.ts";
@@ -8,6 +10,14 @@ const env = { JUDGE_BASE_URL: "https://or.test", JUDGE_API_KEY: "k", SMALL_MODEL
 
 const reply = (errors: unknown) =>
   new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ errors }) } }] }));
+
+/** FetchHttpClient over the fetch stubbed for this test. */
+const withFetch = Effect.provide(
+  Layer.mergeAll(
+    FetchHttpClient.layer,
+    Layer.sync(FetchHttpClient.Fetch, () => globalThis.fetch),
+  ),
+);
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -40,9 +50,11 @@ describe("locate", () => {
       .mockResolvedValueOnce(reply([{ error: 1, quotes: [{ text: "Throughput", occurrence: 5 }] }]))
       .mockResolvedValueOnce(reply([{ error: 1, quotes: [{ text: "Throughput", occurrence: 1 }] }]));
     vi.stubGlobal("fetch", fetch);
-    expect(await locate(env, OUTPUT, FLAGS)).toEqual([[{ text: "Throughput", occurrence: 1 }]]);
+    expect(await Effect.runPromise(locate(env, OUTPUT, FLAGS).pipe(withFetch))).toEqual([
+      [{ text: "Throughput", occurrence: 1 }],
+    ]);
     expect(fetch).toHaveBeenCalledTimes(2);
-    const second = JSON.parse(fetch.mock.calls[1]?.[1].body).messages.at(-1).content as string;
+    const second = JSON.parse(new TextDecoder().decode(fetch.mock.calls[1]?.[1].body)).messages.at(-1).content as string;
     expect(second).toContain("appears 2 times");
   });
 
@@ -61,6 +73,6 @@ describe("locate", () => {
         ]),
       ),
     );
-    expect(await locate(env, OUTPUT, FLAGS)).toEqual([[{ text: "Gdansk", occurrence: 1 }]]);
+    expect(await Effect.runPromise(locate(env, OUTPUT, FLAGS).pipe(withFetch))).toEqual([[{ text: "Gdansk", occurrence: 1 }]]);
   });
 });

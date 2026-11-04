@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { openRouterUsage, recordUsage } from "../src/usage.ts";
 
@@ -17,15 +18,17 @@ describe("usage", () => {
   it("writes one data point indexed by run, with cost first", () => {
     const points: Array<unknown> = [];
     const env = { USAGE: { writeDataPoint: (point: unknown) => points.push(point) } } as never;
-    recordUsage(env, {
-      kind: "judge",
-      name: "openai/gpt-6.1-sol",
-      runId: "r",
-      pageId: "p",
-      status: "ok",
-      costUsd: 0.05,
-      latencyMs: 900,
-    });
+    Effect.runSync(
+      recordUsage(env, {
+        kind: "judge",
+        name: "openai/gpt-6.1-sol",
+        runId: "r",
+        pageId: "p",
+        status: "ok",
+        costUsd: 0.05,
+        latencyMs: 900,
+      }),
+    );
     expect(points).toEqual([
       { indexes: ["r"], blobs: ["judge", "openai/gpt-6.1-sol", "r", "p", "ok"], doubles: [0.05, 900, 0, 0, 0, 0] },
     ]);

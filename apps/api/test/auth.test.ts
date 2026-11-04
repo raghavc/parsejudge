@@ -4,6 +4,8 @@ import { timingSafeEqual } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { Effect } from "effect";
+import { FetchHttpClient } from "effect/http";
 import { beforeEach, describe, expect, it } from "vitest";
 import { cleanUpAuth, handleAuth, pendingLogin, sessionUser } from "../src/auth.ts";
 import type { Env } from "../src/env.ts";
@@ -50,7 +52,7 @@ beforeEach(() => {
 });
 
 const call = async (path: string, body?: unknown, cookies = "", ip = "1.1.1.1") => {
-  const response = await handleAuth(
+  const route = handleAuth(
     env,
     new Request(`https://parsejudge.test${path}`, {
       method: body === undefined ? "GET" : "POST",
@@ -58,7 +60,8 @@ const call = async (path: string, body?: unknown, cookies = "", ip = "1.1.1.1") 
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     }),
   );
-  if (response === null) throw new Error(`no route ${path}`);
+  if (route === null) throw new Error(`no route ${path}`);
+  const response = await Effect.runPromise(route.pipe(Effect.provide(FetchHttpClient.layer)));
   const setCookies = response.headers.getSetCookie();
   return { status: response.status, body: (await response.json()) as Record<string, unknown>, setCookies };
 };
@@ -176,7 +179,7 @@ describe("email sign-in", () => {
     const { login, token } = await startLogin();
     db.prepare(
       "INSERT INTO documents (id, user_id, login_id, filename, format, sha256, page_count, created_at) VALUES ('d1', 'pending', ?, 'a.pdf', 'pdf', 'x', 1, 1)",
-    ).run(await pendingLogin(env, login));
+    ).run(await Effect.runPromise(pendingLogin(env, login)));
     const verified = await call("/v1/auth/verify", { token, discard: true });
     expect(verified.status).toBe(200);
     expect((verified.body.draft as { documents: unknown[] }).documents).toEqual([]);
@@ -187,10 +190,10 @@ describe("email sign-in", () => {
     const first = await startLogin("a@example.com");
     db.prepare(
       "INSERT INTO documents (id, user_id, login_id, filename, format, sha256, page_count, created_at) VALUES ('d1', 'pending', ?, 'a.pdf', 'pdf', 'x', 1, 1)",
-    ).run(await pendingLogin(env, first.login));
+    ).run(await Effect.runPromise(pendingLogin(env, first.login)));
     const again = await call("/v1/auth/start", { email: "b@example.com" }, first.login);
     const second = cookiePair(again.setCookies, "__Host-pj_login");
-    expect(await pendingLogin(env, first.login)).toBeNull();
+    expect(await Effect.runPromise(pendingLogin(env, first.login))).toBeNull();
     expect((await call("/v1/auth/verify", { token: first.token })).status).toBe(400);
     const verified = await call("/v1/auth/verify", { code: /\b(\d{6})\b/.exec(sent.at(-1)?.subject ?? "")?.[1] }, second);
     expect((verified.body.draft as { documents: unknown[] }).documents).toHaveLength(1);
@@ -198,7 +201,7 @@ describe("email sign-in", () => {
 
   it("an upload still running under the replaced sign-in is carried over", async () => {
     const first = await startLogin("a@example.com");
-    const firstId = await pendingLogin(env, first.login);
+    const firstId = await Effect.runPromise(pendingLogin(env, first.login));
     const again = await call("/v1/auth/start", { email: "a@example.com" }, first.login);
     const second = cookiePair(again.setCookies, "__Host-pj_login");
     db.prepare(
@@ -224,7 +227,7 @@ describe("email sign-in", () => {
 
   it("the link in another browser keeps the files uploaded before sign-in", async () => {
     const { login, token } = await startLogin();
-    const loginId = await pendingLogin(env, login);
+    const loginId = await Effect.runPromise(pendingLogin(env, login));
     expect(loginId).not.toBeNull();
     db.prepare(
       "INSERT INTO documents (id, user_id, login_id, filename, format, sha256, page_count, created_at) VALUES ('d1', 'pending', ?, 'a.pdf', 'pdf', 'x', 3, 1)",
@@ -235,14 +238,14 @@ describe("email sign-in", () => {
       presetIds: ["reducto_r1"],
       documents: [{ documentId: "d1", filename: "a.pdf", format: "pdf", pageCount: 3 }],
     });
-    const user = await sessionUser(env, cookiePair(verified.setCookies, "__Host-pj_session"));
+    const user = await Effect.runPromise(sessionUser(env, cookiePair(verified.setCookies, "__Host-pj_session")));
     expect(db.prepare("SELECT user_id FROM documents WHERE id = 'd1'").get()).toEqual({ user_id: user?.id });
-    expect(await pendingLogin(env, login)).toBeNull();
+    expect(await Effect.runPromise(pendingLogin(env, login))).toBeNull();
   });
 
   it("another login cannot claim a pending upload", async () => {
     const first = await startLogin("a@example.com");
-    const firstId = await pendingLogin(env, first.login);
+    const firstId = await Effect.runPromise(pendingLogin(env, first.login));
     db.prepare(
       "INSERT INTO documents (id, user_id, login_id, filename, format, sha256, page_count, created_at) VALUES ('d1', 'pending', ?, 'a.pdf', 'pdf', 'x', 1, 1)",
     ).run(firstId);
@@ -256,7 +259,7 @@ describe("email sign-in", () => {
     const { login, code } = await startLogin();
     const session = cookiePair((await call("/v1/auth/verify", { code }, login)).setCookies, "__Host-pj_session");
     await call("/v1/auth/signout", {}, session);
-    expect(await sessionUser(env, session)).toBeNull();
+    expect(await Effect.runPromise(sessionUser(env, session))).toBeNull();
   });
 });
 
@@ -268,7 +271,7 @@ describe("cleanUpAuth", () => {
       "INSERT INTO documents (id, user_id, filename, format, sha256, page_count, created_at) VALUES ('old', 'pending', 'a.pdf', 'pdf', 'x', 1, 1)",
     ).run();
     env = { ...env, BLOBS: { delete: () => Promise.reject(new Error("R2 down")) } } as unknown as Env;
-    await expect(cleanUpAuth(env)).rejects.toMatchObject({ _tag: "CleanUpFailed", step: "uploads" });
+    await expect(Effect.runPromise(cleanUpAuth(env))).rejects.toMatchObject({ _tag: "CleanUpFailed", step: "uploads" });
     expect(db.prepare("SELECT COUNT(*) AS n FROM sessions").get()).toEqual({ n: 0 });
   });
 });

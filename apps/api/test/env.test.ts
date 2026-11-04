@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { type Env, envError } from "../src/env.ts";
 
@@ -12,7 +13,8 @@ const valid = {
   MAX_PAGES_PER_RUN: "1000",
   MAX_CONCURRENCY: '{"reducto": 200}',
 };
-const check = (overrides: Record<string, unknown>) => envError({ ...valid, ...overrides } as unknown as Env)?.message ?? null;
+const check = (overrides: Record<string, unknown>) =>
+  Effect.runSync(envError({ ...valid, ...overrides } as unknown as Env))?.message ?? null;
 
 describe("envError", () => {
   it("accepts a complete deployment", () => {

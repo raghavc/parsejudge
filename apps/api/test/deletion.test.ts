@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { stopRun } from "../src/deletion.ts";
 
@@ -17,13 +18,13 @@ const fakeEnv = (getRun: () => Promise<unknown>) => {
 describe("stopRun", () => {
   it("marks a run stopped when its workflow was never created", async () => {
     const { env, updates } = fakeEnv(() => Promise.reject(new Error("(instance.not_found) Instance does not exist")));
-    await stopRun(env, "run");
+    await Effect.runPromise(stopRun(env, "run"));
     expect(updates).toHaveLength(1);
   });
 
   it("fails, leaving the run as is, when terminating its workflow fails", async () => {
     const { env, updates } = fakeEnv(() => Promise.reject(new Error("Workflows API unavailable")));
-    await expect(stopRun(env, "run")).rejects.toThrow("Workflows API unavailable");
+    await expect(Effect.runPromise(stopRun(env, "run"))).rejects.toThrow("Workflows API unavailable");
     expect(updates).toHaveLength(0);
   });
 });

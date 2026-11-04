@@ -113,7 +113,7 @@ describe("continueRun", () => {
     expect(run().status).toBe("running");
 
     // The woken workflow summarizes; skipped parses are not failures of the parser.
-    await summarizeRun(env, "r1");
+    await Effect.runPromise(summarizeRun(env, "r1"));
     const summary = JSON.parse(run().summary ?? "null") as { presets: Array<{ presetId: string; failedPages: number }> };
     expect(run().status).toBe("succeeded");
     expect(summary.presets.find((p) => p.presetId === "b")?.failedPages).toBe(0);

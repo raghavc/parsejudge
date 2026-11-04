@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import type { Env } from "../src/env.ts";
 import { emailRunDone } from "../src/notify.ts";
@@ -53,7 +54,7 @@ const base = {
 describe("emailRunDone", () => {
   it("sends the report-ready email from the design, best provider first", async () => {
     const { value, sent } = env(base);
-    await emailRunDone(value, "run");
+    await Effect.runPromise(emailRunDone(value, "run"));
     expect(sent).toHaveLength(1);
     const mail = sent[0];
     expect(mail?.subject).toBe("Your report is ready: Q3 <invoices>");
@@ -68,20 +69,20 @@ describe("emailRunDone", () => {
 
   it("says the run failed", async () => {
     const { value, sent } = env({ ...base, status: "failed", summary: null, error: "Stopped" });
-    await emailRunDone(value, "run");
+    await Effect.runPromise(emailRunDone(value, "run"));
     expect(sent[0]?.subject).toBe("Your run failed: Q3 <invoices>");
     expect(sent[0]?.text).toContain("The run failed: Stopped");
   });
 
   it("says a private report is only for the owner", async () => {
     const { value, sent } = env({ ...base, visibility: "private" });
-    await emailRunDone(value, "run");
+    await Effect.runPromise(emailRunDone(value, "run"));
     expect(sent[0]?.text).toContain("Only you can open this report");
   });
 
   it("sends nothing when the owner turned emails off", async () => {
     const { value, sent } = env({ ...base, notify_on_done: 0 });
-    await emailRunDone(value, "run");
+    await Effect.runPromise(emailRunDone(value, "run"));
     expect(sent).toHaveLength(0);
   });
 });
