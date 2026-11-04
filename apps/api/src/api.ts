@@ -1,8 +1,8 @@
 import { env } from "cloudflare:workers";
 import { DEFAULT_PRESET_IDS, ErrorCategory, findPreset, JUDGE_VERSION, PRESETS, sniffFormat, splitPages } from "@parsejudge/core";
-import { Effect, Layer, Schema } from "effect";
-import { HttpRouter, HttpServer, HttpServerRequest } from "effect/http";
-import { HttpApi, HttpApiBuilder, HttpApiEndpoint, HttpApiError, HttpApiGroup } from "effect/http-api";
+import { Cause, Data, Effect, Layer, Schedule, Schema } from "effect";
+import { HttpRouter, HttpServer, HttpServerRequest, HttpServerResponse } from "effect/http";
+import { HttpApi, HttpApiBuilder, HttpApiEndpoint, HttpApiError, HttpApiGroup, HttpApiMiddleware } from "effect/http-api";
 import { PENDING_USER, pendingLogin, sessionUser } from "./auth.ts";
 import { signedBlobUrl } from "./blobs.ts";
 import { toPdf } from "./converter.ts";
@@ -190,18 +190,40 @@ const PageDetail = Schema.Struct({
   ),
 });
 
+/** Every error response is JSON `{ _tag, error }`; the class sets the status. */
+class BadRequest extends Schema.TaggedError<BadRequest>()("BadRequest", { error: Schema.String }, { httpApiStatus: 400 }) {}
+class Unauthorized extends Schema.TaggedError<Unauthorized>()("Unauthorized", { error: Schema.String }, { httpApiStatus: 401 }) {}
+class NotFound extends Schema.TaggedError<NotFound>()("NotFound", { error: Schema.String }, { httpApiStatus: 404 }) {}
+class TooManyRequests extends Schema.TaggedError<TooManyRequests>()(
+  "TooManyRequests",
+  { error: Schema.String },
+  { httpApiStatus: 429 },
+) {}
+/** A D1, R2, Workflows or converter call failed. The request can be retried. */
+class ServiceUnavailable extends Schema.TaggedError<ServiceUnavailable>()(
+  "ServiceUnavailable",
+  { error: Schema.String },
+  { httpApiStatus: 503 },
+) {}
+
+const unauthorized = new Unauthorized({ error: "Sign in first." });
+const notFound = new NotFound({ error: "Not found, or you can't open it." });
+
+/** Adds ServiceUnavailable to every endpoint's errors, so any handler can fail with it. It passes requests through. */
+class Dependencies extends HttpApiMiddleware.Service<Dependencies>()("Dependencies", { error: ServiceUnavailable }) {}
+
 export const Api = HttpApi.make("parsejudge")
   .add(
     HttpApiGroup.make("account")
-      .add(HttpApiEndpoint.get("get", "/v1/account", { success: Account, error: HttpApiError.Unauthorized }))
+      .add(HttpApiEndpoint.get("get", "/v1/account", { success: Account, error: Unauthorized }))
       .add(
         HttpApiEndpoint.patch("update", "/v1/account", {
           payload: Schema.Struct({ notifyOnDone: Schema.Boolean }),
           success: Account,
-          error: HttpApiError.Unauthorized,
+          error: Unauthorized,
         }),
       )
-      .add(HttpApiEndpoint.delete("remove", "/v1/account", { error: HttpApiError.Unauthorized })),
+      .add(HttpApiEndpoint.delete("remove", "/v1/account", { error: Unauthorized })),
   )
   .add(HttpApiGroup.make("presets").add(HttpApiEndpoint.get("list", "/v1/presets", { success: Schema.Array(PresetInfo) })))
   .add(
@@ -210,7 +232,7 @@ export const Api = HttpApi.make("parsejudge")
         HttpApiEndpoint.post("upload", "/v1/documents", {
           query: { filename: Schema.optional(Schema.String), upload: Schema.optional(Schema.String) },
           success: Schema.Struct({ documentId: Schema.String, pageCount: Schema.Number }),
-          error: [HttpApiError.BadRequest, HttpApiError.Unauthorized, HttpApiError.ServiceUnavailable],
+          error: [BadRequest, Unauthorized, TooManyRequests, ServiceUnavailable],
         }),
       )
       .add(
@@ -224,7 +246,7 @@ export const Api = HttpApi.make("parsejudge")
               createdAt: Schema.Number,
             }),
           ),
-          error: HttpApiError.Unauthorized,
+          error: Unauthorized,
         }),
       ),
   )
@@ -233,7 +255,7 @@ export const Api = HttpApi.make("parsejudge")
       HttpApiEndpoint.post("generate", "/v1/titles", {
         payload: Schema.Struct({ filenames: Schema.Array(Schema.String) }),
         success: Schema.Struct({ title: Schema.NullOr(Schema.String) }),
-        error: [HttpApiError.BadRequest, HttpApiError.Unauthorized],
+        error: [BadRequest, Unauthorized, TooManyRequests],
       }),
     ),
   )
@@ -243,10 +265,10 @@ export const Api = HttpApi.make("parsejudge")
         HttpApiEndpoint.post("create", "/v1/runs", {
           payload: CreateRun,
           success: Schema.Struct({ runId: Schema.String, shareId: Schema.String }),
-          error: [HttpApiError.BadRequest, HttpApiError.Unauthorized],
+          error: [BadRequest, Unauthorized],
         }),
       )
-      .add(HttpApiEndpoint.get("mine", "/v1/runs", { success: Schema.Array(RunListItem), error: HttpApiError.Unauthorized }))
+      .add(HttpApiEndpoint.get("mine", "/v1/runs", { success: Schema.Array(RunListItem), error: Unauthorized }))
       .add(
         HttpApiEndpoint.patch("rename", "/v1/runs/:runId", {
           params: { runId: Schema.String },
@@ -255,52 +277,73 @@ export const Api = HttpApi.make("parsejudge")
             visibility: Schema.optional(Visibility),
             shareContent: Schema.optional(Schema.Boolean),
           }),
-          error: [HttpApiError.Unauthorized, HttpApiError.NotFound, HttpApiError.BadRequest],
+          error: [Unauthorized, NotFound, BadRequest],
         }),
       )
       .add(
         HttpApiEndpoint.get("get", "/v1/runs/:runId", {
           params: { runId: Schema.String },
           success: Run,
-          error: HttpApiError.NotFound,
+          error: NotFound,
         }),
       )
       .add(
         HttpApiEndpoint.get("shared", "/v1/share/:shareId", {
           params: { shareId: Schema.String },
           success: Run,
-          error: HttpApiError.NotFound,
+          error: NotFound,
         }),
       )
       .add(
         HttpApiEndpoint.delete("remove", "/v1/runs/:runId", {
           params: { runId: Schema.String },
           query: { scope: Schema.Literals(["data", "report"]) },
-          error: [HttpApiError.Unauthorized, HttpApiError.NotFound],
+          error: [Unauthorized, NotFound],
         }),
       )
       .add(
         HttpApiEndpoint.post("rotateLink", "/v1/runs/:runId/share-link", {
           params: { runId: Schema.String },
           success: Schema.Struct({ shareId: Schema.String }),
-          error: [HttpApiError.Unauthorized, HttpApiError.NotFound],
+          error: [Unauthorized, NotFound],
         }),
       )
       .add(
         HttpApiEndpoint.get("errors", "/v1/runs/:runId/errors", {
           params: { runId: Schema.String },
           success: RunErrors,
-          error: HttpApiError.NotFound,
+          error: NotFound,
         }),
         HttpApiEndpoint.get("page", "/v1/runs/:runId/pages/:pageId", {
           params: { runId: Schema.String, pageId: Schema.String },
           success: PageDetail,
-          error: HttpApiError.NotFound,
+          error: NotFound,
         }),
       ),
-  );
+  )
+  .middleware(Dependencies);
 
-const query = <A>(promise: () => Promise<A>) => Effect.promise(promise);
+/** A D1, R2, Workflows or rate-limiter call. A rejection is logged and becomes ServiceUnavailable. */
+const query = <A>(promise: () => Promise<A>) =>
+  Effect.tryPromise({
+    try: promise,
+    catch: (cause) => {
+      console.error("Storage call failed", cause);
+      return new ServiceUnavailable({ error: "A storage call failed. Retry the request." });
+    },
+  });
+
+class WorkflowNotStarted extends Data.TaggedError("WorkflowNotStarted")<{ readonly id: string; readonly cause: unknown }> {}
+
+/**
+ * Creates a workflow instance, with retries. A failed create whose instance exists anyway (a lost response, or an
+ * earlier attempt) counts as created.
+ */
+const createWorkflow = <P>(binding: Workflow<P>, id: string, params: P) =>
+  Effect.tryPromise({
+    try: () => binding.create({ id, params }).catch((error: unknown) => binding.get(id).catch(() => Promise.reject(error))),
+    catch: (cause) => new WorkflowNotStarted({ id, cause }),
+  }).pipe(Effect.retry({ schedule: Schedule.exponential("250 millis"), times: 3 }));
 
 /** The x-parsejudge-user header, trusted only in dev auth mode on localhost. */
 const devHeaderEmail = Effect.gen(function* () {
@@ -329,7 +372,7 @@ const signedInUser = Effect.gen(function* () {
 
 const requireUser = Effect.gen(function* () {
   const id = yield* signedInUser;
-  if (id === null) return yield* new HttpApiError.Unauthorized({});
+  if (id === null) return yield* unauthorized;
   return id;
 });
 
@@ -338,7 +381,7 @@ const currentUser = Effect.gen(function* () {
   const id = yield* signedInUser;
   if (id !== null) return id;
   const email = yield* devHeaderEmail;
-  if (email === null || !email.includes("@")) return yield* new HttpApiError.Unauthorized({});
+  if (email === null || !email.includes("@")) return yield* unauthorized;
   const newId = crypto.randomUUID();
   yield* query(() =>
     cf.DB.prepare("INSERT INTO users (id, email, created_at) VALUES (?, ?, ?) ON CONFLICT (email) DO NOTHING")
@@ -461,9 +504,9 @@ const runScores = (runId: string) =>
 const findRun = (column: "id" | "share_id", value: string) =>
   Effect.gen(function* () {
     const row = yield* query(() => cf.DB.prepare(`SELECT * FROM runs WHERE ${column} = ?`).bind(value).first<RunRow>());
-    if (row === null) return yield* new HttpApiError.NotFound({});
+    if (row === null) return yield* notFound;
     const owned = (yield* signedInUser) === row.user_id;
-    if (!owned && (column === "id" || row.visibility !== "link")) return yield* new HttpApiError.NotFound({});
+    if (!owned && (column === "id" || row.visibility !== "link")) return yield* notFound;
     const documents = yield* runDocuments(row.id);
     const counts = {
       documentCount: documents.length,
@@ -489,6 +532,10 @@ const PresetsLive = HttpApiBuilder.group(Api, "presets", (handlers) =>
   ),
 );
 
+const overCap = new BadRequest({
+  error: "Uploads before sign-in are limited to one run's pages. Sign in to upload more.",
+});
+
 const DocumentsLive = HttpApiBuilder.group(Api, "documents", (handlers) =>
   handlers
     .handle("upload", ({ query: { filename, upload } }) =>
@@ -498,75 +545,101 @@ const DocumentsLive = HttpApiBuilder.group(Api, "documents", (handlers) =>
           // Cheap checks before conversion; the insert below re-checks the cap atomically.
           const limiter = cf.UPLOAD_LIMIT;
           const allowed = limiter === undefined || (yield* query(() => limiter.limit({ key: loginId }))).success;
+          if (!allowed) return yield* new TooManyRequests({ error: "Too many uploads. Wait a minute and retry." });
           const held = yield* query(() =>
             cf.DB.prepare("SELECT COALESCE(SUM(page_count), 0) AS pages FROM documents WHERE login_id = ?")
               .bind(loginId)
               .first<{ pages: number }>(),
           );
-          if (!allowed || (held?.pages ?? 0) >= Number(cf.MAX_PAGES_PER_RUN)) return yield* new HttpApiError.BadRequest({});
+          if ((held?.pages ?? 0) >= Number(cf.MAX_PAGES_PER_RUN)) return yield* overCap;
         }
         const request = yield* HttpServerRequest.HttpServerRequest;
-        const bytes = new Uint8Array(yield* request.arrayBuffer.pipe(Effect.mapError(() => new HttpApiError.BadRequest({}))));
-        const format = yield* sniffFormat(bytes).pipe(Effect.mapError(() => new HttpApiError.BadRequest({})));
+        const bytes = new Uint8Array(
+          yield* request.arrayBuffer.pipe(Effect.mapError(() => new BadRequest({ error: "Could not read the request body." }))),
+        );
+        const format = yield* sniffFormat(bytes);
         const pdf = yield* toPdf(cf, format, bytes).pipe(
-          Effect.mapError((error) =>
-            error._tag === "InvalidDocument" ? new HttpApiError.BadRequest({}) : new HttpApiError.ServiceUnavailable({}),
-          ),
+          Effect.catchTag("ConverterUnavailable", (error) => {
+            console.error("Document conversion failed", error.message);
+            return Effect.fail(new ServiceUnavailable({ error: "Document conversion is unavailable. Retry in a minute." }));
+          }),
         );
-        const pages = yield* splitPages(pdf, Number(cf.MAX_PAGES_PER_RUN)).pipe(
-          Effect.mapError(() => new HttpApiError.BadRequest({})),
-        );
+        const pages = yield* splitPages(pdf, Number(cf.MAX_PAGES_PER_RUN));
         const documentId = crypto.randomUUID();
         const max = Number(cf.MAX_PAGES_PER_RUN);
-        yield* query(() => cf.BLOBS.put(sourceKey(documentId, format), bytes));
-        yield* query(() => cf.BLOBS.put(documentKey(documentId), pdf));
-        // Before sign-in completes, one check-and-insert caps the pages a login holds (one run) and the pages
-        // waiting under all open logins from its client (two runs), so parallel uploads cannot pass the cap together.
-        const inserted = yield* query(async () =>
-          cf.DB.prepare(
-            // A sign-in that completes while this upload runs has already set logins.user_id; the upload goes to that user.
-            `INSERT INTO documents (id, user_id, login_id, filename, format, sha256, page_count, created_at, upload_id)
-           SELECT ?1, COALESCE((SELECT user_id FROM logins WHERE id = ?2), ?3), ?2, ?4, ?5, ?6, ?7, ?8, ?11
-           WHERE ?2 IS NULL OR (
-             (SELECT COALESCE(SUM(page_count), 0) FROM documents WHERE login_id = ?2) + ?7 <= ?9 AND
-             (SELECT COALESCE(SUM(page_count), 0) FROM documents WHERE user_id = ?10 AND login_id IN
-               (SELECT id FROM logins WHERE ip = (SELECT ip FROM logins WHERE id = ?2))) + ?7 <= ?9 * 2
-           )`,
-          )
-            .bind(
-              documentId,
-              loginId,
-              userId,
-              filename ?? `document.${format}`,
-              format,
-              await sha256(bytes),
-              pages.length,
-              Date.now(),
-              max,
-              PENDING_USER,
-              loginId === null ? (upload ?? null) : null,
+        const blobKeys = [
+          sourceKey(documentId, format),
+          documentKey(documentId),
+          ...pages.map((_, index) => pagePdfKey(pageIdOf(documentId, index))),
+        ];
+        yield* Effect.gen(function* () {
+          yield* query(() => cf.BLOBS.put(sourceKey(documentId, format), bytes));
+          yield* query(() => cf.BLOBS.put(documentKey(documentId), pdf));
+          // Before sign-in completes, one check-and-insert caps the pages a login holds (one run) and the pages
+          // waiting under all open logins from its client (two runs), so parallel uploads cannot pass the cap together.
+          const inserted = yield* query(async () =>
+            cf.DB.prepare(
+              // A sign-in that completes while this upload runs has already set logins.user_id; the upload goes to that user.
+              `INSERT INTO documents (id, user_id, login_id, filename, format, sha256, page_count, created_at, upload_id)
+             SELECT ?1, COALESCE((SELECT user_id FROM logins WHERE id = ?2), ?3), ?2, ?4, ?5, ?6, ?7, ?8, ?11
+             WHERE ?2 IS NULL OR (
+               (SELECT COALESCE(SUM(page_count), 0) FROM documents WHERE login_id = ?2) + ?7 <= ?9 AND
+               (SELECT COALESCE(SUM(page_count), 0) FROM documents WHERE user_id = ?10 AND login_id IN
+                 (SELECT id FROM logins WHERE ip = (SELECT ip FROM logins WHERE id = ?2))) + ?7 <= ?9 * 2
+             )`,
             )
-            .run(),
-        );
-        if (inserted.meta.changes !== 1) {
-          yield* query(() => cf.BLOBS.delete([sourceKey(documentId, format), documentKey(documentId)]));
-          return yield* new HttpApiError.BadRequest({});
-        }
-        yield* query(() => Promise.all(pages.map((page, index) => cf.BLOBS.put(pagePdfKey(pageIdOf(documentId, index)), page))));
-        yield* query(() =>
-          cf.DB.batch(
-            pages.map((_, index) =>
-              cf.DB.prepare("INSERT OR IGNORE INTO pages (id, document_id, page_index, rendered) VALUES (?, ?, ?, 0)").bind(
-                pageIdOf(documentId, index),
+              .bind(
                 documentId,
-                index,
+                loginId,
+                userId,
+                filename ?? `document.${format}`,
+                format,
+                await sha256(bytes),
+                pages.length,
+                Date.now(),
+                max,
+                PENDING_USER,
+                loginId === null ? (upload ?? null) : null,
+              )
+              .run(),
+          );
+          if (inserted.meta.changes !== 1) return yield* overCap;
+          yield* query(() =>
+            Promise.all(pages.map((page, index) => cf.BLOBS.put(pagePdfKey(pageIdOf(documentId, index)), page))),
+          );
+          yield* query(() =>
+            cf.DB.batch(
+              pages.map((_, index) =>
+                cf.DB.prepare("INSERT OR IGNORE INTO pages (id, document_id, page_index, rendered) VALUES (?, ?, ?, 0)").bind(
+                  pageIdOf(documentId, index),
+                  documentId,
+                  index,
+                ),
               ),
             ),
+          );
+        }).pipe(
+          // Remove whatever was written, so a failed upload leaves no blobs or rows behind.
+          Effect.onError(() =>
+            Effect.all([
+              query(() => cf.BLOBS.delete(blobKeys)),
+              query(() =>
+                cf.DB.batch([
+                  cf.DB.prepare("DELETE FROM pages WHERE document_id = ?").bind(documentId),
+                  cf.DB.prepare("DELETE FROM documents WHERE id = ?").bind(documentId),
+                ]),
+              ),
+            ]).pipe(Effect.catch(() => Effect.sync(() => console.error("Upload cleanup failed", documentId)))),
           ),
         );
-        yield* query(() => cf.DOCUMENT_WORKFLOW.create({ id: documentId, params: { documentId, pageCount: pages.length } }));
+        yield* createWorkflow(cf.DOCUMENT_WORKFLOW, documentId, { documentId, pageCount: pages.length }).pipe(
+          // It only renders page images ahead of a run; each PageWorkflow renders its own page if this never ran.
+          Effect.catchTag("WorkflowNotStarted", (error) =>
+            Effect.sync(() => console.error("Document workflow not started", documentId, error.cause)),
+          ),
+        );
         return { documentId, pageCount: pages.length };
-      }),
+      }).pipe(Effect.catchTag("InvalidDocument", (error) => Effect.fail(new BadRequest({ error: error.message })))),
     )
     .handle("uploaded", ({ query: { upload } }) =>
       Effect.gen(function* () {
@@ -594,12 +667,14 @@ const TitlesLive = HttpApiBuilder.group(Api, "titles", (handlers) =>
       const { filenames } = payload;
       const request = yield* HttpServerRequest.HttpServerRequest;
       const key = (yield* signedInUser) ?? (yield* query(() => pendingLogin(cf, request.headers.cookie)));
-      if (key === null) return yield* new HttpApiError.Unauthorized({});
+      if (key === null) return yield* unauthorized;
       const limiter = cf.TITLE_LIMIT;
       if (limiter !== undefined && !(yield* query(() => limiter.limit({ key }))).success) {
-        return yield* new HttpApiError.BadRequest({});
+        return yield* new TooManyRequests({ error: "Too many title requests. Wait a minute and retry." });
       }
-      if (filenames.length === 0 || filenames.length > 1000) return yield* new HttpApiError.BadRequest({});
+      if (filenames.length === 0 || filenames.length > 1000) {
+        return yield* new BadRequest({ error: "Send between 1 and 1,000 filenames." });
+      }
       return {
         title: yield* query(() =>
           generateTitle(
@@ -617,24 +692,30 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
     .handle("create", ({ payload }) =>
       Effect.gen(function* () {
         const userId = yield* currentUser;
-        const presetIds = payload.presetIds ?? DEFAULT_PRESET_IDS;
-        if (payload.documentIds.length === 0 || presetIds.length === 0) return yield* new HttpApiError.BadRequest({});
+        const presetIds = [...new Set(payload.presetIds ?? DEFAULT_PRESET_IDS)];
+        const documentIds = [...new Set(payload.documentIds)];
+        if (documentIds.length === 0 || presetIds.length === 0) {
+          return yield* new BadRequest({ error: "Pick at least one document and one preset." });
+        }
         for (const id of presetIds) {
           const preset = findPreset(id);
-          if (preset === undefined) return yield* new HttpApiError.BadRequest({});
+          if (preset === undefined) return yield* new BadRequest({ error: `Unknown preset ${id}.` });
           if (!preset.hosted && payload.credentials?.[preset.provider] === undefined)
-            return yield* new HttpApiError.BadRequest({});
+            return yield* new BadRequest({ error: `Preset ${id} needs your ${preset.provider} key in credentials.` });
         }
         const owned = yield* query(() =>
           cf.DB.prepare(
             `SELECT COALESCE(SUM(page_count), 0) AS pages, COUNT(*) AS n FROM documents
              WHERE user_id = ? AND id IN (SELECT value FROM json_each(?))`,
           )
-            .bind(userId, JSON.stringify(payload.documentIds))
+            .bind(userId, JSON.stringify(documentIds))
             .first<{ pages: number; n: number }>(),
         );
-        if (owned?.n !== payload.documentIds.length || owned.pages > Number(cf.MAX_PAGES_PER_RUN)) {
-          return yield* new HttpApiError.BadRequest({});
+        if (owned?.n !== documentIds.length) {
+          return yield* new BadRequest({ error: "Some documents are not yours, or were deleted." });
+        }
+        if (owned.pages > Number(cf.MAX_PAGES_PER_RUN)) {
+          return yield* new BadRequest({ error: `A run can have at most ${cf.MAX_PAGES_PER_RUN} pages.` });
         }
         const key = payload.idempotencyKey?.trim().slice(0, 200) || null;
         const existing = () =>
@@ -651,7 +732,7 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
             const rows = await cf.DB.prepare(
               `SELECT filename FROM documents WHERE user_id = ? AND id IN (SELECT value FROM json_each(?))`,
             )
-              .bind(userId, JSON.stringify(payload.documentIds))
+              .bind(userId, JSON.stringify(documentIds))
               .all<{ filename: string }>();
             return generateTitle(
               cf,
@@ -675,7 +756,7 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
                 `INSERT INTO runs (id, user_id, share_id, title, status, preset_ids, judge_version, judge_model, created_at, idempotency_key)
                VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?)`,
               ).bind(runId, userId, shareId, title, JSON.stringify(presetIds), JUDGE_VERSION, cf.JUDGE_MODEL, Date.now(), key),
-              ...payload.documentIds.map((documentId) =>
+              ...documentIds.map((documentId) =>
                 cf.DB.prepare("INSERT INTO run_documents (run_id, document_id) VALUES (?, ?)").bind(runId, documentId),
               ),
               ...credentials.map((c) =>
@@ -695,7 +776,25 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
           }
         });
         if (inserted !== null) return inserted;
-        yield* query(() => cf.RUN_WORKFLOW.create({ id: runId, params: { runId } }));
+        yield* createWorkflow(cf.RUN_WORKFLOW, runId, { runId }).pipe(
+          Effect.catchTag("WorkflowNotStarted", (error) =>
+            Effect.gen(function* () {
+              console.error("Run workflow not started", runId, error.cause);
+              // Fail the run now so it is never stuck in queued, drop its keys, and free the idempotency key so a
+              // retry creates a new run.
+              yield* query(() =>
+                cf.DB.batch([
+                  cf.DB.prepare(
+                    `UPDATE runs SET status = 'failed', error = 'The run could not be started.', completed_at = ?,
+                       idempotency_key = NULL WHERE id = ? AND status = 'queued'`,
+                  ).bind(Date.now(), runId),
+                  cf.DB.prepare("DELETE FROM run_credentials WHERE run_id = ?").bind(runId),
+                ]),
+              );
+              return yield* new ServiceUnavailable({ error: "The run could not be started. Retry the request." });
+            }),
+          ),
+        );
         return { runId, shareId };
       }),
     )
@@ -707,7 +806,7 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
             .bind(params.runId)
             .first<{ user_id: string; status: string }>(),
         );
-        if (row === null || row.user_id !== userId) return yield* new HttpApiError.NotFound({});
+        if (row === null || row.user_id !== userId) return yield* notFound;
         yield* query(() => deleteRun(cf, params.runId, scope));
       }),
     )
@@ -774,7 +873,7 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
         const title = payload.title?.trim().slice(0, 80) ?? null;
         const shareContent = payload.shareContent === undefined ? null : payload.shareContent ? 1 : 0;
         if (title === "" || (title === null && payload.visibility === undefined && shareContent === null))
-          return yield* new HttpApiError.BadRequest({});
+          return yield* new BadRequest({ error: "Send a non-empty title, visibility or shareContent." });
         const updated = yield* query(() =>
           cf.DB.prepare(
             `UPDATE runs SET title = COALESCE(?, title), visibility = COALESCE(?, visibility),
@@ -783,7 +882,7 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
             .bind(title, payload.visibility ?? null, shareContent, params.runId, userId)
             .run(),
         );
-        if (updated.meta.changes !== 1) return yield* new HttpApiError.NotFound({});
+        if (updated.meta.changes !== 1) return yield* notFound;
       }),
     )
     .handle("rotateLink", ({ params }) =>
@@ -793,7 +892,7 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
         const updated = yield* query(() =>
           cf.DB.prepare("UPDATE runs SET share_id = ? WHERE id = ? AND user_id = ?").bind(shareId, params.runId, userId).run(),
         );
-        if (updated.meta.changes !== 1) return yield* new HttpApiError.NotFound({});
+        if (updated.meta.changes !== 1) return yield* notFound;
         return { shareId };
       }),
     )
@@ -801,7 +900,7 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
     .handle("shared", ({ params }) => findRun("share_id", params.shareId))
     .handle("errors", ({ params }) =>
       Effect.gen(function* () {
-        if (!(yield* canOpenRun(params.runId))) return yield* new HttpApiError.NotFound({});
+        if (!(yield* canOpenRun(params.runId))) return yield* notFound;
         const rows = yield* query(() =>
           cf.DB.prepare(
             `SELECT v.page_id, d.filename, pg.page_index, v.preset_id, v.score, v.reasoning, v.errors, l.quotes
@@ -834,7 +933,7 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
     )
     .handle("page", ({ params }) =>
       Effect.gen(function* () {
-        if (!(yield* canOpenRun(params.runId))) return yield* new HttpApiError.NotFound({});
+        if (!(yield* canOpenRun(params.runId))) return yield* notFound;
         const rows = yield* query(() =>
           cf.DB.prepare(
             `SELECT p.preset_id, p.status, p.latency_ms, p.queue_ms, p.error, v.score, v.reasoning, v.errors, l.quotes
@@ -854,7 +953,7 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
               quotes: string | null;
             }>(),
         );
-        if (rows.results.length === 0) return yield* new HttpApiError.NotFound({});
+        if (rows.results.length === 0) return yield* notFound;
         const parses = yield* query(() =>
           Promise.all(
             rows.results.map(async (row) => ({
@@ -882,7 +981,7 @@ const account = Effect.gen(function* () {
       .bind(userId)
       .first<{ email: string; notify_on_done: number }>(),
   );
-  if (row === null) return yield* new HttpApiError.Unauthorized({});
+  if (row === null) return yield* unauthorized;
   return { email: row.email, notifyOnDone: row.notify_on_done === 1 };
 });
 
@@ -908,9 +1007,30 @@ const AccountLive = HttpApiBuilder.group(Api, "account", (handlers) =>
     ),
 );
 
+const DependenciesLive = Layer.succeed(Dependencies, (httpEffect) => httpEffect);
+
+/** Request decoding failures become JSON 400s. Any other defect is logged and becomes a JSON 500. */
+const DefectsAsJson = HttpRouter.middleware(
+  (httpEffect) =>
+    Effect.catchCause(httpEffect, (cause) => {
+      if (!Cause.hasDies(cause)) return Effect.failCause(cause);
+      const defect = Cause.squash(cause);
+      if (HttpApiError.HttpApiSchemaError.is(defect) && defect.kind !== "Body" && defect.kind !== "ResponseHeaders") {
+        const error = `Invalid request ${defect.kind.toLowerCase()}: ${defect.cause.message}`;
+        return Effect.succeed(HttpServerResponse.jsonUnsafe({ _tag: "BadRequest", error }, { status: 400 }));
+      }
+      console.error("Unhandled API error", Cause.pretty(cause));
+      return Effect.succeed(
+        HttpServerResponse.jsonUnsafe({ _tag: "InternalServerError", error: "Internal error." }, { status: 500 }),
+      );
+    }),
+  { global: true },
+);
+
 const ApiLive = HttpApiBuilder.layer(Api, { openapiPath: "/openapi.json" }).pipe(
   Layer.provide([AccountLive, PresetsLive, DocumentsLive, TitlesLive, RunsLive]),
+  Layer.provide(DependenciesLive),
   Layer.provide(HttpServer.layerServices),
 );
 
-export const { handler } = HttpRouter.toWebHandler(ApiLive);
+export const { handler } = HttpRouter.toWebHandler(Layer.mergeAll(ApiLive, DefectsAsJson));

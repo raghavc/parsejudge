@@ -58,8 +58,9 @@ export const stopRun = async (env: Env, runId: string) => {
       const instance = await binding.get(id);
       const { status } = await instance.status();
       if (status !== "complete" && status !== "errored" && status !== "terminated") await instance.terminate();
-    } catch {
-      // Not created yet, or already gone.
+    } catch (error) {
+      // Not created yet, or already gone. Anything else fails the stop, so a run is never deleted while it still runs.
+      if (!String(error).includes("instance.not_found")) throw error;
     }
   };
   await terminate(env.RUN_WORKFLOW, runId);
