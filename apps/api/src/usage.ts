@@ -1,4 +1,5 @@
-import { Schema } from "effect";
+import { Data, Duration, Effect, Schema } from "effect";
+import { HttpClient, HttpClientRequest } from "effect/http";
 import type { Env } from "./env.ts";
 
 /** One paid call: a provider parse, a judge call, or a small-model call (page note, error locations, run title). */
@@ -22,9 +23,11 @@ export interface Usage {
  * Columns: index1 = run id; blob1..5 = kind, name, run id, page id, status;
  * double1..6 = cost USD, latency ms, queue ms, prompt tokens, completion tokens, reasoning tokens.
  */
-export const recordUsage = (env: Env, usage: Usage): void => {
-  console.log(JSON.stringify({ event: "usage", ...usage }));
-  env.USAGE?.writeDataPoint({
+export const recordUsage = (env: Env, usage: Usage) =>
+  Effect.logInfo({ event: "usage", ...usage }).pipe(
+    Effect.andThen(
+      Effect.sync(() =>
+        env.USAGE?.writeDataPoint({
     indexes: [usage.runId ?? ""],
     blobs: [usage.kind, usage.name, usage.runId ?? "", usage.pageId ?? "", usage.status],
     doubles: [
@@ -35,8 +38,10 @@ export const recordUsage = (env: Env, usage: Usage): void => {
       usage.completionTokens ?? 0,
       usage.reasoningTokens ?? 0,
     ],
-  });
-};
+        }),
+      ),
+    ),
+  );
 
 const num = (value: unknown): number => (typeof value === "number" && Number.isFinite(value) ? value : 0);
 
@@ -64,16 +69,41 @@ const Completion = Schema.Struct({
   usage: Schema.optional(Schema.Unknown),
 });
 
+/** An OpenRouter call failed. The workflow step retries it. */
+export class CompletionFailed extends Data.TaggedError("CompletionFailed")<{ readonly message: string }> {
+  readonly retryable = true;
+}
+
 /**
- * Reads an OpenRouter chat completion. Throws on an HTTP error, on an `error` body (OpenRouter can answer 200 with
- * one, for example an upstream 429), and on a body that is not a completion.
+ * Sends an OpenRouter chat completion and reads it. Fails on an HTTP error, on an `error` body (OpenRouter can answer
+ * 200 with one, for example an upstream 429), on a body that is not a completion, and after `timeout`.
  */
-export const readCompletion = async (response: Response): Promise<{ readonly content: string; readonly usage: unknown }> => {
-  const text = await response.text();
-  if (!response.ok) throw new Error(`OpenRouter ${response.status}: ${text.slice(0, 500)}`);
-  const data = Schema.decodeUnknownSync(Schema.fromJsonString(Completion))(text);
-  if (data.error !== undefined && data.error !== null) {
-    throw new Error(`OpenRouter error ${String(data.error.code ?? "")}: ${data.error.message ?? text.slice(0, 500)}`);
-  }
-  return { content: data.choices?.[0]?.message?.content ?? "", usage: data.usage };
-};
+export const complete = Effect.fn("openrouter.complete")(
+  function* (env: Env, body: Record<string, unknown>, _timeout: Duration.Input) {
+    const client = yield* HttpClient.HttpClient;
+    const failed = (error: unknown) => new CompletionFailed({ message: String(error) });
+    const response = yield* client
+      .execute(
+        HttpClientRequest.post(`${env.JUDGE_BASE_URL}/chat/completions`).pipe(
+          HttpClientRequest.bearerToken(env.JUDGE_API_KEY),
+          HttpClientRequest.bodyJsonUnsafe(body),
+        ),
+      )
+      .pipe(Effect.mapError(failed));
+    const text = yield* response.text.pipe(Effect.mapError(failed));
+    if (response.status < 200 || response.status >= 300)
+      return yield* new CompletionFailed({ message: `OpenRouter ${response.status}: ${text.slice(0, 500)}` });
+    const data = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(Completion))(text).pipe(Effect.mapError(failed));
+    if (data.error !== undefined && data.error !== null) {
+      return yield* new CompletionFailed({
+        message: `OpenRouter error ${String(data.error.code ?? "")}: ${data.error.message ?? text.slice(0, 500)}`,
+      });
+    }
+    return { content: data.choices?.[0]?.message?.content ?? "", usage: data.usage };
+  },
+  (effect, _env, _body, timeout) =>
+    Effect.timeoutOrElse(effect, {
+      duration: timeout,
+      orElse: () => Effect.fail(new CompletionFailed({ message: `OpenRouter timed out after ${String(timeout)}` })),
+    }),
+);

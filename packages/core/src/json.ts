@@ -1,3 +1,5 @@
+import { Schema } from "effect";
+
 export type JsonRecord = Readonly<Record<string, unknown>>;
 
 export const isRecord = (value: unknown): value is JsonRecord =>
@@ -22,3 +24,6 @@ export const bytesToBase64 = (bytes: Uint8Array): string => {
   }
   return btoa(binary);
 };
+
+/** Parses JSON text. Fails with a `SchemaError` on invalid JSON. */
+export const decodeJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown));

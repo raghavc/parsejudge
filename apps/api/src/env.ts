@@ -1,4 +1,4 @@
-import { Data, Schema } from "effect";
+import { Data, Effect, Schema } from "effect";
 import type { Converter } from "./converter.ts";
 import type { DocumentWorkflowParams, PageWorkflowParams, RunWorkflowParams } from "./workflows.ts";
 
@@ -81,13 +81,11 @@ export class InvalidEnv extends Data.TaggedError("InvalidEnv")<{ readonly messag
 const decoded = new WeakMap<object, InvalidEnv | null>();
 
 /** Why the deployment's env is unusable, or null. Decoded once per env object. */
-export const envError = (env: Env): InvalidEnv | null => {
-  let error = decoded.get(env);
-  if (error === undefined) {
-    const result = Schema.decodeUnknownExit(EnvVars)(env, { errors: "all" });
-    error = result._tag === "Success" ? null : new InvalidEnv({ message: String(result.cause) });
-    decoded.set(env, error);
-    if (error !== null) console.error(JSON.stringify({ event: "invalid_env", error: error.message }));
-  }
-  return error;
+export const envError = (env: Env): Effect.Effect<InvalidEnv | null> => {
+  const known = decoded.get(env);
+  if (known !== undefined) return Effect.succeed(known);
+  const result = Schema.decodeUnknownExit(EnvVars)(env, { errors: "all" });
+  const error = result._tag === "Success" ? null : new InvalidEnv({ message: String(result.cause) });
+  decoded.set(env, error);
+  return error === null ? Effect.succeed(null) : Effect.logError("invalid_env", error.message).pipe(Effect.as(error));
 };

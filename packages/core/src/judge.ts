@@ -27,18 +27,21 @@ export interface JudgeInput {
   readonly markdownByPreset: Readonly<Record<string, string>>;
 }
 
-const sha256Hex = async (text: string): Promise<string> => {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-};
+const sha256Hex = (text: string) =>
+  Effect.promise(() => crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))).pipe(
+    Effect.map((digest) => [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("")),
+  );
 
 /** Deterministic blinding: labels `parse_a`, `parse_b`, ... assigned by sha256(pageId:presetId) order. */
 export const blindLabels = (pageId: string, presetIds: ReadonlyArray<string>) =>
-  Effect.promise(async () => {
-    const keyed = await Promise.all(presetIds.map(async (id) => ({ id, key: await sha256Hex(`${pageId}:${id}`) })));
-    keyed.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
-    return Object.fromEntries(keyed.map(({ id }, index) => [`parse_${String.fromCharCode(97 + index)}`, id]));
-  });
+  Effect.forEach(presetIds, (id) => sha256Hex(`${pageId}:${id}`).pipe(Effect.map((key) => ({ id, key }))), {
+    concurrency: "unbounded",
+  }).pipe(
+    Effect.map((keyed) => {
+      const sorted = [...keyed].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+      return Object.fromEntries(sorted.map(({ id }, index) => [`parse_${String.fromCharCode(97 + index)}`, id]));
+    }),
+  );
 
 /** Replaces the blind labels the judge saw (`parse_a`) with the preset labels they stand for. */
 export const unblind = (text: string, labelToPreset: Readonly<Record<string, string>>) =>

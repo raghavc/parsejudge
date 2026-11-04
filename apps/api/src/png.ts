@@ -1,3 +1,5 @@
+import { Effect } from "effect";
+
 const CRC_TABLE = Uint32Array.from({ length: 256 }, (_, n) => {
   let c = n;
   for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
@@ -20,11 +22,13 @@ const chunk = (type: string, data: Uint8Array) => {
   return out;
 };
 
-const zlib = async (bytes: Uint8Array) =>
-  new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream("deflate"))).arrayBuffer());
+const zlib = (bytes: Uint8Array) =>
+  Effect.promise(() => new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream("deflate"))).arrayBuffer()).pipe(
+    Effect.map((buffer) => new Uint8Array(buffer)),
+  );
 
 /** Encodes a BGRA bitmap (PDFium's native layout) as an RGB PNG. */
-export const encodePng = async (bgra: Uint8Array, width: number, height: number, stride: number) => {
+export const encodePng = Effect.fn("encodePng")(function* (bgra: Uint8Array, width: number, height: number, stride: number) {
   const rowBytes = width * 3 + 1;
   const raw = new Uint8Array(rowBytes * height);
   for (let y = 0; y < height; y++) {
@@ -44,7 +48,7 @@ export const encodePng = async (bgra: Uint8Array, width: number, height: number,
   const parts = [
     new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     chunk("IHDR", header),
-    chunk("IDAT", await zlib(raw)),
+    chunk("IDAT", yield* zlib(raw)),
     chunk("IEND", new Uint8Array()),
   ];
   const png = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
@@ -54,4 +58,4 @@ export const encodePng = async (bgra: Uint8Array, width: number, height: number,
     offset += part.length;
   }
   return png;
-};
+});

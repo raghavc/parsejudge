@@ -1,6 +1,7 @@
-import { PRESETS } from "@parsejudge/core";
+import { decodeJson, PRESETS } from "@parsejudge/core";
+import { Effect } from "effect";
 import type { Env } from "./env.ts";
-import { openRouterUsage, readCompletion, recordUsage } from "./usage.ts";
+import { CompletionFailed, complete, openRouterUsage, recordUsage } from "./usage.ts";
 
 /** A page gets a note when its best and worst scores differ by this much, or a parse failed. Matches the report. */
 const NOTE_GAP = 3;
@@ -34,32 +35,38 @@ const namer = (presetIds: ReadonlyArray<string>) => (presetId: string) => {
   return siblings > 1 ? `${provider} ${preset.mode}` : provider;
 };
 
-/** Writes the page note for flagged pages. Throws on a model or HTTP error so the workflow step retries. */
-export const writePageNote = async (env: Env, runId: string, pageId: string): Promise<void> => {
-  const rows = await env.DB.prepare(
-    `SELECT p.preset_id, p.status, p.error, v.score, v.errors FROM parses p
+type Flag = { category: string; severity: string; description: string };
+
+/** Writes the page note for flagged pages. Fails on a model or HTTP error so the workflow step retries. */
+export const writePageNote = Effect.fn("writePageNote")(function* (env: Env, runId: string, pageId: string) {
+  const rows = yield* Effect.promise(() =>
+    env.DB.prepare(
+      `SELECT p.preset_id, p.status, p.error, v.score, v.errors FROM parses p
      LEFT JOIN verdicts v USING (run_id, page_id, preset_id) WHERE p.run_id = ? AND p.page_id = ?`,
-  )
-    .bind(runId, pageId)
-    .all<Row>();
+    )
+      .bind(runId, pageId)
+      .all<Row>(),
+  );
   const scores = rows.results.flatMap((r) => (r.status === "succeeded" && r.score !== null ? [r.score] : []));
   const failed = rows.results.some((r) => r.status !== "succeeded");
   if (!failed && (scores.length < 2 || Math.max(...scores) - Math.min(...scores) < NOTE_GAP)) return;
   const top = Math.max(...scores);
   const bottom = Math.min(...scores);
   const label = namer(rows.results.map((r) => r.preset_id));
-  const lines = rows.results.map((r) => {
-    if (r.status !== "succeeded") return `${label(r.preset_id)}: parse failed (${r.error ?? "no error message"})`;
-    const errors = JSON.parse(r.errors ?? "[]") as Array<{ category: string; severity: string; description: string }>;
-    const found = errors.map((e) => `${e.severity} ${e.category}: ${e.description}`).join("; ");
-    const place = r.score === null ? "not judged" : r.score === top ? "best" : r.score === bottom ? "worst" : "middle";
-    return `${label(r.preset_id)}: ${place}. Errors: ${found || "none"}`;
+  const lines = yield* Effect.forEach(rows.results, (r) => {
+    if (r.status !== "succeeded") return Effect.succeed(`${label(r.preset_id)}: parse failed (${r.error ?? "no error message"})`);
+    return decodeJson(r.errors ?? "[]").pipe(
+      Effect.map((decoded) => {
+        const found = (decoded as Array<Flag>).map((e) => `${e.severity} ${e.category}: ${e.description}`).join("; ");
+        const place = r.score === null ? "not judged" : r.score === top ? "best" : r.score === bottom ? "worst" : "middle";
+        return `${label(r.preset_id)}: ${place}. Errors: ${found || "none"}`;
+      }),
+    );
   });
   const startedAt = Date.now();
-  const response = await fetch(`${env.JUDGE_BASE_URL}/chat/completions`, {
-    method: "POST",
-    headers: { authorization: `Bearer ${env.JUDGE_API_KEY}`, "content-type": "application/json" },
-    body: JSON.stringify({
+  const { content, usage } = yield* complete(
+    env,
+    {
       model: env.SMALL_MODEL,
       max_tokens: 1000,
       reasoning: { effort: "low", exclude: true },
@@ -67,11 +74,10 @@ export const writePageNote = async (env: Env, runId: string, pageId: string): Pr
         { role: "system", content: PROMPT },
         { role: "user", content: lines.join("\n") },
       ],
-    }),
-    signal: AbortSignal.timeout(30_000),
-  });
-  const { content, usage } = await readCompletion(response);
-  recordUsage(env, {
+    },
+    "30 seconds",
+  );
+  yield* recordUsage(env, {
     kind: "note",
     name: env.SMALL_MODEL,
     runId,
@@ -81,8 +87,8 @@ export const writePageNote = async (env: Env, runId: string, pageId: string): Pr
     ...openRouterUsage(usage),
   });
   const note = content.trim();
-  if (!note || note.includes("\n")) throw new Error(`Unusable page note: ${JSON.stringify(note)}`);
-  await env.DB.prepare("INSERT OR REPLACE INTO page_notes (run_id, page_id, note) VALUES (?, ?, ?)")
-    .bind(runId, pageId, note)
-    .run();
-};
+  if (!note || note.includes("\n")) return yield* new CompletionFailed({ message: `Unusable page note: ${JSON.stringify(note)}` });
+  yield* Effect.promise(() =>
+    env.DB.prepare("INSERT OR REPLACE INTO page_notes (run_id, page_id, note) VALUES (?, ?, ?)").bind(runId, pageId, note).run(),
+  );
+});

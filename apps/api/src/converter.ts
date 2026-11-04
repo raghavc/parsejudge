@@ -19,27 +19,31 @@ const INSTANCES = 4;
 
 const convert = (env: Env, format: Exclude<DocumentFormat, "pdf">, bytes: Uint8Array) =>
   Effect.tryPromise({
-    try: async () => {
-      const converter = await getRandom(env.CONVERTER, INSTANCES);
-      return converter.fetch(
-        new Request("http://converter/convert", {
-          method: "POST",
-          headers: { "content-type": MIME_TYPES[format] },
-          body: bytes,
-        }),
-      );
-    },
+    try: () => getRandom(env.CONVERTER, INSTANCES),
     catch: (error) => new ConverterUnavailable({ message: String(error) }),
   }).pipe(
+    Effect.flatMap((converter) =>
+      Effect.tryPromise({
+        try: () =>
+          converter.fetch(
+            new Request("http://converter/convert", {
+              method: "POST",
+              headers: { "content-type": MIME_TYPES[format] },
+              body: bytes,
+            }),
+          ),
+        catch: (error) => new ConverterUnavailable({ message: String(error) }),
+      }),
+    ),
     Effect.flatMap(
       (response): Effect.Effect<Uint8Array, InvalidDocument | ConverterUnavailable> =>
         response.status === 422
           ? Effect.fail(new InvalidDocument({ message: `The ${format.toUpperCase()} file could not be converted.` }))
           : response.ok
             ? Effect.tryPromise({
-                try: async () => new Uint8Array(await response.arrayBuffer()),
+                try: () => response.arrayBuffer(),
                 catch: (error) => new ConverterUnavailable({ message: `Reading the converted PDF failed: ${error}` }),
-              })
+              }).pipe(Effect.map((buffer) => new Uint8Array(buffer)))
             : Effect.fail(new ConverterUnavailable({ message: `Converter returned ${response.status}` })),
     ),
     Effect.retry({

@@ -1,6 +1,7 @@
 import { Effect, Schema } from "effect";
 import { HttpClient, type HttpClientError, type HttpClientRequest } from "effect/http";
 import { isRetryableStatus, ProviderError } from "./errors.ts";
+import { decodeJson } from "./json.ts";
 
 export interface JsonResponse {
   readonly status: number;
@@ -54,11 +55,11 @@ export const sendJson = Effect.fn("http.sendJson")(function* (provider: string, 
     const body: unknown =
       text.length === 0
         ? null
-        : yield* Effect.try({
-            try: () => JSON.parse(text) as unknown,
-            catch: () =>
-              new ProviderError({ provider, retryable: true, message: `Invalid JSON: ${text.slice(0, MAX_ERROR_BODY)}` }),
-          });
+        : yield* decodeJson(text).pipe(
+            Effect.mapError(
+              () => new ProviderError({ provider, retryable: true, message: `Invalid JSON: ${text.slice(0, MAX_ERROR_BODY)}` }),
+            ),
+          );
     return { status: response.status, headers: response.headers, body } satisfies JsonResponse;
   }).pipe(
     Effect.timeoutOrElse({

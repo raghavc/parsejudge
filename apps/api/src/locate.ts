@@ -1,7 +1,9 @@
+import { decodeJson } from "@parsejudge/core";
+import { Effect } from "effect";
 import { marked } from "marked";
 import type { Env } from "./env.ts";
 import { markdownKey } from "./keys.ts";
-import { openRouterUsage, readCompletion, recordUsage } from "./usage.ts";
+import { complete, openRouterUsage, recordUsage } from "./usage.ts";
 
 /** One place an error appears: `text` occurs in the output's visible text, and `occurrence` picks which match (1-based). */
 export interface Quote {
@@ -73,10 +75,12 @@ export const checkQuotes = (text: string, quotes: ReadonlyArray<Quote>): Array<s
   return problems;
 };
 
-const parseReply = (content: string): Map<number, Array<Quote>> => {
-  const json = content.slice(content.indexOf("{"), content.lastIndexOf("}") + 1);
-  const data = JSON.parse(json) as { errors?: Array<{ error?: number; quotes?: Array<Partial<Quote> | string> }> };
-  const found = new Map<number, Array<Quote>>();
+/** The model's excerpts by error number, or None when the reply is not valid JSON. */
+const parseReply = (content: string) =>
+  decodeJson(content.slice(content.indexOf("{"), content.lastIndexOf("}") + 1)).pipe(
+    Effect.map((decoded) => {
+      const data = decoded as { errors?: Array<{ error?: number; quotes?: Array<Partial<Quote> | string> }> };
+      const found = new Map<number, Array<Quote>>();
   for (const item of data.errors ?? []) {
     if (typeof item.error !== "number") continue;
     found.set(
@@ -88,43 +92,37 @@ const parseReply = (content: string): Map<number, Array<Quote>> => {
       ),
     );
   }
-  return found;
-};
+      return found;
+    }),
+    Effect.option,
+  );
 
 type Message = { role: "system" | "user" | "assistant"; content: string };
 
 type Where = { readonly runId?: string; readonly pageId?: string };
 
-const complete = async (env: Env, messages: ReadonlyArray<Message>, where: Where): Promise<string> => {
+const ask = (env: Env, messages: ReadonlyArray<Message>, where: Where) => {
   const startedAt = Date.now();
-  const response = await fetch(`${env.JUDGE_BASE_URL}/chat/completions`, {
-    method: "POST",
-    headers: { authorization: `Bearer ${env.JUDGE_API_KEY}`, "content-type": "application/json" },
-    body: JSON.stringify({ model: env.SMALL_MODEL, max_tokens: 2000, messages }),
-    signal: AbortSignal.timeout(60_000),
-  });
-  const { content, usage } = await readCompletion(response);
-  recordUsage(env, {
-    kind: "locate",
-    name: env.SMALL_MODEL,
-    ...where,
-    status: "ok",
-    latencyMs: Date.now() - startedAt,
-    ...openRouterUsage(usage),
-  });
-  return content;
+  return complete(env, { model: env.SMALL_MODEL, max_tokens: 2000, messages }, "60 seconds").pipe(
+    Effect.tap(({ usage }) =>
+      recordUsage(env, {
+        kind: "locate",
+        name: env.SMALL_MODEL,
+        ...where,
+        status: "ok",
+        latencyMs: Date.now() - startedAt,
+        ...openRouterUsage(usage),
+      }),
+    ),
+    Effect.map(({ content }) => content),
+  );
 };
 
 /**
  * Finds the excerpts of the output each judge error is about. The model's excerpts are checked against the output, and
  * the problems go back to it until every error has excerpts that match one place, or the rounds run out.
  */
-export const locate = async (
-  env: Env,
-  markdown: string,
-  flags: ReadonlyArray<Flag>,
-  where: Where = {},
-): Promise<Array<Array<Quote>>> => {
+export const locate = Effect.fn("locate")(function* (env: Env, markdown: string, flags: ReadonlyArray<Flag>, where: Where = {}) {
   const text = visibleText(markdown);
   const located: Array<Array<Quote> | undefined> = flags.map(() => undefined);
   const list = flags.map((f, i) => `${i + 1}. ${f.severity} ${f.category}: ${f.description}`).join("\n");
@@ -134,14 +132,14 @@ export const locate = async (
   ];
   let last = new Map<number, Array<Quote>>();
   for (let round = 0; round < ROUNDS && located.includes(undefined); round++) {
-    const reply = await complete(env, messages, where);
+    const reply = yield* ask(env, messages, where);
     messages.push({ role: "assistant", content: reply });
-    try {
-      last = parseReply(reply);
-    } catch {
+    const parsed = yield* parseReply(reply);
+    if (parsed._tag === "None") {
       messages.push({ role: "user", content: "That was not valid JSON. Reply with JSON only, in the form given." });
       continue;
     }
+    last = parsed.value;
     const feedback: Array<string> = [];
     for (const [i, done] of located.entries()) {
       if (done !== undefined) continue;
@@ -158,19 +156,24 @@ export const locate = async (
     }
   }
   return located.map((quotes, i) => quotes ?? (last.get(i + 1) ?? []).filter((q) => checkQuotes(text, [q]).length === 0));
-};
+});
 
-/** Locates the errors of one judged parse and stores them. Throws on a model, HTTP or OpenRouter error so the workflow step retries. */
-export const writeLocations = async (env: Env, runId: string, pageId: string, presetId: string): Promise<void> => {
-  const row = await env.DB.prepare("SELECT errors FROM verdicts WHERE run_id = ? AND page_id = ? AND preset_id = ?")
-    .bind(runId, pageId, presetId)
-    .first<{ errors: string }>();
-  const flags = JSON.parse(row?.errors ?? "[]") as Array<Flag>;
+/** Locates the errors of one judged parse and stores them. Fails on a model, HTTP or OpenRouter error so the workflow step retries. */
+export const writeLocations = Effect.fn("writeLocations")(function* (env: Env, runId: string, pageId: string, presetId: string) {
+  const row = yield* Effect.promise(() =>
+    env.DB.prepare("SELECT errors FROM verdicts WHERE run_id = ? AND page_id = ? AND preset_id = ?")
+      .bind(runId, pageId, presetId)
+      .first<{ errors: string }>(),
+  );
+  const flags = (yield* decodeJson(row?.errors ?? "[]")) as Array<Flag>;
   if (flags.length === 0) return;
-  const markdown = await (await env.BLOBS.get(markdownKey(runId, pageId, presetId)))?.text();
-  if (markdown === undefined) return;
-  const quotes = await locate(env, markdown, flags, { runId, pageId });
-  await env.DB.prepare("INSERT OR REPLACE INTO page_locations (run_id, page_id, preset_id, quotes) VALUES (?, ?, ?, ?)")
-    .bind(runId, pageId, presetId, JSON.stringify(quotes))
-    .run();
-};
+  const object = yield* Effect.promise(() => env.BLOBS.get(markdownKey(runId, pageId, presetId)));
+  if (object === null) return;
+  const markdown = yield* Effect.promise(() => object.text());
+  const quotes = yield* locate(env, markdown, flags, { runId, pageId });
+  yield* Effect.promise(() =>
+    env.DB.prepare("INSERT OR REPLACE INTO page_locations (run_id, page_id, preset_id, quotes) VALUES (?, ?, ?, ?)")
+      .bind(runId, pageId, presetId, JSON.stringify(quotes))
+      .run(),
+  );
+});
