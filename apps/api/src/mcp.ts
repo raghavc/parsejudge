@@ -2,6 +2,8 @@ import type { OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { DEFAULT_PRESET_IDS, PRESETS, PROVIDERS } from "@parsejudge/core";
+import { Cause, Data, Duration, Effect } from "effect";
+import { FetchHttpClient, HttpClient, type HttpClientError } from "effect/http";
 import * as z from "zod";
 import { handler } from "./api.ts";
 import { type Env, envError } from "./env.ts";
@@ -26,14 +28,8 @@ Errors come back as JSON: {"error": "...", "status": 500}. start_run with an ide
 
 type Json = Record<string, unknown>;
 
-class ApiError extends Error {
-  constructor(
-    message: string,
-    readonly status?: number,
-  ) {
-    super(message);
-  }
-}
+/** A failure the tool reports to the agent as `{ error, status }`. */
+class ApiError extends Data.TaggedError("ApiError")<{ readonly message: string; readonly status?: number }> {}
 
 const describeStatus = (status: number) =>
   status === 404
@@ -52,21 +48,27 @@ const fail = (error: string, status?: number) => ({
   content: [{ type: "text" as const, text: JSON.stringify(status === undefined ? { error } : { error, status }) }],
 });
 
+/** An MCP tool callback: the SDK needs a Promise, so the tool's Effect runs here. */
 const tool =
-  <A>(run: (args: A) => Promise<unknown>) =>
-  async (args: A) => {
-    try {
-      return ok(await run(args));
-    } catch (error) {
-      if (error instanceof ApiError) return fail(error.message, error.status);
-      console.error("MCP tool failed", error);
-      return fail(`ParseJudge failed: ${error instanceof Error ? error.message : String(error)}`, 500);
-    }
-  };
+  <A, E>(run: (args: A) => Effect.Effect<unknown, E, HttpClient.HttpClient>) =>
+  (args: A) =>
+    Effect.runPromise(
+      run(args).pipe(
+        Effect.map(ok),
+        Effect.catchCause((cause) => {
+          const error = Cause.squash(cause);
+          if (error instanceof ApiError) return Effect.succeed(fail(error.message, error.status));
+          return Effect.logError("MCP tool failed", error).pipe(
+            Effect.as(fail(`ParseJudge failed: ${error instanceof Error ? error.message : String(error)}`, 500)),
+          );
+        }),
+        Effect.provide(FetchHttpClient.layer),
+      ),
+    );
 
 const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
   const base = env.PUBLIC_URL.replace(/\/+$/, "");
-  const call = async (method: string, path: string, body?: unknown): Promise<Json | null> => {
+  const call = Effect.fn("call")(function* (method: string, path: string, body?: unknown) {
     const headers = new Headers({ [INTERNAL_HEADER]: internalHeader(userId) });
     let payload: BodyInit | null = null;
     if (body instanceof ArrayBuffer) {
@@ -76,22 +78,53 @@ const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
       payload = JSON.stringify(body);
       headers.set("content-type", "application/json");
     }
-    const response = await handler(new Request(`${base}${path}`, { method, headers, body: payload }));
-    if (!response.ok) throw new ApiError(describeStatus(response.status), response.status);
-    return response.status === 204 ? null : ((await response.json()) as Json);
-  };
+    const response = yield* Effect.promise(() => handler(new Request(`${base}${path}`, { method, headers, body: payload })));
+    if (!response.ok) return yield* new ApiError({ message: describeStatus(response.status), status: response.status });
+    return response.status === 204 ? null : ((yield* Effect.promise(() => response.json())) as Json);
+  });
   const reportUrl = (shareId: unknown) => `${base}/r/${String(shareId)}`;
 
   /** A run by id, share id, or report URL. */
-  const findRun = async (ref: string): Promise<Json> => {
+  const findRun = (ref: string) => {
     const key = /\/r\/([^/?#]+)/.exec(ref)?.[1] ?? ref.trim();
-    try {
-      return (await call("GET", `/v1/runs/${encodeURIComponent(key)}`)) ?? {};
-    } catch (error) {
-      if (!(error instanceof ApiError && error.status === 404)) throw error;
-      return (await call("GET", `/v1/share/${encodeURIComponent(key)}`)) ?? {};
-    }
+    return call("GET", `/v1/runs/${encodeURIComponent(key)}`).pipe(
+      Effect.catchIf(
+        (error) => error.status === 404,
+        () => call("GET", `/v1/share/${encodeURIComponent(key)}`),
+      ),
+      Effect.map((run): Json => run ?? {}),
+    );
   };
+
+  /** Downloads a public http(s) file and uploads it like a browser upload. */
+  const uploadFromUrl = Effect.fn("uploadFromUrl")(function* (url: string, filename: string | undefined) {
+    const source = new URL(url);
+    if (source.protocol !== "https:" && source.protocol !== "http:") {
+      return yield* new ApiError({ message: "Only http and https URLs work." });
+    }
+    const bytes = yield* HttpClient.get(source.href).pipe(
+      Effect.flatMap(
+        (response): Effect.Effect<ArrayBuffer, ApiError | HttpClientError.HttpClientError> =>
+          response.status < 200 || response.status >= 300
+            ? Effect.fail(new ApiError({ message: `Downloading the file returned HTTP ${response.status}.` }))
+            : Number(response.headers["content-length"] ?? 0) > MAX_FETCH_BYTES
+              ? Effect.fail(new ApiError({ message: "The file is over 100 MB." }))
+              : response.arrayBuffer,
+      ),
+      Effect.timeoutOrElse({
+        duration: Duration.millis(FETCH_TIMEOUT_MS),
+        orElse: () => Effect.fail(new ApiError({ message: `Downloading the file took over ${FETCH_TIMEOUT_MS / 1000} s.` })),
+      }),
+      Effect.mapError((error) =>
+        error._tag === "ApiError" ? error : new ApiError({ message: `Could not download the file: ${error.message}` }),
+      ),
+    );
+    if (bytes.byteLength > MAX_FETCH_BYTES) return yield* new ApiError({ message: "The file is over 100 MB." });
+    const last = source.pathname.split("/").pop() ?? "";
+    const name =
+      filename ?? ((yield* Effect.try(() => decodeURIComponent(last)).pipe(Effect.orElseSucceed(() => last))) || "document");
+    return yield* call("POST", `/v1/documents?filename=${encodeURIComponent(name)}`, bytes);
+  });
 
   const server = new McpServer({ name: "parsejudge", version: "1.0.0" }, { instructions: INSTRUCTIONS });
   const read = { readOnlyHint: true, openWorldHint: false };
@@ -104,17 +137,19 @@ const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
         "Parser presets you can run. hosted=true runs free on ParseJudge's keys; the others need your own key, passed to start_run as credentials[provider][key] for each name in credentialKeys. default=true is in the default set.",
       annotations: read,
     },
-    tool(async () =>
-      PRESETS.map((preset) => ({
-        id: preset.id,
-        provider: preset.provider,
-        label: preset.label,
-        mode: preset.mode,
-        listPriceUsdPer1kPages: Math.round(preset.listPriceUsdPerPage * 1000 * 100) / 100,
-        hosted: preset.hosted,
-        default: DEFAULT_PRESET_IDS.includes(preset.id),
-        credentialKeys: preset.hosted ? [] : PROVIDERS[preset.provider].credentialKeys,
-      })),
+    tool(() =>
+      Effect.succeed(
+        PRESETS.map((preset) => ({
+          id: preset.id,
+          provider: preset.provider,
+          label: preset.label,
+          mode: preset.mode,
+          listPriceUsdPer1kPages: Math.round(preset.listPriceUsdPerPage * 1000 * 100) / 100,
+          hosted: preset.hosted,
+          default: DEFAULT_PRESET_IDS.includes(preset.id),
+          credentialKeys: preset.hosted ? [] : PROVIDERS[preset.provider].credentialKeys,
+        })),
+      ),
     ),
   );
 
@@ -124,20 +159,21 @@ const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
       description:
         "A URL for uploading local files, valid for 1 hour and for any number of files. PUT each file's raw bytes to <url>/<file name>; the response has the commands. Files can go up in parallel. Accepts PDF, images, DOCX, PPTX and XLSX. Every file is tagged with the uploadId: pass it to start_run to run all of them, without tracking document ids.",
     },
-    tool(async () => {
-      const { url, uploadId, expiresAt } = await signedUploadUrl(env, userId);
-      return {
-        uploadId,
-        url: `${url}/`,
-        method: "PUT",
-        expiresAt: new Date(expiresAt).toISOString(),
-        uploadFiles: `curl -sS --fail-with-body --parallel --parallel-max 16 -T "{a.pdf,b.docx}" "${url}/"`,
-        uploadFolder: `find ./docs -type f -print0 | xargs -0 -P 16 -I{} curl -sS --fail-with-body -T {} "${url}/"`,
-        notes:
-          'curl -T with a URL ending in "/" adds the file name to the URL. Each response is {documentId, pageCount}, or {filename, error} for a file that could not be read.',
-        next: `Call start_run with uploadId "${uploadId}".`,
-      };
-    }),
+    tool(() =>
+      signedUploadUrl(env, userId).pipe(
+        Effect.map(({ url, uploadId, expiresAt }) => ({
+          uploadId,
+          url: `${url}/`,
+          method: "PUT",
+          expiresAt: new Date(expiresAt).toISOString(),
+          uploadFiles: `curl -sS --fail-with-body --parallel --parallel-max 16 -T "{a.pdf,b.docx}" "${url}/"`,
+          uploadFolder: `find ./docs -type f -print0 | xargs -0 -P 16 -I{} curl -sS --fail-with-body -T {} "${url}/"`,
+          notes:
+            'curl -T with a URL ending in "/" adds the file name to the URL. Each response is {documentId, pageCount}, or {filename, error} for a file that could not be read.',
+          next: `Call start_run with uploadId "${uploadId}".`,
+        })),
+      ),
+    ),
   );
 
   server.registerTool(
@@ -147,12 +183,14 @@ const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
       inputSchema: { uploadId: z.string() },
       annotations: read,
     },
-    tool(async ({ uploadId }: { uploadId: string }) => {
-      const files = ((await call("GET", `/v1/documents?upload=${encodeURIComponent(uploadId)}`)) ?? []) as unknown as Array<{
-        pageCount: number;
-      }>;
-      return { uploadId, files: files.length, pages: files.reduce((n, f) => n + f.pageCount, 0), documents: files };
-    }),
+    tool(({ uploadId }: { uploadId: string }) =>
+      call("GET", `/v1/documents?upload=${encodeURIComponent(uploadId)}`).pipe(
+        Effect.map((body) => {
+          const files = (body ?? []) as unknown as Array<{ pageCount: number }>;
+          return { uploadId, files: files.length, pages: files.reduce((n, f) => n + f.pageCount, 0), documents: files };
+        }),
+      ),
+    ),
   );
 
   server.registerTool(
@@ -165,37 +203,7 @@ const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
         filename: z.string().optional().describe("Name to show in reports. Defaults to the last part of the URL path."),
       },
     },
-    tool(async ({ url, filename }: { url: string; filename?: string | undefined }) => {
-      const source = new URL(url);
-      if (source.protocol !== "https:" && source.protocol !== "http:") throw new ApiError("Only http and https URLs work.");
-      const download = async () => {
-        const response = await fetch(source, { redirect: "follow", signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
-        if (!response.ok) throw new ApiError(`Downloading the file returned HTTP ${response.status}.`);
-        if (Number(response.headers.get("content-length") ?? 0) > MAX_FETCH_BYTES) throw new ApiError("The file is over 100 MB.");
-        return response.arrayBuffer();
-      };
-      const bytes = await download().catch((error: unknown) => {
-        if (error instanceof ApiError) throw error;
-        throw new ApiError(
-          error instanceof Error && error.name === "TimeoutError"
-            ? `Downloading the file took over ${FETCH_TIMEOUT_MS / 1000} s.`
-            : `Could not download the file: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      });
-      if (bytes.byteLength > MAX_FETCH_BYTES) throw new ApiError("The file is over 100 MB.");
-      const last = source.pathname.split("/").pop() ?? "";
-      const name =
-        filename ??
-        ((() => {
-          try {
-            return decodeURIComponent(last);
-          } catch {
-            return last;
-          }
-        })() ||
-          "document");
-      return call("POST", `/v1/documents?filename=${encodeURIComponent(name)}`, bytes);
-    }),
+    tool(({ url, filename }: { url: string; filename?: string | undefined }) => uploadFromUrl(url, filename)),
   );
 
   server.registerTool(
@@ -215,29 +223,31 @@ const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
       'Your own keys by provider, e.g. {"llamaparse": {"LLAMA_CLOUD_API_KEY": "llx-..."}}. Stored encrypted with this run only.',
     );
 
-  const uploadedIds = async (uploadId: string) => {
-    const files = ((await call("GET", `/v1/documents?upload=${encodeURIComponent(uploadId)}`)) ?? []) as unknown as Array<{
+  const uploadedIds = Effect.fn("uploadedIds")(function* (uploadId: string) {
+    const files = ((yield* call("GET", `/v1/documents?upload=${encodeURIComponent(uploadId)}`)) ?? []) as unknown as Array<{
       documentId: string;
     }>;
-    if (files.length === 0) throw new ApiError(`Upload ${uploadId} has no files yet.`);
+    if (files.length === 0) return yield* new ApiError({ message: `Upload ${uploadId} has no files yet.` });
     return files.map((f) => f.documentId);
-  };
+  });
 
-  const startRun = async (args: {
+  const startRun = Effect.fn("startRun")(function* (args: {
     documentIds: ReadonlyArray<string>;
     presetIds?: ReadonlyArray<string> | undefined;
     title?: string | undefined;
     credentials?: Record<string, Record<string, string>> | undefined;
     idempotencyKey?: string | undefined;
-  }) => {
+  }) {
     for (const id of args.presetIds ?? []) {
       const preset = PRESETS.find((p) => p.id === id);
-      if (preset === undefined) throw new ApiError(`Unknown preset ${id}. Call list_providers for the ids.`);
+      if (preset === undefined) return yield* new ApiError({ message: `Unknown preset ${id}. Call list_providers for the ids.` });
       if (preset.hosted) continue;
       const missing = PROVIDERS[preset.provider].credentialKeys.filter((key) => !args.credentials?.[preset.provider]?.[key]);
-      if (missing.length > 0) throw new ApiError(`${preset.label} needs credentials.${preset.provider}: ${missing.join(", ")}.`);
+      if (missing.length > 0) {
+        return yield* new ApiError({ message: `${preset.label} needs credentials.${preset.provider}: ${missing.join(", ")}.` });
+      }
     }
-    const created = await call("POST", "/v1/runs", {
+    const created = yield* call("POST", "/v1/runs", {
       documentIds: args.documentIds,
       ...(args.presetIds === undefined ? {} : { presetIds: args.presetIds }),
       ...(args.title === undefined ? {} : { title: args.title }),
@@ -245,7 +255,7 @@ const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
       credentials: args.credentials ?? {},
     });
     return { ...created, reportUrl: reportUrl(created?.shareId), next: "Call get_run with the runId to follow progress." };
-  };
+  });
 
   server.registerTool(
     "start_run",
@@ -267,18 +277,18 @@ const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
       },
     },
     tool(
-      async ({
+      Effect.fn("start_run")(function* ({
         uploadId,
         documentIds,
         ...rest
       }: Omit<Parameters<typeof startRun>[0], "documentIds"> & {
         uploadId?: string | undefined;
         documentIds?: Array<string> | undefined;
-      }) => {
-        const ids = [...new Set([...(uploadId === undefined ? [] : await uploadedIds(uploadId)), ...(documentIds ?? [])])];
-        if (ids.length === 0) throw new ApiError("Pass uploadId or documentIds.");
-        return startRun({ ...rest, documentIds: ids });
-      },
+      }) {
+        const ids = [...new Set([...(uploadId === undefined ? [] : yield* uploadedIds(uploadId)), ...(documentIds ?? [])])];
+        if (ids.length === 0) return yield* new ApiError({ message: "Pass uploadId or documentIds." });
+        return yield* startRun({ ...rest, documentIds: ids });
+      }),
     ),
   );
 
@@ -289,18 +299,21 @@ const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
       inputSchema: { search: z.string().optional().describe("Only runs whose title contains this text.") },
       annotations: read,
     },
-    tool(async ({ search }: { search?: string | undefined }) => {
-      const rows = ((await call("GET", "/v1/runs")) ?? []) as unknown as Array<Json>;
-      return rows
-        .filter(
-          (row) =>
-            search === undefined ||
-            String(row.title ?? "")
-              .toLowerCase()
-              .includes(search.toLowerCase()),
-        )
-        .map((row) => ({ ...row, reportUrl: reportUrl(row.shareId) }));
-    }),
+    tool(({ search }: { search?: string | undefined }) =>
+      call("GET", "/v1/runs").pipe(
+        Effect.map((body) =>
+          ((body ?? []) as unknown as Array<Json>)
+            .filter(
+              (row) =>
+                search === undefined ||
+                String(row.title ?? "")
+                  .toLowerCase()
+                  .includes(search.toLowerCase()),
+            )
+            .map((row) => ({ ...row, reportUrl: reportUrl(row.shareId) })),
+        ),
+      ),
+    ),
   );
 
   server.registerTool(
@@ -316,7 +329,7 @@ const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
       annotations: read,
     },
     tool(
-      async ({
+      Effect.fn("get_run")(function* ({
         run: ref,
         includeDocuments,
         includeSummary,
@@ -324,8 +337,8 @@ const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
         run: string;
         includeDocuments: boolean;
         includeSummary: boolean;
-      }) => {
-        const run = await findRun(ref);
+      }) {
+        const run = yield* findRun(ref);
         const documents = run.documents as Array<{ id: string; filename: string; pages: Array<unknown> }>;
         const scores = run.scores as Array<{ status: string }>;
         const pages = documents.reduce((n, d) => n + d.pages.length, 0);
@@ -352,7 +365,7 @@ const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
           completedAt: run.completedAt,
           dataDeletedAt: run.dataDeletedAt,
         };
-      },
+      }),
     ),
   );
 
@@ -387,7 +400,7 @@ const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
       annotations: read,
     },
     tool(
-      async (args: {
+      Effect.fn("list_pages")(function* (args: {
         run: string;
         filter: "all" | "flagged" | "high";
         presetId?: string | undefined;
@@ -396,8 +409,8 @@ const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
         compact: boolean;
         cursor?: string | undefined;
         limit: number;
-      }) => {
-        const run = await findRun(args.run);
+      }) {
+        const run = yield* findRun(args.run);
         const scores = run.scores as Array<{
           pageId: string;
           presetId: string;
@@ -449,7 +462,7 @@ const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
                 },
           ),
         };
-      },
+      }),
     ),
   );
 
@@ -475,7 +488,7 @@ const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
       annotations: read,
     },
     tool(
-      async (args: {
+      Effect.fn("list_errors")(function* (args: {
         run: string;
         presetIds?: Array<string> | undefined;
         severities?: Array<string> | undefined;
@@ -483,9 +496,9 @@ const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
         includeReasoning: boolean;
         cursor?: string | undefined;
         limit: number;
-      }) => {
-        const run = await findRun(args.run);
-        const rows = ((await call("GET", `/v1/runs/${encodeURIComponent(String(run.id))}/errors`)) ??
+      }) {
+        const run = yield* findRun(args.run);
+        const rows = ((yield* call("GET", `/v1/runs/${encodeURIComponent(String(run.id))}/errors`)) ??
           []) as unknown as Array<RunErrorRow>;
         const errors = flattenErrors(rows, args);
         const { total, items, nextCursor } = paginate(errors, args.cursor, args.limit);
@@ -496,7 +509,7 @@ const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
           counts: countErrors(errors),
           errors: items.map((e) => (args.includeReasoning ? { ...e, reasoning: reasoning.get(`${e.pageId}:${e.presetId}`) } : e)),
         };
-      },
+      }),
     ),
   );
 
@@ -513,23 +526,32 @@ const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
       },
       annotations: read,
     },
-    tool(async (args: { run: string; pageId: string; presetIds?: Array<string> | undefined; includeMarkdown: boolean }) => {
-      const run = await findRun(args.run);
-      const page = await call("GET", `/v1/runs/${encodeURIComponent(String(run.id))}/pages/${encodeURIComponent(args.pageId)}`);
-      const parses = ((page?.parses ?? []) as Array<Json>)
-        .filter((p) => args.presetIds === undefined || args.presetIds.includes(String(p.presetId)))
-        .map((p) => (args.includeMarkdown ? p : { ...p, markdown: undefined }));
-      return { ...page, parses, url: `${reportUrl(run.shareId)}/p/${args.pageId}` };
-    }),
+    tool(
+      Effect.fn("get_page")(function* (args: {
+        run: string;
+        pageId: string;
+        presetIds?: Array<string> | undefined;
+        includeMarkdown: boolean;
+      }) {
+        const run = yield* findRun(args.run);
+        const page = yield* call(
+          "GET",
+          `/v1/runs/${encodeURIComponent(String(run.id))}/pages/${encodeURIComponent(args.pageId)}`,
+        );
+        const parses = ((page?.parses ?? []) as Array<Json>)
+          .filter((p) => args.presetIds === undefined || args.presetIds.includes(String(p.presetId)))
+          .map((p) => (args.includeMarkdown ? p : { ...p, markdown: undefined }));
+        return { ...page, parses, url: `${reportUrl(run.shareId)}/p/${args.pageId}` };
+      }),
+    ),
   );
 
   server.registerTool(
     "rename_run",
     { description: "Rename one of your runs.", inputSchema: { runId: z.string(), title: z.string().min(1).max(80) } },
-    tool(async ({ runId, title }: { runId: string; title: string }) => {
-      await call("PATCH", `/v1/runs/${encodeURIComponent(runId)}`, { title });
-      return { runId, title };
-    }),
+    tool(({ runId, title }: { runId: string; title: string }) =>
+      call("PATCH", `/v1/runs/${encodeURIComponent(runId)}`, { title }).pipe(Effect.as({ runId, title })),
+    ),
   );
 
   server.registerTool(
@@ -544,7 +566,7 @@ const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
       },
     },
     tool(
-      async ({
+      ({
         runId,
         visibility,
         shareContent,
@@ -552,10 +574,10 @@ const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
         runId: string;
         visibility?: "link" | "private" | undefined;
         shareContent?: boolean | undefined;
-      }) => {
-        await call("PATCH", `/v1/runs/${encodeURIComponent(runId)}`, { visibility, shareContent });
-        return { runId, visibility, shareContent };
-      },
+      }) =>
+        call("PATCH", `/v1/runs/${encodeURIComponent(runId)}`, { visibility, shareContent }).pipe(
+          Effect.as({ runId, visibility, shareContent }),
+        ),
     ),
   );
 
@@ -566,10 +588,11 @@ const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
       inputSchema: { runId: z.string() },
       annotations: { destructiveHint: true },
     },
-    tool(async ({ runId }: { runId: string }) => {
-      const rotated = await call("POST", `/v1/runs/${encodeURIComponent(runId)}/share-link`);
-      return { runId, shareId: rotated?.shareId, reportUrl: reportUrl(rotated?.shareId) };
-    }),
+    tool(({ runId }: { runId: string }) =>
+      call("POST", `/v1/runs/${encodeURIComponent(runId)}/share-link`).pipe(
+        Effect.map((rotated) => ({ runId, shareId: rotated?.shareId, reportUrl: reportUrl(rotated?.shareId) })),
+      ),
+    ),
   );
 
   server.registerTool(
@@ -580,10 +603,9 @@ const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
       inputSchema: { runId: z.string(), scope: z.enum(["data", "report"]) },
       annotations: { destructiveHint: true },
     },
-    tool(async ({ runId, scope }: { runId: string; scope: "data" | "report" }) => {
-      await call("DELETE", `/v1/runs/${encodeURIComponent(runId)}?scope=${scope}`);
-      return { runId, deleted: scope };
-    }),
+    tool(({ runId, scope }: { runId: string; scope: "data" | "report" }) =>
+      call("DELETE", `/v1/runs/${encodeURIComponent(runId)}?scope=${scope}`).pipe(Effect.as({ runId, deleted: scope })),
+    ),
   );
 
   server.registerTool(
@@ -614,10 +636,9 @@ const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
       inputSchema: { agentId: z.string().describe("id from list_connected_agents") },
       annotations: { destructiveHint: true },
     },
-    tool(async ({ agentId }: { agentId: string }) => {
-      await oauth.revokeGrant(agentId, userId);
-      return { disconnected: agentId };
-    }),
+    tool(({ agentId }: { agentId: string }) =>
+      Effect.promise(() => oauth.revokeGrant(agentId, userId)).pipe(Effect.as({ disconnected: agentId })),
+    ),
   );
 
   server.registerTool(
@@ -628,14 +649,27 @@ const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
       inputSchema: { confirm: z.literal("delete my data") },
       annotations: { destructiveHint: true },
     },
-    tool(async () => {
-      await call("DELETE", "/v1/account");
-      await revokeAgents(oauth, userId).catch((error: unknown) => {
-        console.error(JSON.stringify({ event: "mcp_revoke_after_delete_failed", error: String(error) }));
-        throw new ApiError("Your data is deleted, but disconnecting your agents failed. Their access no longer works.", 500);
-      });
-      return { deleted: true };
-    }),
+    tool(() =>
+      call("DELETE", "/v1/account").pipe(
+        Effect.andThen(
+          revokeAgents(oauth, userId).pipe(
+            Effect.catch((error) =>
+              Effect.logError({ event: "mcp_revoke_after_delete_failed", error: String(error) }).pipe(
+                Effect.andThen(
+                  Effect.fail(
+                    new ApiError({
+                      message: "Your data is deleted, but disconnecting your agents failed. Their access no longer works.",
+                      status: 500,
+                    }),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        Effect.as({ deleted: true }),
+      ),
+    ),
   );
 
   return server;
@@ -644,22 +678,28 @@ const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
 const jsonRpcError = (status: number, code: number, message: string) =>
   Response.json({ jsonrpc: "2.0", error: { code, message }, id: null }, { status });
 
+const serve = Effect.fn("serve")(function* (request: Request, env: Env, ctx: ExecutionContext, oauth: OAuthHelpers) {
+  if ((yield* envError(env)) !== null) return jsonRpcError(503, -32603, "ParseJudge is not configured on this server.");
+  const userId = (ctx.props as Partial<AgentProps> | undefined)?.userId;
+  if (typeof userId !== "string" || userId === "") {
+    return jsonRpcError(401, -32001, "This connection has no user. Connect ParseJudge again.");
+  }
+  const server = buildServer(env, userId, oauth);
+  const transport = new WebStandardStreamableHTTPServerTransport({ enableJsonResponse: true });
+  yield* Effect.promise(() => server.connect(transport));
+  return yield* Effect.promise(() => transport.handleRequest(request));
+});
+
 /** The MCP endpoint (Streamable HTTP, stateless). OAuthProvider has already checked the token. */
 export const mcpHandler = (oauth: (env: Env) => OAuthHelpers) => ({
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    if (envError(env) !== null) return jsonRpcError(503, -32603, "ParseJudge is not configured on this server.");
-    const userId = (ctx.props as Partial<AgentProps> | undefined)?.userId;
-    if (typeof userId !== "string" || userId === "") {
-      return jsonRpcError(401, -32001, "This connection has no user. Connect ParseJudge again.");
-    }
-    try {
-      const server = buildServer(env, userId, oauth(env));
-      const transport = new WebStandardStreamableHTTPServerTransport({ enableJsonResponse: true });
-      await server.connect(transport);
-      return await transport.handleRequest(request);
-    } catch (error) {
-      console.error(JSON.stringify({ event: "mcp_request_failed", error: String(error) }));
-      return jsonRpcError(500, -32603, "ParseJudge failed to handle the request. Retry.");
-    }
-  },
+  fetch: (request: Request, env: Env, ctx: ExecutionContext): Promise<Response> =>
+    Effect.runPromise(
+      Effect.suspend(() => serve(request, env, ctx, oauth(env))).pipe(
+        Effect.catchCause((cause) =>
+          Effect.logError({ event: "mcp_request_failed", error: String(Cause.squash(cause)) }).pipe(
+            Effect.as(jsonRpcError(500, -32603, "ParseJudge failed to handle the request. Retry.")),
+          ),
+        ),
+      ),
+    ),
 });
