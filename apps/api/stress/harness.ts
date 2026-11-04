@@ -32,6 +32,8 @@ interface Scenario {
   readonly kills?: ReadonlyArray<number>;
   /** Press Continue (`POST /v1/runs/:id/continue`) once on a run that is not terminal and has not changed for this long. */
   readonly continueWhenIdleSeconds?: number;
+  /** Also press Continue once on a run that failed (a run whose run workflow errored is marked failed when read). */
+  readonly continueFailed?: boolean;
   readonly deadlineMinutes: number;
 }
 
@@ -89,7 +91,7 @@ const SCENARIOS: Record<string, Scenario> = {
     pagesPerDoc: 40,
     presets: PRESETS,
     faults: NO_FAULTS,
-    batchDrop: 0.02,
+    batchDrop: 0.05,
     batchMode: "lost",
     continueWhenIdleSeconds: 60,
     deadlineMinutes: 15,
@@ -103,6 +105,7 @@ const SCENARIOS: Record<string, Scenario> = {
     faults: NO_FAULTS,
     stepFail: "1:^(summarize|record failure)$",
     continueWhenIdleSeconds: 60,
+    continueFailed: true,
     deadlineMinutes: 15,
   },
   /** Half of the judge calls get HTTP 200 `{"error": {"code": 429}}`; providers are clean. */
@@ -499,13 +502,16 @@ const main = async () => {
       console.log(
         `[${Math.round(elapsed)}s] terminal ${terminal.size}/${runIds.length}; cells ${rows.map((r) => `${r.status[0]}${r.cells}`).join(" ")}`,
       );
-      if (terminal.size === runIds.length && kills.length === 0) break;
+      const toContinue = (r: { id: string; status: string }) =>
+        scenario.continueFailed === true && r.status === "failed" && !continued.some((c) => c.runId === r.id);
+      if (terminal.size === runIds.length && kills.length === 0 && !rows.some(toContinue)) break;
       for (const row of rows) {
         const last = lastChange.get(row.id);
         if (last?.state !== row.state) lastChange.set(row.id, { at: Date.now(), state: row.state });
         const idle = (Date.now() - (lastChange.get(row.id)?.at ?? Date.now())) / 1000;
         const limit = scenario.continueWhenIdleSeconds;
-        if (limit === undefined || terminal.has(row.id) || idle < limit || continued.some((c) => c.runId === row.id)) continue;
+        const idleRunning = limit !== undefined && !terminal.has(row.id) && idle >= limit;
+        if ((!idleRunning && !toContinue(row)) || continued.some((c) => c.runId === row.id)) continue;
         const response = await fetch(`${API}/v1/runs/${row.id}/continue`, { method: "POST", headers: USER })
           .then(async (res) => `HTTP ${res.status} ${(await res.text()).slice(0, 300)}`)
           .catch((error: unknown) => `request failed: ${String(error)}`);
