@@ -4,7 +4,6 @@ import {
   DEFAULT_MAX_CONCURRENCY,
   decodeJson,
   findPreset,
-  type JudgeError,
   type PageInput,
   type PageResult,
   type ParseOutput,
