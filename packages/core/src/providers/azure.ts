@@ -1,7 +1,7 @@
 import { Effect, Option, Schema } from "effect";
 import { HttpClientRequest } from "effect/http";
 import { decodeBody, sendJson } from "../http.ts";
-import { string } from "../json.ts";
+import { bytesToBase64, string } from "../json.ts";
 import { credential, failure, jobFailure, type ProviderAdapter, pending } from "../provider.ts";
 
 const API_VERSION = "2024-11-30";
@@ -25,11 +25,13 @@ export const azure: ProviderAdapter = {
     url.searchParams.set("api-version", API_VERSION);
     url.searchParams.set("outputContentFormat", "markdown");
     if (features.length > 0) url.searchParams.set("features", features);
+    // Send the bytes: with urlSource, Azure sometimes fails its own download and answers 400 InvalidContent.
+    const bytes = yield* page.image;
     const response = yield* sendJson(
       "azure_document_intelligence",
       HttpClientRequest.post(url.toString()).pipe(
         HttpClientRequest.setHeader("Ocp-Apim-Subscription-Key", key),
-        HttpClientRequest.bodyJsonUnsafe({ urlSource: page.imageUrl }),
+        HttpClientRequest.bodyJsonUnsafe({ base64Source: bytesToBase64(bytes) }),
       ),
     );
     const operation = response.headers["operation-location"];
