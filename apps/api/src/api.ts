@@ -11,6 +11,7 @@ import { deleteRun, deleteUser } from "./deletion.ts";
 import type { Env } from "./env.ts";
 import { INTERNAL_HEADER, internalUser } from "./internal.ts";
 import { documentKey, markdownKey, pageId as pageIdOf, pagePdfKey, pagePngKey, sourceKey } from "./keys.ts";
+import { continueRun } from "./run.ts";
 import { generateTitle } from "./title.ts";
 
 const cf = env as unknown as Env;
@@ -306,6 +307,13 @@ export const Api = HttpApi.make("parsejudge")
           params: { runId: Schema.String },
           success: Schema.Struct({ shareId: Schema.String }),
           error: [Unauthorized, NotFound],
+        }),
+      )
+      .add(
+        HttpApiEndpoint.post("continue", "/v1/runs/:runId/continue", {
+          params: { runId: Schema.String },
+          success: Schema.Struct({ skipped: Schema.Number }),
+          error: [HttpApiError.Unauthorized, HttpApiError.NotFound, HttpApiError.Conflict],
         }),
       )
       .add(
@@ -894,6 +902,19 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
         );
         if (updated.meta.changes !== 1) return yield* notFound;
         return { shareId };
+      }),
+    )
+    .handle("continue", ({ params }) =>
+      Effect.gen(function* () {
+        const userId = yield* requireUser;
+        const row = yield* query(() =>
+          cf.DB.prepare("SELECT user_id FROM runs WHERE id = ?").bind(params.runId).first<{ user_id: string }>(),
+        );
+        if (row === null || row.user_id !== userId) return yield* new HttpApiError.NotFound({});
+        return yield* continueRun(cf, params.runId).pipe(
+          Effect.catchTag("RunNotStarted", () => Effect.fail(new HttpApiError.Conflict({}))),
+          Effect.orDie,
+        );
       }),
     )
     .handle("get", ({ params }) => findRun("id", params.runId))

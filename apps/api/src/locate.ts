@@ -1,7 +1,7 @@
 import { marked } from "marked";
 import type { Env } from "./env.ts";
 import { markdownKey } from "./keys.ts";
-import { openRouterUsage, recordUsage } from "./usage.ts";
+import { openRouterUsage, readCompletion, recordUsage } from "./usage.ts";
 
 /** One place an error appears: `text` occurs in the output's visible text, and `occurrence` picks which match (1-based). */
 export interface Quote {
@@ -103,17 +103,16 @@ const complete = async (env: Env, messages: ReadonlyArray<Message>, where: Where
     body: JSON.stringify({ model: env.SMALL_MODEL, max_tokens: 2000, messages }),
     signal: AbortSignal.timeout(60_000),
   });
-  if (!response.ok) throw new Error(`OpenRouter ${response.status}: ${await response.text()}`);
-  const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }>; usage?: unknown };
+  const { content, usage } = await readCompletion(response);
   recordUsage(env, {
     kind: "locate",
     name: env.SMALL_MODEL,
     ...where,
     status: "ok",
     latencyMs: Date.now() - startedAt,
-    ...openRouterUsage(data.usage),
+    ...openRouterUsage(usage),
   });
-  return data.choices?.[0]?.message?.content ?? "";
+  return content;
 };
 
 /**
@@ -161,7 +160,7 @@ export const locate = async (
   return located.map((quotes, i) => quotes ?? (last.get(i + 1) ?? []).filter((q) => checkQuotes(text, [q]).length === 0));
 };
 
-/** Locates the errors of one judged parse and stores them. Throws on a model or HTTP error so the workflow step retries. */
+/** Locates the errors of one judged parse and stores them. Throws on a model, HTTP or OpenRouter error so the workflow step retries. */
 export const writeLocations = async (env: Env, runId: string, pageId: string, presetId: string): Promise<void> => {
   const row = await env.DB.prepare("SELECT errors FROM verdicts WHERE run_id = ? AND page_id = ? AND preset_id = ?")
     .bind(runId, pageId, presetId)

@@ -1,13 +1,17 @@
+import { Schema } from "effect";
 import type { Env } from "./env.ts";
 
 /** Share of the judge key's spend limit at which on-call is paged. */
 const ALERT_AT = 0.8;
 
-interface KeyStatus {
-  readonly limit: number | null;
-  readonly limit_remaining: number | null;
-  readonly limit_reset: string | null;
-}
+/** OpenRouter `GET /key`; only the fields the alert reads. */
+const KeyStatus = Schema.Struct({
+  data: Schema.Struct({
+    limit: Schema.optional(Schema.NullOr(Schema.Number)),
+    limit_remaining: Schema.optional(Schema.NullOr(Schema.Number)),
+    limit_reset: Schema.optional(Schema.NullOr(Schema.String)),
+  }),
+});
 
 /** Start of the key's current limit period, so each period pages at most once. */
 const periodStart = (reset: string | null, now: Date): string => {
@@ -32,8 +36,8 @@ export const checkJudgeBudget = async (env: Env): Promise<void> => {
     headers: { authorization: `Bearer ${env.JUDGE_API_KEY}` },
   });
   if (!response.ok) throw new Error(`Judge key status returned ${response.status}`);
-  const { data } = (await response.json()) as { data: KeyStatus };
-  if (data.limit === null || data.limit <= 0 || data.limit_remaining === null) return;
+  const { data } = Schema.decodeUnknownSync(KeyStatus)(await response.json());
+  if (data.limit == null || data.limit <= 0 || data.limit_remaining == null) return;
   const used = data.limit - data.limit_remaining;
   if (used < data.limit * ALERT_AT) return;
   const alert = await fetch(env.BUDGET_ALERT_URL, {
@@ -46,8 +50,8 @@ export const checkJudgeBudget = async (env: Env): Promise<void> => {
       ),
       description: `Spent $${used.toFixed(2)} of $${data.limit.toFixed(2)}. When the limit is reached, pages stop being judged until it resets.`,
       status: "firing",
-      deduplication_key: `parsejudge-judge-budget-${periodStart(data.limit_reset, new Date())}`,
-      metadata: { used_usd: used, limit_usd: data.limit, limit_reset: data.limit_reset },
+      deduplication_key: `parsejudge-judge-budget-${periodStart(data.limit_reset ?? null, new Date())}`,
+      metadata: { used_usd: used, limit_usd: data.limit, limit_reset: data.limit_reset ?? null },
     }),
   });
   if (!alert.ok) throw new Error(`Budget alert returned ${alert.status}`);

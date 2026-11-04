@@ -5,16 +5,19 @@ import {
   findPreset,
   type JudgeError,
   type PageInput,
+  type PageResult,
   type ParseOutput,
   PROVIDERS,
   type ProviderError,
+  summarize,
 } from "@parsejudge/core";
-import { Effect, Option } from "effect";
+import { Data, Effect, Option } from "effect";
 import { FetchHttpClient, type HttpClient } from "effect/http";
 import { signedBlobUrl } from "./blobs.ts";
 import { decryptCredentials } from "./credentials.ts";
 import type { Env } from "./env.ts";
-import { markdownKey, pagePngKey, rawKey } from "./keys.ts";
+import type { RunEvents } from "./events.ts";
+import { markdownKey, pageId as pageIdOf, pagePngKey, rawKey } from "./keys.ts";
 import { recordUsage } from "./usage.ts";
 
 /** Runs an Effect inside a workflow step. Non-retryable errors stop the step's retries. */
@@ -152,3 +155,155 @@ export const providerPool = async (env: Env, cell: Cell): Promise<Pool> => {
 };
 
 export const judgePool = (env: Env): Pool => ({ name: "judge", limit: limitFor(env, "judge", DEFAULT_MAX_CONCURRENCY) });
+
+/** Error of a parse the owner skipped with Continue. Skipped parses are not results, so the summary leaves them out. */
+export const SKIPPED = "Skipped by user";
+
+/** Run workflow statuses that can still receive `pages-done` and summarize. */
+const ALIVE = new Set(["queued", "running", "paused", "waiting", "waitingForPause"]);
+
+/** Continue was pressed before the run started its pages, so there is nothing to skip yet. */
+export class RunNotStarted extends Data.TaggedError("RunNotStarted")<{ readonly runId: string }> {}
+
+/** A read or write that Continue needs failed. */
+export class ContinueFailed extends Data.TaggedError("ContinueFailed")<{ readonly step: string; readonly message: string }> {}
+
+export const runEvents = (env: Env, runId: string) =>
+  env.RUN_EVENTS.get(env.RUN_EVENTS.idFromName(runId)) as unknown as DurableObjectStub<RunEvents>;
+
+const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+/**
+ * Sets the run's final status and deletes its credentials. Returns whether the status changed:
+ * a failure never overwrites a run that already succeeded (for example one finished by Continue).
+ */
+export const finishRun = async (env: Env, runId: string, status: "succeeded" | "failed", error: string | null) => {
+  const [updated] = await env.DB.batch([
+    env.DB.prepare(
+      `UPDATE runs SET status = ?, error = ?, completed_at = ? WHERE id = ?${status === "failed" ? " AND status != 'succeeded'" : ""}`,
+    ).bind(status, error, Date.now(), runId),
+    env.DB.prepare("DELETE FROM run_credentials WHERE run_id = ?").bind(runId),
+  ]);
+  return (updated?.meta.changes ?? 0) > 0;
+};
+
+/** Computes the summary over the run's parses, stores it, and marks the run succeeded. */
+export const summarizeRun = async (env: Env, runId: string): Promise<void> => {
+  const parses = await env.DB.prepare(
+    `SELECT p.page_id, p.preset_id, p.status, p.latency_ms, p.queue_ms, p.cost_usd, p.cost_source, v.score, v.reasoning, v.errors
+     FROM parses p LEFT JOIN verdicts v USING (run_id, page_id, preset_id)
+     WHERE p.run_id = ? AND (p.error IS NULL OR p.error != ?)`,
+  )
+    .bind(runId, SKIPPED)
+    .all<Record<string, string | number | null>>();
+  const results: Array<PageResult> = parses.results.map((row) => ({
+    pageId: String(row.page_id),
+    presetId: String(row.preset_id),
+    status: row.status === "succeeded" ? "succeeded" : "failed",
+    ...(typeof row.latency_ms === "number" ? { latencyMs: row.latency_ms } : {}),
+    ...(typeof row.queue_ms === "number" ? { queueMs: row.queue_ms } : {}),
+    ...(typeof row.cost_usd === "number"
+      ? { cost: { usd: row.cost_usd, source: row.cost_source === "provider" ? "provider" : "list_price" } }
+      : {}),
+    ...(typeof row.score === "number"
+      ? {
+          verdict: {
+            presetId: String(row.preset_id),
+            score: row.score,
+            reasoning: String(row.reasoning),
+            errors: JSON.parse(String(row.errors)),
+          },
+        }
+      : {}),
+  }));
+  await env.DB.prepare("UPDATE runs SET summary = ? WHERE id = ?")
+    .bind(JSON.stringify(summarize(results)), runId)
+    .run();
+  await finishRun(env, runId, "succeeded", null);
+};
+
+const attempt = <A>(step: string, run: () => Promise<A>) =>
+  Effect.tryPromise({ try: run, catch: (error) => new ContinueFailed({ step, message: messageOf(error) }) });
+
+const logged = <A>(effect: Effect.Effect<A, ContinueFailed>, label: string, id: string) =>
+  effect.pipe(
+    Effect.catchTag("ContinueFailed", (error) => Effect.sync(() => console.error(label, id, error.step, error.message))),
+  );
+
+const runPageIds = async (env: Env, runId: string) => {
+  const documents = await env.DB.prepare(
+    "SELECT d.id, d.page_count FROM run_documents r JOIN documents d ON d.id = r.document_id WHERE r.run_id = ?",
+  )
+    .bind(runId)
+    .all<{ id: string; page_count: number }>();
+  return documents.results.flatMap((d) => Array.from({ length: d.page_count }, (_, index) => pageIdOf(d.id, index)));
+};
+
+/** Stops a skipped page's workflow, so it does not keep a slot or write results after the summary. */
+const stopPage = (env: Env, instanceId: string) =>
+  logged(
+    attempt("stop page", async () => {
+      const instance = await env.PAGE_WORKFLOW.get(instanceId);
+      if (ALIVE.has((await instance.status()).status)) await instance.terminate();
+    }),
+    "Could not stop skipped page",
+    instanceId,
+  );
+
+/** Sends `pages-done` to the run workflow. False when it can no longer summarize (errored, terminated, complete or gone). */
+const wakeWorkflow = (env: Env, instanceId: string) =>
+  attempt("wake run workflow", async () => {
+    const instance = await env.RUN_WORKFLOW.get(instanceId);
+    if (!ALIVE.has((await instance.status()).status)) return false;
+    await instance.sendEvent({ type: "pages-done", payload: { skipped: true } });
+    return true;
+  }).pipe(
+    Effect.catchTag("ContinueFailed", (error) =>
+      Effect.sync(() => {
+        console.warn("Run workflow unavailable; summarizing directly", instanceId, error.message);
+        return false;
+      }),
+    ),
+  );
+
+/**
+ * Continue: skips every page that has not reported done and summarizes the pages that finished. Each skipped page
+ * gets a failed parse with error `SKIPPED` for every preset without a parse. A waiting run workflow summarizes on
+ * `pages-done`; when the workflow cannot, the summary is written here. Idempotent.
+ */
+export const continueRun = Effect.fn("continueRun")(function* (env: Env, runId: string) {
+  const run = yield* attempt("load run", () =>
+    env.DB.prepare("SELECT status, preset_ids FROM runs WHERE id = ?")
+      .bind(runId)
+      .first<{ status: string; preset_ids: string }>(),
+  );
+  if (run === null || run.status === "succeeded") return { skipped: 0 };
+  const events = runEvents(env, runId);
+  const pageIds = yield* attempt("list pages", () => runPageIds(env, runId));
+  const state = yield* attempt("find pending pages", () => events.pending(pageIds));
+  if (state === null) return yield* new RunNotStarted({ runId });
+  if (state.pending.length > 0) {
+    yield* attempt("record skipped parses", () =>
+      env.DB.prepare(
+        `INSERT OR IGNORE INTO parses (run_id, page_id, preset_id, status, error)
+         SELECT ?, page.value, preset.value, 'failed', ? FROM json_each(?) page, json_each(?) preset`,
+      )
+        .bind(runId, SKIPPED, JSON.stringify(state.pending), run.preset_ids)
+        .run(),
+    );
+    yield* attempt("mark skipped pages done", () => events.skip(state.pending));
+    yield* Effect.forEach(state.pending, (page) => stopPage(env, `${state.workflow}-${page}`), {
+      concurrency: 10,
+      discard: true,
+    });
+  }
+  if (!(yield* wakeWorkflow(env, state.workflow))) {
+    yield* attempt("summarize", () => summarizeRun(env, runId));
+    yield* logged(
+      attempt("notify done", () => events.runDone("succeeded")),
+      "Run done event failed",
+      runId,
+    );
+  }
+  return { skipped: state.pending.length };
+});

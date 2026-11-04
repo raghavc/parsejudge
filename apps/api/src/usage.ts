@@ -1,3 +1,4 @@
+import { Schema } from "effect";
 import type { Env } from "./env.ts";
 
 /** One paid call: a provider parse, a judge call, or a small-model call (page note, error locations, run title). */
@@ -49,4 +50,30 @@ export const openRouterUsage = (usage: unknown) => {
     completionTokens: num(u.completion_tokens),
     reasoningTokens: num(details.reasoning_tokens),
   };
+};
+
+const Completion = Schema.Struct({
+  choices: Schema.optional(
+    Schema.Array(
+      Schema.Struct({ message: Schema.optional(Schema.Struct({ content: Schema.optional(Schema.NullOr(Schema.String)) })) }),
+    ),
+  ),
+  error: Schema.optional(
+    Schema.NullOr(Schema.Struct({ message: Schema.optional(Schema.String), code: Schema.optional(Schema.Unknown) })),
+  ),
+  usage: Schema.optional(Schema.Unknown),
+});
+
+/**
+ * Reads an OpenRouter chat completion. Throws on an HTTP error, on an `error` body (OpenRouter can answer 200 with
+ * one, for example an upstream 429), and on a body that is not a completion.
+ */
+export const readCompletion = async (response: Response): Promise<{ readonly content: string; readonly usage: unknown }> => {
+  const text = await response.text();
+  if (!response.ok) throw new Error(`OpenRouter ${response.status}: ${text.slice(0, 500)}`);
+  const data = Schema.decodeUnknownSync(Schema.fromJsonString(Completion))(text);
+  if (data.error !== undefined && data.error !== null) {
+    throw new Error(`OpenRouter error ${String(data.error.code ?? "")}: ${data.error.message ?? text.slice(0, 500)}`);
+  }
+  return { content: data.choices?.[0]?.message?.content ?? "", usage: data.usage };
 };
