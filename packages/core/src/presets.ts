@@ -78,7 +78,7 @@ export const PRESETS: ReadonlyArray<Preset> = [
     mode: "Performance, agentic",
     config: {
       engine: "parse_performance",
-      engineVersion: "2.0.0",
+      engineVersion: "2.1.0",
       target: "markdown",
       chunkingStrategy: { type: "page" },
       blockOptions: {

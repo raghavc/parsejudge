@@ -11,10 +11,11 @@ const Created = Schema.Struct({ id: Schema.String });
 const Job = Schema.Struct({
   job: Schema.Struct({ status: Schema.String, error_message: Schema.optional(Schema.NullOr(Schema.String)) }),
 });
-/** A page that failed has `success: false` and no markdown. */
+const Text = Schema.optional(Schema.NullOr(Schema.String));
+/** A page that failed has `success: false` and no markdown. Page headers and footers come apart from `markdown`. */
 const Completed = Schema.Struct({
   markdown: Schema.Struct({
-    pages: Schema.Array(Schema.Struct({ markdown: Schema.optional(Schema.String), success: Schema.optional(Schema.Boolean) })),
+    pages: Schema.Array(Schema.Struct({ markdown: Text, header: Text, footer: Text, success: Schema.optional(Schema.Boolean) })),
   }),
 });
 
@@ -45,10 +46,13 @@ export const llamaparse: ProviderAdapter = {
     if (RUNNING.has(status)) return Option.none();
     if (status !== "COMPLETED") return yield* jobFailure("llamaparse", status, error_message, response.body);
     const { pages } = (yield* decodeBody("llamaparse", Completed, response.body)).markdown;
-    const failed = pages.findIndex((page) => page.success === false || page.markdown === undefined);
+    const failed = pages.findIndex((page) => page.success === false || typeof page.markdown !== "string");
     if (failed !== -1) {
       return yield* failure("llamaparse", `page failed: ${snippet(array(record(record(response.body).markdown).pages)[failed])}`);
     }
-    return Option.some({ markdown: joinNonEmpty(pages.map((p) => p.markdown ?? "")), raw: response.body });
+    return Option.some({
+      markdown: joinNonEmpty(pages.flatMap((p) => [p.header ?? "", p.markdown ?? "", p.footer ?? ""])),
+      raw: response.body,
+    });
   }),
 };

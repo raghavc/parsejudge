@@ -11,10 +11,10 @@ type Block = Record<string, unknown>;
 
 const HEADINGS: Readonly<Record<string, string>> = { LAYOUT_TITLE: "# ", LAYOUT_SECTION_HEADER: "## " };
 
-const childIds = (block: Block): ReadonlyArray<string> =>
+const childIds = (block: Block, type = "CHILD"): ReadonlyArray<string> =>
   array(block.Relationships)
     .map(record)
-    .filter((relationship) => relationship.Type === "CHILD")
+    .filter((relationship) => relationship.Type === type)
     .flatMap((relationship) => array(relationship.Ids).flatMap((id) => (typeof id === "string" ? [id] : [])));
 
 const blockText = (block: Block, byId: ReadonlyMap<string, Block>): string => {
@@ -31,16 +31,39 @@ const blockText = (block: Block, byId: ReadonlyMap<string, Block>): string => {
     .join(" ");
 };
 
+/** Textract reports spans on MERGED_CELL blocks; their CELL children always span 1. Render each merge as one cell. */
 const tableHtml = (table: Block, byId: ReadonlyMap<string, Block>): string => {
+  const merged = new Map<string, Block>();
+  const covered = new Set<string>();
+  for (const id of childIds(table, "MERGED_CELL")) {
+    const merge = byId.get(id);
+    if (merge === undefined) continue;
+    const [first, ...rest] = childIds(merge);
+    if (first === undefined) continue;
+    merged.set(first, merge);
+    for (const cell of rest) covered.add(cell);
+  }
   const rows = new Map<number, Array<string>>();
   for (const id of childIds(table)) {
     const cell = byId.get(id);
-    if (cell === undefined || cell.BlockType !== "CELL") continue;
+    if (cell === undefined || cell.BlockType !== "CELL" || covered.has(id)) continue;
+    const merge = merged.get(id);
+    const spanned = merge ?? cell;
     const row = number(cell.RowIndex) ?? 0;
     const span = (name: string) =>
-      (number(cell[name]) ?? 1) > 1 ? ` ${name === "RowSpan" ? "rowspan" : "colspan"}="${number(cell[name])}"` : "";
+      (number(spanned[name]) ?? 1) > 1 ? ` ${name === "RowSpan" ? "rowspan" : "colspan"}="${number(spanned[name])}"` : "";
+    const text =
+      merge === undefined
+        ? blockText(cell, byId)
+        : childIds(merge)
+            .flatMap((child) => {
+              const block = byId.get(child);
+              return block === undefined ? [] : [blockText(block, byId)];
+            })
+            .filter((part) => part.length > 0)
+            .join(" ");
     const cells = rows.get(row) ?? [];
-    cells.push(`<td${span("RowSpan")}${span("ColumnSpan")}>${blockText(cell, byId)}</td>`);
+    cells.push(`<td${span("RowSpan")}${span("ColumnSpan")}>${text}</td>`);
     rows.set(row, cells);
   }
   const body = [...rows.entries()].sort(([a], [b]) => a - b).map(([, cells]) => `<tr>${cells.join("")}</tr>`);
@@ -74,7 +97,6 @@ export const textractMarkdown = (raw: unknown): string => {
       const table = tables[tableIndex++];
       return table === undefined ? blockText(block, byId) : tableHtml(table, byId);
     }
-    if (type === "LAYOUT_PAGE_NUMBER") return "";
     if (type === "LAYOUT_LIST") {
       const items = childIds(block)
         .map((id) => byId.get(id))

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { Effect, Exit, Layer, Option } from "effect";
 import { FetchHttpClient } from "effect/http";
 import { describe, expect, it } from "vitest";
@@ -70,6 +71,17 @@ describe("provider adapters", () => {
       markdown: { pages: [{ page_number: 1, success: false, error: "OCR timeout" }] },
     });
     expect(failureOf(exit)).toContain("OCR timeout");
+  });
+
+  it("keep the LlamaParse page header, which comes apart from the page markdown (recorded response)", async () => {
+    const recorded = JSON.parse(
+      readFileSync(new URL("fixtures/responses/llamaparse-agentic-header.json", import.meta.url), "utf8"),
+    );
+    const exit = await poll("llamaparse", recorded);
+    if (Exit.isFailure(exit)) throw new Error(String(exit.cause));
+    expect(Option.getOrThrow(exit.value).markdown).toMatch(
+      /^MONETARY POLICY REPORT: JULY 2024 47\n\n## \*\*Developments in the Federal Reserve/,
+    );
   });
 
   it("decode a completed Reducto job", async () => {

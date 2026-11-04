@@ -1,5 +1,10 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { textractMarkdown } from "../src/providers/textract.ts";
+
+/** A real AnalyzeDocument response, cut down to the blocks under test. */
+const recorded = (name: string): unknown =>
+  JSON.parse(readFileSync(new URL(`fixtures/responses/${name}`, import.meta.url), "utf8"));
 
 const word = (id: string, text: string) => ({ Id: id, BlockType: "WORD", Text: text });
 const line = (id: string, ...words: Array<string>) => ({
@@ -48,5 +53,15 @@ describe("textractMarkdown", () => {
       word("w3", "Education"),
     ];
     expect(textractMarkdown({ Blocks: blocks })).toBe("- Led design\n- Shipped app\n\nEducation");
+  });
+
+  it("renders a merged header cell once, with its span (BLS Table A-1)", () => {
+    const markdown = textractMarkdown(recorded("textract-merged-cells.json"));
+    expect(markdown).toContain('<td rowspan="2">Employment status, sex, and age</td>');
+    expect(markdown).toContain('<td colspan="3">Not seasonally adjusted</td><td colspan="6">Seasonally adjusted</td>');
+  });
+
+  it("keeps the page number (Fed Monetary Policy Report p. 47)", () => {
+    expect(textractMarkdown(recorded("textract-page-number.json"))).toBe("MONETARY POLICY REPORT: JULY 2024\n\n47");
   });
 });
