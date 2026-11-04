@@ -1782,3 +1782,14 @@ svg.caret {
   font-family: inherit;
   font-weight: 500;
 }
+
+.pc-header .btn {
+  gap: 6px;
+}
+
+.pc-header .btn svg {
+  width: 13px;
+  height: 13px;
+  stroke-width: 1.75;
+  flex-shrink: 0;
+}
