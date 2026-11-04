@@ -19,7 +19,7 @@ vi.mock("cloudflare:workers", () => ({
 vi.mock("cloudflare:workflows", () => ({ NonRetryableError: Error }));
 
 const { RunEvents } = await import("../src/events.ts");
-const { continueRun, SKIPPED, summarizeRun } = await import("../src/run.ts");
+const { continueRun, reconcileRun, SKIPPED, summarizeRun } = await import("../src/run.ts");
 
 /** The slice of D1 that finalize.ts uses, over node:sqlite. */
 const d1 = (db: DatabaseSync) => {
@@ -105,6 +105,8 @@ describe("continueRun", () => {
 
     expect(parses()).toContainEqual({ page_id: "d1-1", preset_id: "b", status: "failed", error: SKIPPED });
     expect(parses()).toContainEqual({ page_id: "d1-1", preset_id: "a", status: "succeeded", error: null });
+    // d1-1 has a finished parse but no verdict: the report must show it as unjudged, not silently drop it.
+    expect(db.prepare("SELECT page_id, error FROM judge_failures").all()).toEqual([{ page_id: "d1-1", error: SKIPPED }]);
     expect(await events.counts()).toEqual({ done: 2, total: 2 });
     expect(terminated).toEqual(["r1-d1-1"]);
     expect(runWorkflow.sendEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "pages-done" }));
@@ -131,6 +133,17 @@ describe("continueRun", () => {
     expect(run().summary).not.toBeNull();
     expect(db.prepare("SELECT COUNT(*) AS n FROM run_credentials").get()).toEqual({ n: 0 });
     expect(runWorkflow.sendEvent).not.toHaveBeenCalled();
+  });
+});
+
+describe("reconcileRun", () => {
+  it("marks a running run failed once its run workflow has errored, and leaves a live one alone", async () => {
+    expect(await Effect.runPromise(reconcileRun(env, "r1"))).toBe(false);
+    expect(run().status).toBe("running");
+
+    runWorkflow.status = "errored";
+    expect(await Effect.runPromise(reconcileRun(env, "r1"))).toBe(true);
+    expect(run()).toMatchObject({ status: "failed", error: "Run workflow errored: no error message" });
   });
 });
 
