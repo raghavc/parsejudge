@@ -153,13 +153,15 @@ export const mountReport = (root: HTMLElement, R: ReportData): (() => void) => {
     const pts = E.filter((e) => xOf(e) !== null && (xOf(e) as number) > 0);
     if (pts.length === 0) return;
     const xs = pts.map((e) => xOf(e) as number);
-    const ticks = logTicks(Math.min(...xs), Math.max(...xs));
+    /* pad the log domain so the cheapest and dearest points sit off the plot edges */
+    const pad = Math.max(0.15, 0.08 * (Math.log(Math.max(...xs)) - Math.log(Math.min(...xs))));
+    const lx0 = Math.log(Math.min(...xs)) - pad;
+    const lx1 = Math.log(Math.max(...xs)) + pad;
+    const ticks = logTicks(Math.exp(lx0), Math.exp(lx1)).filter((t) => Math.log(t) >= lx0 && Math.log(t) <= lx1);
     const W = Math.max(280, host.clientWidth);
     const H = 228;
     const m = { l: 42, r: 18, t: 10, b: 42 };
     const svg = svgEl("svg", { class: "chart sc-in", width: W, height: H, viewBox: `0 0 ${W} ${H}` }, host);
-    const lx0 = Math.log(ticks[0] ?? 1);
-    const lx1 = Math.log(ticks[ticks.length - 1] ?? 10);
     const sx = (v: number) => m.l + ((Math.log(v) - lx0) / (lx1 - lx0 || 1)) * (W - m.l - m.r);
     const lo = Math.max(1, Math.floor(Math.min(...pts.map((e) => e.mean))) - 1);
     const sy = (v: number) => m.t + ((10 - v) / (10 - lo)) * (H - m.t - m.b);
