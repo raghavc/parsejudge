@@ -6,7 +6,8 @@
     "dev": "wrangler dev",
     "check": "tsc -p .",
     "test": "vitest run",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "stress": "node stress/harness.ts"
   },
   "dependencies": {
     "@cloudflare/containers": "^0.3.7",
