@@ -116,9 +116,17 @@ export interface FakeServer {
 
 /** Why an OpenAI token-exchange request is invalid, or undefined if its subject JWT is signed by `key` and unexpired. */
 const badTokenRequest = (body: string, key: KeyObject): string | undefined => {
-  const { grant_type, subject_token } = JSON.parse(body) as { grant_type?: string; subject_token?: string };
+  const { grant_type, subject_token, subject_token_type } = JSON.parse(body) as {
+    grant_type?: string;
+    subject_token?: string;
+    subject_token_type?: string;
+  };
   const [header, claims, signature] = (subject_token ?? "").split(".");
-  if (grant_type !== "urn:ietf:params:oauth:grant-type:token-exchange" || signature === undefined)
+  if (
+    grant_type !== "urn:ietf:params:oauth:grant-type:token-exchange" ||
+    subject_token_type !== "urn:ietf:params:oauth:token-type:jwt" ||
+    signature === undefined
+  )
     return "not a token exchange with a JWT";
   const signed = Buffer.from(`${header}.${claims}`);
   if (!verify("sha256", signed, { key, dsaEncoding: "ieee-p1363" }, Buffer.from(signature, "base64url"))) return "bad signature";
