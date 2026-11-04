@@ -7,7 +7,7 @@
     "./*": "./src/*.ts"
   },
   "scripts": {
-    "check": "tsc -p .",
+    "check": "tsc -p . && tsc -p test",
     "test": "vitest run"
   },
   "dependencies": {

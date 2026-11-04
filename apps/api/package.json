@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "check": "tsc -p .",
+    "check": "tsc -p . && tsc -p test",
     "test": "vitest run",
     "deploy": "wrangler deploy",
     "stress": "node stress/harness.ts"

@@ -1,5 +1,15 @@
 {
-  "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "lib": ["ES2023", "DOM"], "types": ["node"] },
-  "include": ["src", "test"]
+  "extends": "../../tsconfig.backend.json",
+  "compilerOptions": {
+    "lib": [
+      "ES2023",
+      "DOM"
+    ],
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    "src"
+  ]
 }

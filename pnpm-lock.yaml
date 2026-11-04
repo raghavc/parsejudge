@@ -11,6 +11,12 @@ importers:
       '@biomejs/biome':
         specifier: ^2.3.0
         version: 2.6.3
+      '@catenarycloud/linteffect':
+        specifier: 0.1.0
+        version: 0.1.0
+      '@effect/language-service':
+        specifier: 0.87.5
+        version: 0.87.5
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -205,6 +211,14 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@biomejs/wasm-nodejs@2.6.3':
+    resolution: {integrity: sha512-DPI9t7DcsR+FPEUrhCIXfejI2j6dJ1NuKW8ke6tBVnCunTzDPvQpsuSvGJhaqsuOHc0U413MrB0/DDGM/+fiKw==}
+
+  '@catenarycloud/linteffect@0.1.0':
+    resolution: {integrity: sha512-3dgojdRFohhv0gMzL2qpEooSTTbiy/nlAF6eBlWldv3+vQCvOAlYhKoVAbn9befXdVldgYg1NsO49GwvQ8xxRw==}
+    engines: {node: '>= 24.0.0'}
+    hasBin: true
+
   '@cloudflare/containers@0.3.7':
     resolution: {integrity: sha512-DM9dm3FnIBSyiSJ1FLavKwl/lk3oAmTaynCzZQ9pZR0ncRPquSxkxd8Nu2MFILxmDDsPkxKsSNEh9mHHMty4Fw==}
 
@@ -260,6 +274,16 @@ packages:
   '@cspotcode/source-map-support@0.8.1':
     resolution: {integrity: sha512-IchNf6dN4tHoMFIn/7OE8LWZ19Y6q/67Bmf6vnGREv8RSbBVb9LPJxEcnwrcwX6ixSvaiGoomAUvu4YSxXrVgw==}
     engines: {node: '>=12'}
+
+  '@effect/language-service@0.87.5':
+    resolution: {integrity: sha512-np/zJgk71/PyHxtoqyUKLYcpQhoRBI+L6+1Z0ILk35JSQ/lvXzwlwOwddYZLDkeC4bdF2ukKekqKlla/F88R5w==}
+    hasBin: true
+
+  '@effect/platform-node-shared@4.1.0':
+    resolution: {integrity: sha512-uYQfFRoxWLo8fIhiSeBcmz/R1ooOfE3HF3cWHFgxz82tZMk2Wn02BGABcdLmaAch9VpDLbtWnuhSxNyBsGMUFg==}
+    engines: {node: '>=22.19.0'}
+    peerDependencies:
+      effect: ^4.1.0
 
   '@effect/vitest@4.0.7':
     resolution: {integrity: sha512-WdF1w9K65ZyjeDAUfUxDOCBSEgVjUtJfM+G83KAE3mKoZcO6aGgrRoKgwiDKsACAmVWT3zG5hDhwNH3GQg++FQ==}
@@ -766,6 +790,9 @@ packages:
   '@types/trusted-types@2.0.7':
     resolution: {integrity: sha512-ScaPdn1dQczgbl0QFTeTOmVHFULt394XJgOQNoyVhZ6r2vLnMLJfBPd53SB52T/3G36VI1/g2MZaX0cwDuXsfw==}
 
+  '@types/ws@8.18.2':
+    resolution: {integrity: sha512-67MQl+fpWKVTT1NYdnmo3U4sc/xPo/zQBncVnI74qmQa0z/b+1g6iYqNmGCPbxO+zz2aklb08a0oHfegiVd0/w==}
+
   '@vitejs/plugin-react@6.1.2':
     resolution: {integrity: sha512-fhJNGUdscQa4HkI0xFxwonWyhnVReCPDbXI7FH7jmzpnVCrFQI7PRrhWecO263610vOrs9tr2Y4xcf8uAdFxbw==}
     engines: {node: ^20.19.0 || >=22.12.0}
@@ -945,6 +972,9 @@ packages:
 
   effect@4.0.7:
     resolution: {integrity: sha512-47CiUzNAmeLr40pDT9vKMxxtB8o3bdpZEKU4IUM3fVxsK2GYzPsV7fQoZP0I41A308BZd71nMxqJ0KRh3s9u2g==}
+
+  effect@4.1.0:
+    resolution: {integrity: sha512-lGx2MJJyrXA8RZb2UpQ/0Nkb5Utaimby7oD92+18noBxLPE85IFOvptdzau8dvcxAOwfwHo9iqapbKeFzqQM/Q==}
 
   encodeurl@2.0.1:
     resolution: {integrity: sha512-Ev/hIyePLZtpL98x562lvPtenrUfGr0lfaf44HFZ+hDEwso7ccV9QAZrEVLg0hxNAzygaAFxy2dYaAKKM0G06A==}
@@ -1558,6 +1588,18 @@ packages:
       utf-8-validate:
         optional: true
 
+  ws@8.22.1:
+    resolution: {integrity: sha512-oyL6OPYme/CmiFvNuGzeoxCJ4nOrZE2O1FwM9MWM1AsGri6nLXB2pg+lNA8aLeXMSav0J6eIVS1j6vUPzUtK9g==}
+    engines: {node: '>=10.0.0'}
+    peerDependencies:
+      bufferutil: ^4.0.1
+      utf-8-validate: '>=5.0.2'
+    peerDependenciesMeta:
+      bufferutil:
+        optional: true
+      utf-8-validate:
+        optional: true
+
   youch-core@0.3.3:
     resolution: {integrity: sha512-ho7XuGjLaJ2hWHoK8yFnsUGy2Y5uDpqSTq1FkHLK4/oqKtyUU1AFbOOxY4IpC9f0fTLjwYbslUz0Po5BpD1wrA==}
 
@@ -1617,6 +1659,17 @@ snapshots:
   '@biomejs/cli-win32-x64@2.6.3':
     optional: true
 
+  '@biomejs/wasm-nodejs@2.6.3': {}
+
+  '@catenarycloud/linteffect@0.1.0':
+    dependencies:
+      '@biomejs/wasm-nodejs': 2.6.3
+      '@effect/platform-node-shared': 4.1.0(effect@4.1.0)
+      effect: 4.1.0
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
+
   '@cloudflare/containers@0.3.7': {}
 
   '@cloudflare/kv-asset-handler@0.5.0': {}
@@ -1649,6 +1702,17 @@ snapshots:
   '@cspotcode/source-map-support@0.8.1':
     dependencies:
       '@jridgewell/trace-mapping': 0.3.9
+
+  '@effect/language-service@0.87.5': {}
+
+  '@effect/platform-node-shared@4.1.0(effect@4.1.0)':
+    dependencies:
+      '@types/ws': 8.18.2
+      effect: 4.1.0
+      ws: 8.22.1
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
 
   '@effect/vitest@4.0.7(effect@4.0.7)(vitest@5.0.5(@types/node@24.19.2)(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)))':
     dependencies:
@@ -2001,6 +2065,10 @@ snapshots:
   '@types/trusted-types@2.0.7':
     optional: true
 
+  '@types/ws@8.18.2':
+    dependencies:
+      '@types/node': 24.19.2
+
   '@vitejs/plugin-react@6.1.2(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2))':
     dependencies:
       '@rolldown/pluginutils': 1.0.1
@@ -2149,6 +2217,8 @@ snapshots:
   ee-first@1.1.1: {}
 
   effect@4.0.7: {}
+
+  effect@4.1.0: {}
 
   encodeurl@2.0.1: {}
 
@@ -2742,6 +2812,8 @@ snapshots:
   wrappy@1.0.2: {}
 
   ws@8.21.0: {}
+
+  ws@8.22.1: {}
 
   youch-core@0.3.3:
     dependencies:

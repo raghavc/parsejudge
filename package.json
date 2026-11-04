@@ -6,10 +6,13 @@
   "scripts": {
     "check": "pnpm -r check",
     "test": "pnpm -r test",
-    "lint": "biome check ."
+    "lint": "biome check .",
+    "prepare": "effect-language-service patch"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.3.0",
+    "@catenarycloud/linteffect": "0.1.0",
+    "@effect/language-service": "0.87.5",
     "typescript": "^5.9.3"
   }
 }

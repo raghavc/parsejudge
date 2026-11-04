@@ -1,0 +1,10 @@
+language js(typescript, jsx)
+
+`Effect.$run($args)` as $violation where {
+    $run <: or { `runPromise`, `runPromiseExit`, `runSync`, `runSyncExit`, `runFork`, `runCallback` },
+    register_diagnostic(
+        span = $violation,
+        message = "Run Effects only at a platform boundary (see docs/effect-lint.md). Return the Effect and let the caller yield it.",
+        severity = "error"
+    )
+}

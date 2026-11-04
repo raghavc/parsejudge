@@ -1,0 +1,11 @@
+language js(typescript, jsx)
+
+JsCallExpression(callee = JsStaticMemberExpression(object = $object, member = $member)) as $violation where {
+    $member <: or { `then`, `catch`, `finally` },
+    not $object <: `Effect`,
+    register_diagnostic(
+        span = $violation,
+        message = "Do not chain promises. Lift the promise with Effect.tryPromise and compose with Effect.flatMap, Effect.catch* or Effect.ensuring.",
+        severity = "error"
+    )
+}
