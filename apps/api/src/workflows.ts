@@ -1,6 +1,7 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep, type WorkflowStepConfig } from "cloudflare:workers";
-import { JUDGE_VERSION, judgePage, splitPages, workloadToken } from "@parsejudge/core";
+import { decodeJson, JUDGE_VERSION, judgePage, splitPages, workloadToken } from "@parsejudge/core";
 import { Data, Effect } from "effect";
+import { StorageFailed, storage } from "./errors.ts";
 import { checkJudgeBudget } from "./budget.ts";
 import type { Env } from "./env.ts";
 import { documentKey, markdownKey, pageId, pagePdfKey, pagePngKey } from "./keys.ts";
@@ -55,20 +56,37 @@ const PAGES_TIMEOUT = "6 hours";
 /** Instance already exists: a retried fan-out step created it on an earlier attempt. */
 const INSTANCE_EXISTS = 10405;
 
+/** Some page workflows were not created; the step retries. */
+class StartPagesFailed extends Data.TaggedError("StartPagesFailed")<{ readonly message: string }> {
+  readonly retryable = true;
+}
+
 /**
  * Starts page workflows. `createBatch` reports per-instance failures in `errors` instead of throwing, so a
- * dropped instance would leave the run waiting for a page that never runs. Throw so the step retries.
+ * dropped instance would leave the run waiting for a page that never runs. Fail so the step retries.
  */
-const startPages = async (env: Env, instances: ReadonlyArray<WorkflowInstanceCreateOptions<PageWorkflowParams>>) => {
+const startPages = Effect.fn("startPages")(function* (
+  env: Env,
+  instances: ReadonlyArray<WorkflowInstanceCreateOptions<PageWorkflowParams>>,
+) {
   for (let offset = 0; offset < instances.length; offset += 100) {
-    const { errors } = await env.PAGE_WORKFLOW.createBatch({ instances: instances.slice(offset, offset + 100) });
+    const batch = instances.slice(offset, offset + 100);
+    const { errors } = yield* storage(() => env.PAGE_WORKFLOW.createBatch({ instances: batch }));
     const failed = errors.filter((error) => error.code !== INSTANCE_EXISTS);
     if (failed.length > 0) {
-      throw new Error(
-        `Could not start ${failed.length} page workflows: ${failed.map((e) => `${e.id} ${e.code} ${e.message}`).join("; ")}`,
-      );
+      return yield* new StartPagesFailed({
+        message: `Could not start ${failed.length} page workflows: ${failed.map((e) => `${e.id} ${e.code} ${e.message}`).join("; ")}`,
+      });
     }
   }
+});
+
+/** The judge calls OpenAI through the mTLS binding when the deployment has one. */
+const mtlsFetch = (env: Env) => {
+  const mtls = env.OPENAI_MTLS;
+  return mtls === undefined
+    ? undefined
+    : (((input: RequestInfo | URL, init?: RequestInit) => mtls.fetch(input, init)) as typeof fetch);
 };
 
 const slots = (env: Env, pool: string) =>
@@ -92,17 +110,154 @@ const attempt = <A>(name: string, run: () => Promise<A>) =>
 const bestEffort = <A>(effect: Effect.Effect<A, StepFailed>, label: string, ...context: ReadonlyArray<unknown>) =>
   effect.pipe(
     Effect.asVoid,
-    Effect.catchTag("StepFailed", (error) => Effect.sync(() => console.error(label, ...context, error.step, error.message))),
+    Effect.catchTag("StepFailed", (error) => Effect.logError(label, ...context, error.step, error.message)),
   );
 
 /** Renders a page's PNG once; later runs reuse it. */
-const renderPage = async (env: Env, page: string): Promise<void> => {
-  if ((await env.BLOBS.head(pagePngKey(page))) !== null) return;
-  const pdf = await env.BLOBS.get(pagePdfKey(page));
-  if (pdf === null) throw new Error(`Missing page ${page}`);
-  await env.BLOBS.put(pagePngKey(page), await renderFirstPagePng(new Uint8Array(await pdf.arrayBuffer())));
-  await env.DB.prepare("UPDATE pages SET rendered = 1 WHERE id = ?").bind(page).run();
-};
+const renderPage = Effect.fn("renderPage")(function* (env: Env, page: string) {
+  if ((yield* storage(() => env.BLOBS.head(pagePngKey(page)))) !== null) return;
+  const pdf = yield* storage(() => env.BLOBS.get(pagePdfKey(page)));
+  if (pdf === null) return yield* new StorageFailed({ message: `Missing page ${page}` });
+  const bytes = yield* storage(() => pdf.arrayBuffer());
+  const png = yield* renderFirstPagePng(new Uint8Array(bytes));
+  yield* storage(() => env.BLOBS.put(pagePngKey(page), png));
+  yield* storage(() => env.DB.prepare("UPDATE pages SET rendered = 1 WHERE id = ?").bind(page).run());
+});
+
+/** Marks the run running and reads its presets and documents. */
+const loadRun = Effect.fn("loadRun")(function* (env: Env, runId: string) {
+  yield* storage(() => env.DB.prepare("UPDATE runs SET status = 'running' WHERE id = ?").bind(runId).run());
+  const row = yield* storage(() =>
+    env.DB.prepare("SELECT preset_ids FROM runs WHERE id = ?").bind(runId).first<{ preset_ids: string }>(),
+  );
+  const documents = yield* storage(() =>
+    env.DB.prepare("SELECT document_id FROM run_documents WHERE run_id = ? ORDER BY document_id")
+      .bind(runId)
+      .all<{ document_id: string }>(),
+  );
+  return {
+    presetIds: (yield* decodeJson(row?.preset_ids ?? "[]")) as Array<string>,
+    documentIds: documents.results.map((d) => d.document_id),
+  };
+});
+
+/** Re-opens the retried pages and starts a page workflow for each. */
+const startRetry = Effect.fn("startRetry")(function* (
+  env: Env,
+  instanceId: string,
+  runId: string,
+  retry: NonNullable<RunWorkflowParams["retry"]>,
+) {
+  const row = yield* storage(() =>
+    env.DB.prepare("SELECT preset_ids FROM runs WHERE id = ?").bind(runId).first<{ preset_ids: string }>(),
+  );
+  yield* storage(() => env.DB.prepare("UPDATE runs SET status = 'running', completed_at = NULL WHERE id = ?").bind(runId).run());
+  yield* storage(() => events(env, runId).reopen(instanceId, retry.pageIds));
+  const presetIds = (yield* decodeJson(row?.preset_ids ?? "[]")) as Array<string>;
+  yield* startPages(
+    env,
+    retry.pageIds.map((pageId) => ({
+      id: `${instanceId}-${pageId}`,
+      params: { runId, pageId, presetIds, parsePresetIds: retry.presetIds },
+    })),
+  );
+});
+
+/** Upload already splits the document; this covers an upload whose split did not finish. */
+const preparePages = Effect.fn("preparePages")(function* (env: Env, documentId: string) {
+  const document = yield* storage(() =>
+    env.DB.prepare("SELECT page_count FROM documents WHERE id = ?").bind(documentId).first<{ page_count: number }>(),
+  );
+  const count = document?.page_count ?? 0;
+  const ids = Array.from({ length: count }, (_, index) => pageId(documentId, index));
+  const split = yield* storage(() =>
+    env.DB.prepare("SELECT COUNT(*) AS n FROM pages WHERE document_id = ?").bind(documentId).first<{ n: number }>(),
+  );
+  if (split?.n === count) return ids;
+  const source = yield* storage(() => env.BLOBS.get(documentKey(documentId)));
+  if (source === null) return yield* new StorageFailed({ message: `Missing document ${documentId}` });
+  const bytes = yield* storage(() => source.arrayBuffer());
+  const pages = yield* splitPages(new Uint8Array(bytes), count);
+  for (const [index, pdf] of pages.entries()) {
+    const id = pageId(documentId, index);
+    yield* storage(() => env.BLOBS.put(pagePdfKey(id), pdf));
+    yield* storage(() =>
+      env.DB.prepare("INSERT OR IGNORE INTO pages (id, document_id, page_index, rendered) VALUES (?, ?, ?, 0)")
+        .bind(id, documentId, index)
+        .run(),
+    );
+  }
+  return ids;
+});
+
+/** Tells the run's subscribers whether the parse succeeded. */
+const reportParse = Effect.fn("reportParse")(function* (env: Env, cell: Cell) {
+  const row = yield* storage(() =>
+    env.DB.prepare("SELECT status, latency_ms FROM parses WHERE run_id = ? AND page_id = ? AND preset_id = ?")
+      .bind(cell.runId, cell.pageId, cell.presetId)
+      .first<{ status: string; latency_ms: number | null }>(),
+  );
+  const ok = row?.status === "succeeded";
+  yield* storage(() =>
+    events(env, cell.runId).parseDone({
+      presetId: cell.presetId,
+      pageId: cell.pageId,
+      ok,
+      latencyMs: ok ? (row?.latency_ms ?? null) : null,
+    }),
+  );
+});
+
+/** Judges the page's succeeded parses together and stores a verdict per preset. */
+const judge = Effect.fn("judge")(function* (env: Env, runId: string, page: string) {
+  const rows = yield* storage(() =>
+    env.DB.prepare("SELECT preset_id FROM parses WHERE run_id = ? AND page_id = ? AND status = 'succeeded'")
+      .bind(runId, page)
+      .all<{ preset_id: string }>(),
+  );
+  if (rows.results.length === 0) return;
+  const markdownByPreset: Record<string, string> = {};
+  for (const { preset_id } of rows.results) {
+    const object = yield* storage(() => env.BLOBS.get(markdownKey(runId, page, preset_id)));
+    markdownByPreset[preset_id] = object === null ? "" : yield* storage(() => object.text());
+  }
+  const image = yield* storage(() => env.BLOBS.get(pagePngKey(page)));
+  if (image === null) return yield* new StorageFailed({ message: `Missing image for ${page}` });
+  const imagePng = new Uint8Array(yield* storage(() => image.arrayBuffer()));
+  const startedAt = Date.now();
+  const verdicts = yield* judgePage(
+    {
+      token: workloadToken({
+        authUrl: env.OPENAI_AUTH_URL,
+        identityProviderId: env.OPENAI_IDENTITY_PROVIDER_ID,
+        serviceAccountId: env.OPENAI_SERVICE_ACCOUNT_ID,
+      }),
+      models: [env.JUDGE_MODEL, ...(env.JUDGE_FALLBACK_MODELS ?? "").split(",").map((m) => m.trim())].filter(Boolean),
+      reasoningEffort: env.JUDGE_REASONING_EFFORT,
+      baseUrl: env.OPENAI_BASE_URL,
+      onUsage: (model, usage) =>
+        recordUsage(env, {
+          kind: "judge",
+          name: model,
+          runId,
+          pageId: page,
+          status: "ok",
+          latencyMs: Date.now() - startedAt,
+          ...openRouterUsage(usage),
+        }),
+    },
+    { pageId: page, imagePng, markdownByPreset },
+  );
+  yield* storage(() =>
+    env.DB.batch(
+      verdicts.map((verdict) =>
+        env.DB.prepare(
+          "INSERT OR REPLACE INTO verdicts (run_id, page_id, preset_id, score, reasoning, errors) VALUES (?, ?, ?, ?, ?, ?)",
+        ).bind(runId, page, verdict.presetId, verdict.score, verdict.reasoning, JSON.stringify(verdict.errors)),
+      ),
+    ),
+  );
+});
 
 export interface DocumentWorkflowParams {
   readonly documentId: string;
@@ -111,15 +266,24 @@ export interface DocumentWorkflowParams {
 
 /** Started by each upload, so a document's page images are ready before a run starts. */
 export class DocumentWorkflow extends WorkflowEntrypoint<Env, DocumentWorkflowParams> {
-  override async run(event: Readonly<WorkflowEvent<DocumentWorkflowParams>>, step: WorkflowStep) {
+  override run(event: Readonly<WorkflowEvent<DocumentWorkflowParams>>, step: WorkflowStep) {
     const { documentId, pageCount } = event.payload;
-    for (let index = 0; index < pageCount; index++) {
-      const page = pageId(documentId, index);
-      // One bad page must not stop the rest; its PageWorkflow renders it again and records the failure.
-      await step
-        .do(`render ${index}`, RETRY, () => renderPage(this.env, page))
-        .catch((error: unknown) => console.error("Page render failed", page, error));
-    }
+    const env = this.env;
+    // One bad page must not stop the rest; its PageWorkflow renders it again and records the failure.
+    return Effect.runPromise(
+      Effect.forEach(
+        Array.from({ length: pageCount }, (_, index) => index),
+        (index) => {
+          const page = pageId(documentId, index);
+          return bestEffort(
+            attempt(`render ${index}`, () => step.do(`render ${index}`, RETRY, () => runStep(renderPage(env, page)))),
+            "Page render failed",
+            page,
+          );
+        },
+        { discard: true },
+      ),
+    );
   }
 }
 
@@ -128,13 +292,13 @@ export class DocumentWorkflow extends WorkflowEntrypoint<Env, DocumentWorkflowPa
  * Every failure ends in `recordFailure`, so the run row always reaches a final status.
  */
 export class RunWorkflow extends WorkflowEntrypoint<Env, RunWorkflowParams> {
-  override async run(event: Readonly<WorkflowEvent<RunWorkflowParams>>, step: WorkflowStep) {
+  override run(event: Readonly<WorkflowEvent<RunWorkflowParams>>, step: WorkflowStep) {
     const { runId, retry } = event.payload;
     const fanOut = retry === undefined ? this.fanOut(runId, step) : this.fanOutRetry(event.instanceId, runId, retry, step);
-    await Effect.runPromise(
+    return Effect.runPromise(
       fanOut.pipe(
         Effect.andThen(this.waitForPages(runId, step)),
-        Effect.andThen(attempt("summarize", () => step.do("summarize", RETRY, () => summarizeRun(this.env, runId)))),
+        Effect.andThen(attempt("summarize", () => step.do("summarize", RETRY, () => runStep(summarizeRun(this.env, runId))))),
         Effect.andThen(
           bestEffort(
             attempt("notify done", () => step.do("notify done", () => events(this.env, runId).runDone("succeeded"))),
@@ -145,14 +309,14 @@ export class RunWorkflow extends WorkflowEntrypoint<Env, RunWorkflowParams> {
         Effect.catch((error) => this.recordFailure(step, runId, error.message)),
         Effect.andThen(
           bestEffort(
-            attempt("email owner", () => step.do("email owner", RETRY, () => emailRunDone(this.env, runId))),
+            attempt("email owner", () => step.do("email owner", RETRY, () => runStep(emailRunDone(this.env, runId)))),
             "Run email failed",
             runId,
           ),
         ),
         Effect.andThen(
           bestEffort(
-            attempt("check judge budget", () => step.do("check judge budget", RETRY, () => checkJudgeBudget(this.env))),
+            attempt("check judge budget", () => step.do("check judge budget", RETRY, () => runStep(checkJudgeBudget(this.env)))),
             "Judge budget check failed",
           ),
         ),
@@ -162,39 +326,31 @@ export class RunWorkflow extends WorkflowEntrypoint<Env, RunWorkflowParams> {
 
   private fanOut(runId: string, step: WorkflowStep): Effect.Effect<void, StepFailed | NoPages> {
     const env = this.env;
-    const preparePages = (documentId: string) => this.preparePages(documentId);
     return Effect.gen(function* () {
-      const run = yield* attempt("load run", () =>
-        step.do("load run", async () => {
-          await env.DB.prepare("UPDATE runs SET status = 'running' WHERE id = ?").bind(runId).run();
-          const row = await env.DB.prepare("SELECT preset_ids FROM runs WHERE id = ?")
-            .bind(runId)
-            .first<{ preset_ids: string }>();
-          const documents = await env.DB.prepare("SELECT document_id FROM run_documents WHERE run_id = ? ORDER BY document_id")
-            .bind(runId)
-            .all<{ document_id: string }>();
-          return {
-            presetIds: JSON.parse(row?.preset_ids ?? "[]") as Array<string>,
-            documentIds: documents.results.map((d) => d.document_id),
-          };
-        }),
-      );
+      const run = yield* attempt("load run", () => step.do("load run", () => runStep(loadRun(env, runId))));
       const pageIds = (yield* Effect.forEach(
         run.documentIds,
         (documentId) =>
-          attempt(`prepare ${documentId}`, () => step.do(`prepare ${documentId}`, RETRY, () => preparePages(documentId))),
+          attempt(`prepare ${documentId}`, () =>
+            step.do(`prepare ${documentId}`, RETRY, () => runStep(preparePages(env, documentId))),
+          ),
         { concurrency: "unbounded" },
       )).flat();
       // Nothing would ever send `pages-done` for a run without pages.
       if (pageIds.length === 0) return yield* new NoPages({ message: "This run has no pages." });
       yield* attempt("fan out", () =>
-        step.do("fan out", RETRY, async () => {
-          await events(env, runId).start(runId, pageIds.length);
-          await startPages(
-            env,
-            pageIds.map((id) => ({ id: `${runId}-${id}`, params: { runId, pageId: id, presetIds: run.presetIds } })),
-          );
-        }),
+        step.do("fan out", RETRY, () =>
+          runStep(
+            storage(() => events(env, runId).start(runId, pageIds.length)).pipe(
+              Effect.andThen(
+                startPages(
+                  env,
+                  pageIds.map((id) => ({ id: `${runId}-${id}`, params: { runId, pageId: id, presetIds: run.presetIds } })),
+                ),
+              ),
+            ),
+          ),
+        ),
       );
     });
   }
@@ -206,21 +362,7 @@ export class RunWorkflow extends WorkflowEntrypoint<Env, RunWorkflowParams> {
     step: WorkflowStep,
   ): Effect.Effect<void, StepFailed> {
     return attempt("fan out retry", () =>
-      step.do("fan out retry", RETRY, async () => {
-        const row = await this.env.DB.prepare("SELECT preset_ids FROM runs WHERE id = ?")
-          .bind(runId)
-          .first<{ preset_ids: string }>();
-        await this.env.DB.prepare("UPDATE runs SET status = 'running', completed_at = NULL WHERE id = ?").bind(runId).run();
-        await events(this.env, runId).reopen(instanceId, retry.pageIds);
-        const presetIds = JSON.parse(row?.preset_ids ?? "[]");
-        await startPages(
-          this.env,
-          retry.pageIds.map((pageId) => ({
-            id: `${instanceId}-${pageId}`,
-            params: { runId, pageId, presetIds, parsePresetIds: retry.presetIds },
-          })),
-        );
-      }),
+      step.do("fan out retry", RETRY, () => runStep(startRetry(this.env, instanceId, runId, retry))),
     );
   }
 
@@ -230,10 +372,9 @@ export class RunWorkflow extends WorkflowEntrypoint<Env, RunWorkflowParams> {
       Effect.asVoid,
       Effect.catchTag("StepFailed", (error) =>
         attempt("count pages", () =>
-          step.do("count pages", async () => {
-            const { done, total } = await events(this.env, runId).counts();
-            return { done, total };
-          }),
+          step.do("count pages", () =>
+            runStep(storage(() => events(this.env, runId).counts()).pipe(Effect.map(({ done, total }) => ({ done, total })))),
+          ),
         ).pipe(
           Effect.map(
             ({ done, total }) => `${(total ?? 0) - done} of ${total ?? 0} pages did not finish within ${PAGES_TIMEOUT}.`,
@@ -251,14 +392,12 @@ export class RunWorkflow extends WorkflowEntrypoint<Env, RunWorkflowParams> {
    */
   private recordFailure(step: WorkflowStep, runId: string, message: string): Effect.Effect<void> {
     return attempt("record failure", () =>
-      step.do("record failure", MUST, () => finishRun(this.env, runId, "failed", message)),
+      step.do("record failure", MUST, () => runStep(finishRun(this.env, runId, "failed", message))),
     ).pipe(
       Effect.flatMap((changed) =>
         changed
           ? bestEffort(
-              attempt("stop pages", () =>
-                step.do("stop pages", RETRY, () => Effect.runPromise(stopPendingPages(this.env, runId))),
-              ),
+              attempt("stop pages", () => step.do("stop pages", RETRY, () => runStep(stopPendingPages(this.env, runId)))),
               "Could not stop pages of failed run",
               runId,
             ).pipe(
@@ -275,30 +414,6 @@ export class RunWorkflow extends WorkflowEntrypoint<Env, RunWorkflowParams> {
       Effect.orDie,
     );
   }
-
-  /** Upload already splits the document; this covers an upload whose split did not finish. */
-  private async preparePages(documentId: string): Promise<Array<string>> {
-    const document = await this.env.DB.prepare("SELECT page_count FROM documents WHERE id = ?")
-      .bind(documentId)
-      .first<{ page_count: number }>();
-    const count = document?.page_count ?? 0;
-    const ids = Array.from({ length: count }, (_, index) => pageId(documentId, index));
-    const split = await this.env.DB.prepare("SELECT COUNT(*) AS n FROM pages WHERE document_id = ?")
-      .bind(documentId)
-      .first<{ n: number }>();
-    if (split?.n === count) return ids;
-    const source = await this.env.BLOBS.get(documentKey(documentId));
-    if (source === null) throw new Error(`Missing document ${documentId}`);
-    const pages = await Effect.runPromise(splitPages(new Uint8Array(await source.arrayBuffer()), count));
-    for (const [index, pdf] of pages.entries()) {
-      const id = pageId(documentId, index);
-      await this.env.BLOBS.put(pagePdfKey(id), pdf);
-      await this.env.DB.prepare("INSERT OR IGNORE INTO pages (id, document_id, page_index, rendered) VALUES (?, ?, ?, 0)")
-        .bind(id, documentId, index)
-        .run();
-    }
-    return ids;
-  }
 }
 
 /**
@@ -307,13 +422,13 @@ export class RunWorkflow extends WorkflowEntrypoint<Env, RunWorkflowParams> {
  * Only the render can fail the page; every other failure is recorded per preset. `report` always runs.
  */
 export class PageWorkflow extends WorkflowEntrypoint<Env, PageWorkflowParams> {
-  override async run(event: Readonly<WorkflowEvent<PageWorkflowParams>>, step: WorkflowStep) {
+  override run(event: Readonly<WorkflowEvent<PageWorkflowParams>>, step: WorkflowStep) {
     const { runId, pageId: page, presetIds, parsePresetIds = presetIds } = event.payload;
     const env = this.env;
     const parse = (presetId: string) => this.parse(step, event.instanceId, { runId, pageId: page, presetId });
     const judge = () => this.judgeWithSlot(step, event.instanceId, runId, page);
     const program = Effect.gen(function* () {
-      yield* attempt("render", () => step.do("render", RETRY, () => renderPage(env, page))).pipe(
+      yield* attempt("render", () => step.do("render", RETRY, () => runStep(renderPage(env, page)))).pipe(
         Effect.mapError((error) => new RenderFailed({ message: `Page render failed: ${error.message}` })),
       );
       yield* Effect.forEach(parsePresetIds, parse, { concurrency: "unbounded", discard: true });
@@ -323,7 +438,7 @@ export class PageWorkflow extends WorkflowEntrypoint<Env, PageWorkflowParams> {
         (presetId) =>
           bestEffort(
             attempt(`locate ${presetId}`, () =>
-              step.do(`locate ${presetId}`, RETRY, () => writeLocations(env, runId, page, presetId)),
+              step.do(`locate ${presetId}`, RETRY, () => runStep(writeLocations(env, runId, page, presetId))),
             ),
             "Locating errors failed",
             page,
@@ -332,7 +447,7 @@ export class PageWorkflow extends WorkflowEntrypoint<Env, PageWorkflowParams> {
         { concurrency: "unbounded", discard: true },
       );
       yield* bestEffort(
-        attempt("note", () => step.do("note", RETRY, () => writePageNote(env, runId, page))),
+        attempt("note", () => step.do("note", RETRY, () => runStep(writePageNote(env, runId, page)))),
         "Page note failed",
         page,
       );
@@ -341,11 +456,14 @@ export class PageWorkflow extends WorkflowEntrypoint<Env, PageWorkflowParams> {
       Effect.catchTag("RenderFailed", (error) =>
         bestEffort(
           attempt("record render failure", () =>
-            step.do("record render failure", MUST, async () => {
-              await Promise.all(
-                parsePresetIds.map((presetId) => saveFailure(env, { runId, pageId: page, presetId }, error.message)),
-              );
-            }),
+            step.do("record render failure", MUST, () =>
+              runStep(
+                Effect.forEach(parsePresetIds, (presetId) => saveFailure(env, { runId, pageId: page, presetId }, error.message), {
+                  concurrency: "unbounded",
+                  discard: true,
+                }),
+              ),
+            ),
           ),
           "Could not record render failure",
           page,
@@ -356,7 +474,7 @@ export class PageWorkflow extends WorkflowEntrypoint<Env, PageWorkflowParams> {
         attempt("report", () => step.do("report", MUST, () => events(env, runId).pageDone(page))).pipe(Effect.orDie),
       ),
     );
-    await Effect.runPromise(program);
+    return Effect.runPromise(program);
   }
 
   /**
@@ -376,15 +494,18 @@ export class PageWorkflow extends WorkflowEntrypoint<Env, PageWorkflowParams> {
     const waiter = { lease: `${instanceId}:${label}`, instanceId, event: `slot-${label}` };
     return Effect.gen(function* () {
       const requested = yield* attempt(`acquire ${label}`, () =>
-        step.do(`acquire ${label}`, RETRY, async () => ({
-          granted: await slots(env, pool.name).acquire(pool.limit, waiter),
-          at: Date.now(),
-        })),
+        step.do(`acquire ${label}`, RETRY, () =>
+          runStep(
+            storage(() => slots(env, pool.name).acquire(pool.limit, waiter)).pipe(
+              Effect.map((granted) => ({ granted, at: Date.now() })),
+            ),
+          ),
+        ),
       );
       let grantedAt = requested.at;
       if (!requested.granted) {
         yield* attempt(`slot ${label}`, () => step.waitForEvent(`slot ${label}`, { type: waiter.event, timeout: "24 hours" }));
-        grantedAt = yield* attempt(`granted ${label}`, () => step.do(`granted ${label}`, async () => Date.now()));
+        grantedAt = yield* attempt(`granted ${label}`, () => step.do(`granted ${label}`, () => Promise.resolve(Date.now())));
       }
       return yield* body(grantedAt - requested.at);
     }).pipe(
@@ -407,34 +528,35 @@ export class PageWorkflow extends WorkflowEntrypoint<Env, PageWorkflowParams> {
     const name = cell.presetId;
     const withSlot = (pool: Pool, body: (queueMs: number) => Effect.Effect<void, StepFailed>) =>
       this.withSlot(step, instanceId, name, pool, body);
-    return Effect.gen(function* () {
-      const pool = yield* attempt(`pool ${name}`, () => step.do(`pool ${name}`, RETRY, () => providerPool(env, cell)));
-      yield* withSlot(pool, (queueMs) =>
-        Effect.gen(function* () {
-          const { job, startedAt } = yield* attempt(`submit ${name}`, () =>
-            step.do(`submit ${name}`, RETRY, async () => {
-              await events(env, cell.runId).parseStarted(cell.presetId);
-              return submitCell(env, cell, queueMs);
-            }),
+    const submitAndPoll = (queueMs: number) =>
+      Effect.gen(function* () {
+        const { job, startedAt } = yield* attempt(`submit ${name}`, () =>
+          step.do(`submit ${name}`, RETRY, () =>
+            runStep(
+              storage(() => events(env, cell.runId).parseStarted(cell.presetId)).pipe(
+                Effect.andThen(submitCell(env, cell, queueMs)),
+              ),
+            ),
+          ),
+        );
+        if (job === null) return;
+        for (let poll = 0; poll < MAX_POLLS; poll++) {
+          yield* attempt(`wait ${name} ${poll}`, () => step.sleep(`wait ${name} ${poll}`, pollDelayMs(poll)));
+          const done = yield* attempt(`poll ${name} ${poll}`, () =>
+            step.do(`poll ${name} ${poll}`, RETRY, () => runStep(pollCell(env, cell, job, startedAt, queueMs))),
           );
-          if (job === null) return;
-          for (let poll = 0; poll < MAX_POLLS; poll++) {
-            yield* attempt(`wait ${name} ${poll}`, () => step.sleep(`wait ${name} ${poll}`, pollDelayMs(poll)));
-            const done = yield* attempt(`poll ${name} ${poll}`, () =>
-              step.do(`poll ${name} ${poll}`, RETRY, () => pollCell(env, cell, job, startedAt, queueMs)),
-            );
-            if (done) return;
-          }
-          return yield* new StepFailed({ step: `poll ${name}`, message: "Timed out waiting for the provider" });
-        }),
-      );
+          if (done) return;
+        }
+        return yield* new StepFailed({ step: `poll ${name}`, message: "Timed out waiting for the provider" });
+      });
+    return Effect.gen(function* () {
+      const pool = yield* attempt(`pool ${name}`, () => step.do(`pool ${name}`, RETRY, () => runStep(providerPool(env, cell))));
+      yield* withSlot(pool, submitAndPoll);
     }).pipe(
       Effect.catchTag("StepFailed", (error) =>
         bestEffort(
           attempt(`record failure ${name}`, () =>
-            step.do(`record failure ${name}`, MUST, async () => {
-              await saveFailure(env, cell, error.message);
-            }),
+            step.do(`record failure ${name}`, MUST, () => runStep(saveFailure(env, cell, error.message).pipe(Effect.asVoid))),
           ),
           "Could not record parse failure",
           cell.pageId,
@@ -443,22 +565,7 @@ export class PageWorkflow extends WorkflowEntrypoint<Env, PageWorkflowParams> {
       ),
       Effect.ensuring(
         bestEffort(
-          attempt(`report ${name}`, () =>
-            step.do(`report ${name}`, async () => {
-              const row = await env.DB.prepare(
-                "SELECT status, latency_ms FROM parses WHERE run_id = ? AND page_id = ? AND preset_id = ?",
-              )
-                .bind(cell.runId, cell.pageId, cell.presetId)
-                .first<{ status: string; latency_ms: number | null }>();
-              const ok = row?.status === "succeeded";
-              await events(env, cell.runId).parseDone({
-                presetId: cell.presetId,
-                pageId: cell.pageId,
-                ok,
-                latencyMs: ok ? (row?.latency_ms ?? null) : null,
-              });
-            }),
-          ),
+          attempt(`report ${name}`, () => step.do(`report ${name}`, () => runStep(reportParse(env, cell)))),
           "Could not report parse",
           cell.pageId,
           name,
@@ -470,77 +577,29 @@ export class PageWorkflow extends WorkflowEntrypoint<Env, PageWorkflowParams> {
   /** Judges the page's parses. A failure is recorded in `judge_failures` and does not block the run. */
   private judgeWithSlot(step: WorkflowStep, instanceId: string, runId: string, page: string): Effect.Effect<void> {
     const env = this.env;
-    return attempt("judge pool", async () => judgePool(env)).pipe(
+    return judgePool(env).pipe(
+      Effect.mapError((error) => new StepFailed({ step: "judge pool", message: error.message })),
       Effect.flatMap((pool) =>
         this.withSlot(step, instanceId, "judge", pool, () =>
-          attempt("judge", () => step.do("judge", JUDGE_RETRY, () => this.judge(runId, page))),
+          attempt("judge", () => step.do("judge", JUDGE_RETRY, () => runStep(judge(env, runId, page), mtlsFetch(env)))),
         ),
       ),
       Effect.catchTag("StepFailed", (error) =>
         bestEffort(
           attempt("record judge failure", () =>
-            step.do("record judge failure", MUST, async () => {
-              await env.DB.prepare("INSERT OR REPLACE INTO judge_failures (run_id, page_id, error) VALUES (?, ?, ?)")
-                .bind(runId, page, error.message)
-                .run();
-            }),
+            step.do("record judge failure", MUST, () =>
+              runStep(
+                storage(() =>
+                  env.DB.prepare("INSERT OR REPLACE INTO judge_failures (run_id, page_id, error) VALUES (?, ?, ?)")
+                    .bind(runId, page, error.message)
+                    .run(),
+                ).pipe(Effect.asVoid),
+              ),
+            ),
           ),
           "Could not record judge failure",
           page,
         ),
-      ),
-    );
-  }
-
-  private async judge(runId: string, page: string): Promise<void> {
-    const rows = await this.env.DB.prepare(
-      "SELECT preset_id FROM parses WHERE run_id = ? AND page_id = ? AND status = 'succeeded'",
-    )
-      .bind(runId, page)
-      .all<{ preset_id: string }>();
-    if (rows.results.length === 0) return;
-    const markdownByPreset: Record<string, string> = {};
-    for (const { preset_id } of rows.results) {
-      markdownByPreset[preset_id] = (await (await this.env.BLOBS.get(markdownKey(runId, page, preset_id)))?.text()) ?? "";
-    }
-    const image = await this.env.BLOBS.get(pagePngKey(page));
-    if (image === null) throw new Error(`Missing image for ${page}`);
-    const startedAt = Date.now();
-    const env = this.env;
-    const mtls = env.OPENAI_MTLS;
-    const verdicts = await runStep(
-      judgePage(
-        {
-          token: workloadToken({
-            authUrl: env.OPENAI_AUTH_URL,
-            identityProviderId: env.OPENAI_IDENTITY_PROVIDER_ID,
-            serviceAccountId: env.OPENAI_SERVICE_ACCOUNT_ID,
-          }),
-          models: [env.JUDGE_MODEL, ...(env.JUDGE_FALLBACK_MODELS ?? "").split(",").map((m) => m.trim())].filter(Boolean),
-          reasoningEffort: env.JUDGE_REASONING_EFFORT,
-          baseUrl: env.OPENAI_BASE_URL,
-          onUsage: (model, usage) =>
-            recordUsage(this.env, {
-              kind: "judge",
-              name: model,
-              runId,
-              pageId: page,
-              status: "ok",
-              latencyMs: Date.now() - startedAt,
-              ...openRouterUsage(usage),
-            }),
-        },
-        { pageId: page, imagePng: new Uint8Array(await image.arrayBuffer()), markdownByPreset },
-      ),
-      mtls === undefined
-        ? undefined
-        : (((input: RequestInfo | URL, init?: RequestInit) => mtls.fetch(input, init)) as typeof fetch),
-    );
-    await this.env.DB.batch(
-      verdicts.map((verdict) =>
-        this.env.DB.prepare(
-          "INSERT OR REPLACE INTO verdicts (run_id, page_id, preset_id, score, reasoning, errors) VALUES (?, ?, ?, ?, ?, ?)",
-        ).bind(runId, page, verdict.presetId, verdict.score, verdict.reasoning, JSON.stringify(verdict.errors)),
       ),
     );
   }
