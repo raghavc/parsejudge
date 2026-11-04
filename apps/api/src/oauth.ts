@@ -4,7 +4,7 @@ import {
   type ConsentDescription,
   type OAuthHelpers,
 } from "@cloudflare/workers-oauth-provider";
-import { Data, Effect } from "effect";
+import { Cause, Data, Effect } from "effect";
 import { sessionUser } from "./auth.ts";
 import type { Env } from "./env.ts";
 
@@ -60,33 +60,35 @@ ${details.redirectIsLoopback ? '<p class="warn">This sends access to an app on y
   );
 
 /** GET shows the consent page (or asks the user to sign in first); POST records the decision. */
-export const authorize = async (request: Request, env: Env, oauth: OAuthHelpers): Promise<Response> => {
-  try {
-    const user = await sessionUser(env, request.headers.get("cookie"));
+export const authorize = (request: Request, env: Env, oauth: OAuthHelpers) =>
+  Effect.gen(function* () {
+    const user = yield* sessionUser(env, request.headers.get("cookie"));
     if (request.method === "POST") {
       if (user === null) return page("Sign in", "<h1>Your session ended</h1><p>Start connecting again from your agent.</p>", 401);
-      const form = await request.formData().catch(() => null);
+      const form = yield* Effect.tryPromise(() => request.formData()).pipe(Effect.orElseSucceed(() => null));
       if (form === null)
         return page("Could not connect", "<h1>Could not connect</h1><p>Start connecting again from your agent.</p>", 400);
       const handle = String(form.get("handle") ?? "");
       if (form.get("decision") !== "approve") {
-        const denied = await oauth.denyConsent(request, handle);
+        const denied = yield* Effect.promise(() => oauth.denyConsent(request, handle));
         return new Response(null, { status: 302, headers: denied.headers });
       }
-      const approved = await oauth.approveConsent(request, handle);
+      const approved = yield* Effect.promise(() => oauth.approveConsent(request, handle));
       const props: AgentProps = { userId: user.id };
-      const { redirectTo } = await oauth.completeAuthorization({
-        request: approved.request,
-        userId: user.id,
-        metadata: {},
-        scope: approved.request.scope,
-        props,
-      });
+      const { redirectTo } = yield* Effect.promise(() =>
+        oauth.completeAuthorization({
+          request: approved.request,
+          userId: user.id,
+          metadata: {},
+          scope: approved.request.scope,
+          props,
+        }),
+      );
       approved.headers.set("location", redirectTo);
       return new Response(null, { status: 302, headers: approved.headers });
     }
-    const authRequest = await oauth.parseAuthRequest(request);
-    const details = await oauth.describeConsent(authRequest);
+    const authRequest = yield* Effect.promise(() => oauth.parseAuthRequest(request));
+    const details = yield* Effect.promise(() => oauth.describeConsent(authRequest));
     if (user === null) {
       const url = new URL(request.url);
       const next = encodeURIComponent(url.pathname + url.search);
@@ -97,85 +99,101 @@ export const authorize = async (request: Request, env: Env, oauth: OAuthHelpers)
 <div class="row"><a class="button primary" href="/signin?next=${next}">Sign in</a></div>`,
       );
     }
-    const consent = await oauth.beginConsent(authRequest);
+    const consent = yield* Effect.promise(() => oauth.beginConsent(authRequest));
     return consentPage(details, consent.handle, user.email, consent.headers);
-  } catch (error) {
-    if (error instanceof AuthorizationError && error.redirectTo) return Response.redirect(error.redirectTo, 302);
-    if (error instanceof AuthorizationError || error instanceof CimdFetchError) {
-      const message = error instanceof AuthorizationError ? error.description : "This app could not be verified.";
-      return page("Could not connect", `<h1>Could not connect</h1><p>${escapeHtml(message ?? "")}</p>`, 400);
-    }
-    console.error(JSON.stringify({ event: "oauth_authorize_failed", method: request.method, error: String(error) }));
-    return page("Could not connect", "<h1>Could not connect</h1><p>Something went wrong on our side. Try again.</p>", 500);
-  }
-};
+  }).pipe(
+    Effect.catchCause((cause) => {
+      const error = Cause.squash(cause);
+      if (error instanceof AuthorizationError && error.redirectTo) return Effect.succeed(Response.redirect(error.redirectTo, 302));
+      if (error instanceof AuthorizationError || error instanceof CimdFetchError) {
+        const message = error instanceof AuthorizationError ? error.description : "This app could not be verified.";
+        return Effect.succeed(page("Could not connect", `<h1>Could not connect</h1><p>${escapeHtml(message ?? "")}</p>`, 400));
+      }
+      return Effect.logError({ event: "oauth_authorize_failed", method: request.method, error: String(error) }).pipe(
+        Effect.as(page("Could not connect", "<h1>Could not connect</h1><p>Something went wrong on our side. Try again.</p>", 500)),
+      );
+    }),
+  );
 
-const grants = async (oauth: OAuthHelpers, userId: string) => {
+const grants = Effect.fn("grants")(function* (oauth: OAuthHelpers, userId: string) {
   const all = [];
   let cursor: string | undefined;
   do {
-    const result = await oauth.listUserGrants(userId, cursor === undefined ? undefined : { cursor });
+    const after = cursor;
+    const result = yield* Effect.promise(() => oauth.listUserGrants(userId, after === undefined ? undefined : { cursor: after }));
     all.push(...result.items);
     cursor = result.cursor;
   } while (cursor !== undefined);
   return all;
-};
+});
 
 /** The agents a user connected: one per grant, newest first. */
-export const listAgents = async (oauth: OAuthHelpers, userId: string) =>
-  (
-    await Promise.all(
-      (
-        await grants(oauth, userId)
-      ).map(async (grant) => ({
-        id: grant.id,
-        name: (await oauth.lookupClient(grant.clientId))?.clientName ?? grant.clientId,
-        connectedAt: grant.createdAt * 1000,
-      })),
-    )
-  ).sort((a, b) => b.connectedAt - a.connectedAt);
+export const listAgents = (oauth: OAuthHelpers, userId: string) =>
+  grants(oauth, userId).pipe(
+    Effect.flatMap((all) =>
+      Effect.forEach(
+        all,
+        (grant) =>
+          Effect.promise(() => oauth.lookupClient(grant.clientId)).pipe(
+            Effect.map((client) => ({
+              id: grant.id,
+              name: client?.clientName ?? grant.clientId,
+              connectedAt: grant.createdAt * 1000,
+            })),
+          ),
+        { concurrency: "unbounded" },
+      ),
+    ),
+    Effect.map((agents) => agents.sort((a, b) => b.connectedAt - a.connectedAt)),
+  );
 
 export class RevokeFailed extends Data.TaggedError("RevokeFailed")<{ readonly message: string }> {}
 
 /** Revokes every grant, carrying on past a failed one; fails afterwards if any could not be revoked. */
-export const revokeAgents = (oauth: OAuthHelpers, userId: string): Promise<void> =>
-  Effect.runPromise(
-    Effect.tryPromise({ try: () => grants(oauth, userId), catch: (error) => new RevokeFailed({ message: String(error) }) }).pipe(
-      Effect.flatMap((all) =>
-        Effect.all(
-          all.map((grant) =>
-            Effect.tryPromise({ try: () => oauth.revokeGrant(grant.id, userId), catch: (error) => String(error) }),
-          ),
-          { concurrency: 8, mode: "result" },
+export const revokeAgents = (oauth: OAuthHelpers, userId: string) =>
+  grants(oauth, userId).pipe(
+    Effect.catchDefect((error) => Effect.fail(new RevokeFailed({ message: String(error) }))),
+    Effect.flatMap((all) =>
+      Effect.all(
+        all.map((grant) =>
+          Effect.tryPromise({
+            try: () => oauth.revokeGrant(grant.id, userId),
+            catch: (error) => new RevokeFailed({ message: String(error) }),
+          }),
         ),
+        { concurrency: 8, mode: "result" },
       ),
-      Effect.flatMap((results) => {
-        const failed = results.flatMap((result) => (result._tag === "Failure" ? [result.failure] : []));
-        return failed.length === 0
-          ? Effect.void
-          : Effect.fail(new RevokeFailed({ message: `${failed.length} of ${results.length} grants: ${failed[0]}` }));
-      }),
     ),
+    Effect.flatMap((results) => {
+      const failed = results.flatMap((result) => (result._tag === "Failure" ? [result.failure.message] : []));
+      return failed.length === 0
+        ? Effect.void
+        : Effect.fail(new RevokeFailed({ message: `${failed.length} of ${results.length} grants: ${failed[0]}` }));
+    }),
   );
 
 const AGENT_PATH = /^\/v1\/agents\/([^/]+)$/;
 
-/** GET /v1/agents and DELETE /v1/agents/:id for the signed-in browser. */
-export const handleAgents = async (request: Request, env: Env, oauth: OAuthHelpers): Promise<Response | null> => {
+/** GET /v1/agents and DELETE /v1/agents/:id for the signed-in browser; null for any other path. */
+export const handleAgents = (request: Request, env: Env, oauth: OAuthHelpers) => {
   const { pathname } = new URL(request.url);
   const one = AGENT_PATH.exec(pathname);
   if (pathname !== "/v1/agents" && one === null) return null;
-  try {
-    const user = await sessionUser(env, request.headers.get("cookie"));
+  return Effect.gen(function* () {
+    const user = yield* sessionUser(env, request.headers.get("cookie"));
     if (user === null) return Response.json({ _tag: "Unauthorized" }, { status: 401 });
-    if (pathname === "/v1/agents" && request.method === "GET") return Response.json(await listAgents(oauth, user.id));
+    if (pathname === "/v1/agents" && request.method === "GET") return Response.json(yield* listAgents(oauth, user.id));
     if (one?.[1] !== undefined && request.method === "DELETE") {
-      await oauth.revokeGrant(decodeURIComponent(one[1]), user.id);
+      const grantId = decodeURIComponent(one[1]);
+      yield* Effect.promise(() => oauth.revokeGrant(grantId, user.id));
       return new Response(null, { status: 204 });
     }
     return new Response("Method not allowed", { status: 405 });
-  } catch (error) {
-    console.error(JSON.stringify({ event: "agents_route_failed", method: request.method, error: String(error) }));
-    return Response.json({ error: "Could not load connected agents. Try again." }, { status: 500 });
-  }
+  }).pipe(
+    Effect.catchCause((cause) =>
+      Effect.logError({ event: "agents_route_failed", method: request.method, error: String(Cause.squash(cause)) }).pipe(
+        Effect.as(Response.json({ error: "Could not load connected agents. Try again." }, { status: 500 })),
+      ),
+    ),
+  );
 };
