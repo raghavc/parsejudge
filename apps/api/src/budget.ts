@@ -54,10 +54,11 @@ export const checkJudgeBudget = Effect.fn("checkJudgeBudget")(function* (env: En
     .execute(
       HttpClientRequest.post(alertUrl).pipe(
         HttpClientRequest.bodyJsonUnsafe({
-          title: `ParseJudge judge key at ${Math.round((used / data.limit) * 100)}% of its ${data.limit_reset ?? ""} limit`.replace(
-            "  ",
-            " ",
-          ),
+          title:
+            `ParseJudge judge key at ${Math.round((used / data.limit) * 100)}% of its ${data.limit_reset ?? ""} limit`.replace(
+              "  ",
+              " ",
+            ),
           description: `Spent $${used.toFixed(2)} of $${data.limit.toFixed(2)}. When the limit is reached, pages stop being judged until it resets.`,
           status: "firing",
           deduplication_key: `parsejudge-judge-budget-${periodStart(data.limit_reset ?? null, new Date())}`,
@@ -66,5 +67,6 @@ export const checkJudgeBudget = Effect.fn("checkJudgeBudget")(function* (env: En
       ),
     )
     .pipe(Effect.mapError(failed));
-  if (alert.status < 200 || alert.status >= 300) return yield* new BudgetCheckFailed({ message: `Budget alert returned ${alert.status}` });
+  if (alert.status < 200 || alert.status >= 300)
+    return yield* new BudgetCheckFailed({ message: `Budget alert returned ${alert.status}` });
 });

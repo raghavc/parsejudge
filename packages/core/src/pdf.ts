@@ -13,7 +13,8 @@ export const splitPages = (bytes: Uint8Array, maxPages: number) =>
       });
     const source = yield* pdf(() => PDFDocument.load(bytes, { ignoreEncryption: true }));
     const count = source.getPageCount();
-    if (count > maxPages) return yield* new InvalidDocument({ message: `Document has ${count} pages; the limit is ${maxPages}.` });
+    if (count > maxPages)
+      return yield* new InvalidDocument({ message: `Document has ${count} pages; the limit is ${maxPages}.` });
     const pages: Array<Uint8Array> = [];
     for (let index = 0; index < count; index++) {
       const page = yield* pdf(() => PDFDocument.create());

@@ -81,17 +81,17 @@ const parseReply = (content: string) =>
     Effect.map((decoded) => {
       const data = decoded as { errors?: Array<{ error?: number; quotes?: Array<Partial<Quote> | string> }> };
       const found = new Map<number, Array<Quote>>();
-  for (const item of data.errors ?? []) {
-    if (typeof item.error !== "number") continue;
-    found.set(
-      item.error,
-      (item.quotes ?? []).map((q) =>
-        typeof q === "string"
-          ? { text: q, occurrence: 1 }
-          : { text: String(q.text ?? ""), occurrence: Number(q.occurrence ?? 1) },
-      ),
-    );
-  }
+      for (const item of data.errors ?? []) {
+        if (typeof item.error !== "number") continue;
+        found.set(
+          item.error,
+          (item.quotes ?? []).map((q) =>
+            typeof q === "string"
+              ? { text: q, occurrence: 1 }
+              : { text: String(q.text ?? ""), occurrence: Number(q.occurrence ?? 1) },
+          ),
+        );
+      }
       return found;
     }),
     Effect.option,

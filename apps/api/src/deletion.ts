@@ -29,9 +29,7 @@ const documentBlobs = Effect.fn("documentBlobs")(function* (env: Env, documentsS
       .all<{ id: string; format: string }>(),
   );
   const pages = yield* storage(() =>
-    env.DB.prepare(`SELECT id FROM pages WHERE document_id IN (${documentsSql})`)
-      .bind(bind)
-      .all<{ id: string }>(),
+    env.DB.prepare(`SELECT id FROM pages WHERE document_id IN (${documentsSql})`).bind(bind).all<{ id: string }>(),
   );
   return [
     ...docs.results.flatMap((d) => [sourceKey(d.id, d.format), documentKey(d.id)]),
@@ -64,7 +62,9 @@ const terminate = (binding: { get(id: string): Promise<WorkflowInstance> }, id: 
     Effect.flatMap((instance) =>
       storage(() => instance.status()).pipe(
         Effect.flatMap(({ status }) =>
-          status !== "complete" && status !== "errored" && status !== "terminated" ? storage(() => instance.terminate()) : Effect.void,
+          status !== "complete" && status !== "errored" && status !== "terminated"
+            ? storage(() => instance.terminate())
+            : Effect.void,
         ),
       ),
     ),
@@ -90,7 +90,9 @@ export const stopRun = Effect.fn("stopRun")(function* (env: Env, runId: string) 
     });
   }
   yield* storage(() =>
-    env.DB.prepare("UPDATE runs SET status = 'failed', error = 'Stopped', completed_at = ? WHERE id = ? AND status IN ('queued', 'running')")
+    env.DB.prepare(
+      "UPDATE runs SET status = 'failed', error = 'Stopped', completed_at = ? WHERE id = ? AND status IN ('queued', 'running')",
+    )
       .bind(Date.now(), runId)
       .run(),
   );
@@ -101,7 +103,9 @@ export const stopRun = Effect.fn("stopRun")(function* (env: Env, runId: string) 
  * with "data" the summary stays and the run is marked `data_deleted_at`. R2 goes first so a failed call can be retried.
  */
 export const deleteRun = Effect.fn("deleteRun")(function* (env: Env, runId: string, scope: Scope) {
-  const row = yield* storage(() => env.DB.prepare("SELECT status FROM runs WHERE id = ?").bind(runId).first<{ status: string }>());
+  const row = yield* storage(() =>
+    env.DB.prepare("SELECT status FROM runs WHERE id = ?").bind(runId).first<{ status: string }>(),
+  );
   if (row?.status === "queued" || row?.status === "running") yield* stopRun(env, runId);
   const docs = "SELECT document_id FROM run_documents WHERE run_id = ?1";
   yield* removeKeys(env.BLOBS, yield* documentBlobs(env, docs, runId));
@@ -119,7 +123,9 @@ export const deleteRun = Effect.fn("deleteRun")(function* (env: Env, runId: stri
           "DELETE FROM runs WHERE id = ?1",
         ]
       : ["UPDATE runs SET data_deleted_at = unixepoch() * 1000 WHERE id = ?1"];
-  yield* storage(() => env.DB.batch([...documentStatements(env, docs, runId), ...run.map((sql) => env.DB.prepare(sql).bind(runId))]));
+  yield* storage(() =>
+    env.DB.batch([...documentStatements(env, docs, runId), ...run.map((sql) => env.DB.prepare(sql).bind(runId))]),
+  );
 });
 
 /** Stops the user's runs in progress, then deletes every run, report and document they own, then the user. */
@@ -144,4 +150,3 @@ export const deleteExpiredUploads = Effect.fn("deleteExpiredUploads")(function* 
   yield* removeKeys(env.BLOBS, yield* documentBlobs(env, docs, String(before)));
   yield* storage(() => env.DB.batch(documentStatements(env, docs, String(before))));
 });
-

@@ -2,9 +2,9 @@ import { NonRetryableError } from "cloudflare:workflows";
 import {
   type Credentials,
   DEFAULT_MAX_CONCURRENCY,
+  decodeJson,
   findPreset,
   type JudgeError,
-  decodeJson,
   type PageInput,
   type PageResult,
   type ParseOutput,
@@ -40,7 +40,9 @@ export const runStep = <A, E extends { readonly message: string; readonly retrya
       Effect.provide(
         Layer.mergeAll(FetchHttpClient.layer, fetch === undefined ? Layer.empty : Layer.succeed(FetchHttpClient.Fetch, fetch)),
       ),
-      Effect.catch((error) => Effect.die(error.retryable === false ? new NonRetryableError(error.message) : new Error(error.message))),
+      Effect.catch((error) =>
+        Effect.die(error.retryable === false ? new NonRetryableError(error.message) : new Error(error.message)),
+      ),
     ),
   );
 

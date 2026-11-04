@@ -7,19 +7,19 @@ Backend code (`packages/core/src`, `apps/api/src`) is Effect-native. Two tools e
 
 ## Rules
 
-| Do not | Do | Enforced by |
-| --- | --- | --- |
-| `try` / `catch` / `finally` | `Effect.try`, `Effect.tryPromise`, `Effect.catchTag`, `Effect.ensuring` | linteffect `no-try-catch`, LSP `tryCatchInEffectGen` |
-| `throw` | `return yield* new SomeError(...)` with a `Data.TaggedError` | linteffect `no-throw-statement` |
-| global `fetch` | `HttpClient` from `effect/http`, `FetchHttpClient.layer` at the boundary | LSP `globalFetch`, `globalFetchInEffect` |
-| `new Promise`, `.then`, `.catch`, `.finally` | `Effect.tryPromise`, `Effect.flatMap`, `Effect.catch*` | LSP `newPromise`, `lint/no-promise-chain.grit` |
-| `JSON.parse` | `Schema.decodeUnknownEffect(Schema.fromJsonString(schema))` | `lint/no-json-parse.grit` |
-| `console.*` | `Effect.logError`, `Effect.logWarning`, `Effect.logInfo` | LSP `globalConsole`, `globalConsoleInEffect` |
-| an Effect that is never yielded or run | yield it, return it, or run it at the boundary | LSP `floatingEffect` |
-| `async` functions | `Effect.gen` / `Effect.fn` | LSP `asyncFunction`, linteffect `no-effect-async` |
-| `Effect.runPromise` / `runFork` / `runSync` in library code | return the Effect; run it at a platform boundary | `lint/no-effect-run.grit` |
-| `Effect.Do` / `Effect.bind`, nested `Effect.gen`, console in `Effect.sync` | `Effect.gen` | linteffect |
-| extending `Error` | `Data.TaggedError` | LSP `extendsNativeError` |
+| Do not                                                                     | Do                                                                       | Enforced by                                          |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------------ | ---------------------------------------------------- |
+| `try` / `catch` / `finally`                                                | `Effect.try`, `Effect.tryPromise`, `Effect.catchTag`, `Effect.ensuring`  | linteffect `no-try-catch`, LSP `tryCatchInEffectGen` |
+| `throw`                                                                    | `return yield* new SomeError(...)` with a `Data.TaggedError`             | linteffect `no-throw-statement`                      |
+| global `fetch`                                                             | `HttpClient` from `effect/http`, `FetchHttpClient.layer` at the boundary | LSP `globalFetch`, `globalFetchInEffect`             |
+| `new Promise`, `.then`, `.catch`, `.finally`                               | `Effect.tryPromise`, `Effect.flatMap`, `Effect.catch*`                   | LSP `newPromise`, `lint/no-promise-chain.grit`       |
+| `JSON.parse`                                                               | `Schema.decodeUnknownEffect(Schema.fromJsonString(schema))`              | `lint/no-json-parse.grit`                            |
+| `console.*`                                                                | `Effect.logError`, `Effect.logWarning`, `Effect.logInfo`                 | LSP `globalConsole`, `globalConsoleInEffect`         |
+| an Effect that is never yielded or run                                     | yield it, return it, or run it at the boundary                           | LSP `floatingEffect`                                 |
+| `async` functions                                                          | `Effect.gen` / `Effect.fn`                                               | LSP `asyncFunction`, linteffect `no-effect-async`    |
+| `Effect.runPromise` / `runFork` / `runSync` in library code                | return the Effect; run it at a platform boundary                         | `lint/no-effect-run.grit`                            |
+| `Effect.Do` / `Effect.bind`, nested `Effect.gen`, console in `Effect.sync` | `Effect.gen`                                                             | linteffect                                           |
+| extending `Error`                                                          | `Data.TaggedError`                                                       | LSP `extendsNativeError`                             |
 
 There are no suppression comments in backend code. Do not add any.
 
@@ -30,8 +30,8 @@ Cloudflare calls these and needs a `Promise` back. Each one is a plain (non-`asy
 - the Worker `fetch` and `scheduled` handlers (`index.ts`)
 - `WorkflowEntrypoint.run` and `step.do` callbacks (`workflows.ts`, through `runStep` in `run.ts`)
 - Durable Object methods (`slots.ts`, `events.ts`)
-- `@cloudflare/workers-oauth-provider` and MCP agent callbacks (`index.ts`, `oauth.ts`, `mcp.ts`)
+- `@cloudflare/workers-oauth-provider` and MCP agent callbacks (`index.ts`, `mcp.ts`)
 
 Only the files listed in the second `biome.json` override are allowed to call `Effect.run*`. Add a file there only if Cloudflare calls into it directly.
 
-`runStep` keeps the Workflows retry contract: a retryable failure becomes `Error` (Workflows retries the step) and a non-retryable failure becomes `NonRetryableError` (the step fails at once).
+`runStep` keeps the Workflows retry contract: an error with `retryable: false` becomes `NonRetryableError` (the step fails at once); any other failure becomes `Error` (Workflows retries the step).

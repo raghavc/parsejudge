@@ -87,7 +87,8 @@ export const writePageNote = Effect.fn("writePageNote")(function* (env: Env, run
     ...openRouterUsage(usage),
   });
   const note = content.trim();
-  if (!note || note.includes("\n")) return yield* new CompletionFailed({ message: `Unusable page note: ${JSON.stringify(note)}` });
+  if (!note || note.includes("\n"))
+    return yield* new CompletionFailed({ message: `Unusable page note: ${JSON.stringify(note)}` });
   yield* Effect.promise(() =>
     env.DB.prepare("INSERT OR REPLACE INTO page_notes (run_id, page_id, note) VALUES (?, ?, ?)").bind(runId, pageId, note).run(),
   );

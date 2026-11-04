@@ -145,7 +145,8 @@ export class RunEvents extends DurableObject<Env> {
   }
 
   override fetch(request: Request): Promise<Response> {
-    if (request.headers.get("upgrade") !== "websocket") return Promise.resolve(new Response("Expected WebSocket", { status: 426 }));
+    if (request.headers.get("upgrade") !== "websocket")
+      return Promise.resolve(new Response("Expected WebSocket", { status: 426 }));
     const [client, server] = Object.values(new WebSocketPair()) as [WebSocket, WebSocket];
     this.ctx.acceptWebSocket(server);
     return Effect.runPromise(

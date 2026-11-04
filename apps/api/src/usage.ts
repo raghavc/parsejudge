@@ -1,4 +1,4 @@
-import { Data, Duration, Effect, Schema } from "effect";
+import { Data, type Duration, Effect, Schema } from "effect";
 import { HttpClient, HttpClientRequest } from "effect/http";
 import type { Env } from "./env.ts";
 
@@ -28,16 +28,16 @@ export const recordUsage = (env: Env, usage: Usage) =>
     Effect.andThen(
       Effect.sync(() =>
         env.USAGE?.writeDataPoint({
-    indexes: [usage.runId ?? ""],
-    blobs: [usage.kind, usage.name, usage.runId ?? "", usage.pageId ?? "", usage.status],
-    doubles: [
-      usage.costUsd,
-      usage.latencyMs,
-      usage.queueMs ?? 0,
-      usage.promptTokens ?? 0,
-      usage.completionTokens ?? 0,
-      usage.reasoningTokens ?? 0,
-    ],
+          indexes: [usage.runId ?? ""],
+          blobs: [usage.kind, usage.name, usage.runId ?? "", usage.pageId ?? "", usage.status],
+          doubles: [
+            usage.costUsd,
+            usage.latencyMs,
+            usage.queueMs ?? 0,
+            usage.promptTokens ?? 0,
+            usage.completionTokens ?? 0,
+            usage.reasoningTokens ?? 0,
+          ],
         }),
       ),
     ),

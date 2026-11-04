@@ -21,7 +21,13 @@ export const generateTitle = Effect.fn("generateTitle")(function* (env: Env, fil
     "5 seconds",
   ).pipe(
     Effect.tap(({ usage }) =>
-      recordUsage(env, { kind: "title", name: env.SMALL_MODEL, status: "ok", latencyMs: Date.now() - startedAt, ...openRouterUsage(usage) }),
+      recordUsage(env, {
+        kind: "title",
+        name: env.SMALL_MODEL,
+        status: "ok",
+        latencyMs: Date.now() - startedAt,
+        ...openRouterUsage(usage),
+      }),
     ),
     Effect.map(({ content }) => {
       const title = content.trim().replace(/^["']|["']$/g, "");

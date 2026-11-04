@@ -104,13 +104,16 @@ export const authorize = (request: Request, env: Env, oauth: OAuthHelpers) =>
   }).pipe(
     Effect.catchCause((cause) => {
       const error = Cause.squash(cause);
-      if (error instanceof AuthorizationError && error.redirectTo) return Effect.succeed(Response.redirect(error.redirectTo, 302));
+      if (error instanceof AuthorizationError && error.redirectTo)
+        return Effect.succeed(Response.redirect(error.redirectTo, 302));
       if (error instanceof AuthorizationError || error instanceof CimdFetchError) {
         const message = error instanceof AuthorizationError ? error.description : "This app could not be verified.";
         return Effect.succeed(page("Could not connect", `<h1>Could not connect</h1><p>${escapeHtml(message ?? "")}</p>`, 400));
       }
       return Effect.logError({ event: "oauth_authorize_failed", method: request.method, error: String(error) }).pipe(
-        Effect.as(page("Could not connect", "<h1>Could not connect</h1><p>Something went wrong on our side. Try again.</p>", 500)),
+        Effect.as(
+          page("Could not connect", "<h1>Could not connect</h1><p>Something went wrong on our side. Try again.</p>", 500),
+        ),
       );
     }),
   );
