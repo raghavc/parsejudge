@@ -11,7 +11,7 @@ import {
   type ProviderError,
   summarize,
 } from "@parsejudge/core";
-import { Data, Effect, Option } from "effect";
+import { Data, Effect, Layer, Option } from "effect";
 import { FetchHttpClient, type HttpClient } from "effect/http";
 import { signedBlobUrl } from "./blobs.ts";
 import { decryptCredentials } from "./credentials.ts";
@@ -21,10 +21,14 @@ import { markdownKey, pageId as pageIdOf, pagePngKey, rawKey } from "./keys.ts";
 import { recordUsage } from "./usage.ts";
 
 /** Runs an Effect inside a workflow step. Non-retryable errors stop the step's retries. */
-export const runStep = <A>(program: Effect.Effect<A, ProviderError | JudgeError, HttpClient.HttpClient>) =>
+export const runStep = <A>(
+  program: Effect.Effect<A, ProviderError | JudgeError, HttpClient.HttpClient>,
+  fetch?: typeof globalThis.fetch,
+) =>
   Effect.runPromise(
     program.pipe(
       Effect.provide(FetchHttpClient.layer),
+      Effect.provide(fetch === undefined ? Layer.empty : Layer.succeed(FetchHttpClient.Fetch, fetch)),
       Effect.catch((error) => Effect.die(error.retryable ? new Error(error.message) : new NonRetryableError(error.message))),
     ),
   );
@@ -250,6 +254,28 @@ const stopPage = (env: Env, instanceId: string) =>
     instanceId,
   );
 
+/** Stops the page workflows of a run that has failed, so they stop calling providers. */
+export const stopPendingPages = Effect.fn("stopPendingPages")(function* (env: Env, runId: string) {
+  const pageIds = yield* attempt("list pages", () => runPageIds(env, runId));
+  const state = yield* attempt("find pending pages", () => runEvents(env, runId).pending(pageIds));
+  if (state === null) return;
+  yield* Effect.forEach(state.pending, (page) => stopPage(env, `${state.workflow}-${page}`), { concurrency: 10, discard: true });
+});
+
+/**
+ * Marks a `running` run failed when its run workflow can no longer finish it (errored or terminated after even
+ * `record failure` failed). Called when the run is read, so the owner sees `failed` and can press Continue.
+ */
+export const reconcileRun = Effect.fn("reconcileRun")(function* (env: Env, runId: string) {
+  const state = yield* attempt("find run workflow", () => runEvents(env, runId).pending([]));
+  if (state === null) return false;
+  const status = yield* attempt("run workflow status", async () => (await env.RUN_WORKFLOW.get(state.workflow)).status());
+  if (status.status !== "errored" && status.status !== "terminated") return false;
+  return yield* attempt("record failure", () =>
+    finishRun(env, runId, "failed", `Run workflow ${status.status}: ${status.error?.message ?? "no error message"}`),
+  );
+});
+
 /** Sends `pages-done` to the run workflow. False when it can no longer summarize (errored, terminated, complete or gone). */
 const wakeWorkflow = (env: Env, instanceId: string) =>
   attempt("wake run workflow", async () => {
@@ -289,6 +315,17 @@ export const continueRun = Effect.fn("continueRun")(function* (env: Env, runId: 
          SELECT ?, page.value, preset.value, 'failed', ? FROM json_each(?) page, json_each(?) preset`,
       )
         .bind(runId, SKIPPED, JSON.stringify(state.pending), run.preset_ids)
+        .run(),
+    );
+    // A skipped page whose parses finished but were never judged gets a judge failure, so the report shows it.
+    yield* attempt("record skipped judging", () =>
+      env.DB.prepare(
+        `INSERT OR IGNORE INTO judge_failures (run_id, page_id, error)
+         SELECT DISTINCT p.run_id, p.page_id, ? FROM parses p
+         WHERE p.run_id = ? AND p.status = 'succeeded' AND p.page_id IN (SELECT value FROM json_each(?))
+           AND NOT EXISTS (SELECT 1 FROM verdicts v WHERE v.run_id = p.run_id AND v.page_id = p.page_id)`,
+      )
+        .bind(SKIPPED, runId, JSON.stringify(state.pending))
         .run(),
     );
     yield* attempt("mark skipped pages done", () => events.skip(state.pending));

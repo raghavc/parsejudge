@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect";
+import { Data, Effect, Schema } from "effect";
 import { HttpClient, HttpClientRequest } from "effect/http";
 import { ErrorCategory, type PresetVerdict, Severity } from "./domain.ts";
 import { isRetryableStatus, JudgeError } from "./errors.ts";
@@ -9,12 +9,14 @@ import { comparePrompt } from "./prompt.ts";
 export const JUDGE_VERSION = "compare-v1";
 
 export interface JudgeConfig {
-  readonly apiKey: string;
-  readonly model: string;
+  /** Bearer token for each call; may be cached and renewed by the caller. */
+  readonly token: Effect.Effect<string, JudgeError, HttpClient.HttpClient>;
+  /** The primary model, then the models tried in order when the one before is rate limited. */
+  readonly models: ReadonlyArray<string>;
   readonly reasoningEffort: "low" | "medium" | "high";
   readonly baseUrl: string;
-  /** Called with the `usage` object of each answered judge call (OpenRouter includes cost). */
-  readonly onUsage?: (usage: unknown) => void;
+  /** Called with the model and `usage` object of each successful judge call. */
+  readonly onUsage?: (model: string, usage: unknown) => void;
 }
 
 export interface JudgeInput {
@@ -60,9 +62,16 @@ const Verdicts = Schema.Struct({
 const JUDGE_TIMEOUT = "4 minutes";
 
 const CompletionError = Schema.Struct({
-  code: Schema.optional(Schema.Union([Schema.Number, Schema.String])),
+  code: Schema.optional(Schema.NullOr(Schema.Union([Schema.Number, Schema.String]))),
+  type: Schema.optional(Schema.NullOr(Schema.String)),
   message: Schema.optional(Schema.String),
 });
+
+/** OpenAI answers 429 `insufficient_quota` when the project's spend limit is reached. Another model would not help. */
+const isQuotaError = (text: string) => /"(?:code|type)"\s*:\s*"insufficient_quota"/.test(text);
+
+/** A rate limit on our own usage of one model: try the next model. */
+class RateLimited extends Data.TaggedError("RateLimited")<{ readonly message: string }> {}
 
 /** The fields read from an OpenRouter chat completion. Anything can be absent; the checks below say which is missing. */
 const Completion = Schema.Struct({
@@ -128,11 +137,31 @@ const base64 = (bytes: Uint8Array): string => {
   return btoa(binary);
 };
 
-/** One judge call per page: all parses, blinded, scored 1-10 against the page image. */
+/**
+ * One judge call per page: all parses, blinded, scored 1-10 against the page image. On a rate limit the next
+ * model in `config.models` judges the page; all parses of a page are always judged by one model.
+ */
 export const judgePage = Effect.fn("judge.page")(function* (config: JudgeConfig, input: JudgeInput) {
-  if (config.apiKey === undefined || config.apiKey === "") {
-    return yield* new JudgeError({ retryable: false, message: "Judge API key is not set." });
+  const [first, ...fallbacks] = config.models;
+  if (first === undefined) return yield* new JudgeError({ retryable: false, message: "No judge model is set." });
+  let attempt = judgeWith(config, first, input);
+  for (const model of fallbacks) {
+    attempt = attempt.pipe(
+      Effect.catchTag("RateLimited", (error) =>
+        Effect.logWarning("judge model rate limited, falling back", { model, error: error.message }).pipe(
+          Effect.andThen(judgeWith(config, model, input)),
+        ),
+      ),
+    );
   }
+  return yield* attempt.pipe(
+    Effect.catchTag("RateLimited", (error) => Effect.fail(new JudgeError({ retryable: true, message: error.message }))),
+  );
+});
+
+const judgeWith = Effect.fn("judge.model")(function* (config: JudgeConfig, model: string, input: JudgeInput) {
+  yield* Effect.annotateCurrentSpan("model", model);
+  const token = yield* config.token;
   const labelToPreset = yield* blindLabels(input.pageId, Object.keys(input.markdownByPreset));
   const labels = Object.keys(labelToPreset);
   const sections = labels
@@ -140,9 +169,9 @@ export const judgePage = Effect.fn("judge.page")(function* (config: JudgeConfig,
     .join("\n\n");
   const client = yield* HttpClient.HttpClient;
   const request = HttpClientRequest.post(`${config.baseUrl}/chat/completions`).pipe(
-    HttpClientRequest.bearerToken(config.apiKey),
+    HttpClientRequest.bearerToken(token),
     HttpClientRequest.bodyJsonUnsafe({
-      model: config.model,
+      model,
       reasoning_effort: config.reasoningEffort,
       response_format: responseFormat(labels),
       messages: [
@@ -166,23 +195,28 @@ export const judgePage = Effect.fn("judge.page")(function* (config: JudgeConfig,
       orElse: () => Effect.fail(new JudgeError({ retryable: true, message: `Judge request timed out after ${JUDGE_TIMEOUT}` })),
     }),
   );
+  if (status === 429 && isQuotaError(text)) {
+    return yield* new JudgeError({ retryable: false, message: `Judge project spend limit reached: ${snippet(text)}` });
+  }
+  if (status === 429) return yield* new RateLimited({ message: `${model} HTTP 429: ${snippet(text)}` });
   if (status !== 200) {
-    return yield* new JudgeError({ retryable: isRetryableStatus(status), message: `HTTP ${status}: ${text.slice(0, 500)}` });
+    return yield* new JudgeError({ retryable: isRetryableStatus(status), message: `${model} HTTP ${status}: ${snippet(text)}` });
   }
   const body = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(Completion))(text).pipe(
     Effect.mapError(
       (error) => new JudgeError({ retryable: true, message: `Invalid judge response: ${error.message}; body: ${snippet(text)}` }),
     ),
   );
-  config.onUsage?.(body.usage);
   const choice = body.choices?.[0];
-  // OpenRouter can answer 200 with an `error` object (e.g. an upstream 429), at the top level or on the choice.
+  // A 200 can carry an `error` object (OpenRouter upstream 429), at the top level or on the choice.
   const error = body.error ?? choice?.error;
   if (error !== undefined && error !== null) {
     const code = Number(error.code);
+    const message = `${model} error ${error.code}: ${String(error.message).slice(0, 500)}`;
+    if (code === 429) return yield* new RateLimited({ message });
     return yield* new JudgeError({
       retryable: Number.isNaN(code) || isRetryableStatus(code),
-      message: `Judge error ${error.code}: ${String(error.message).slice(0, 500)}`,
+      message,
     });
   }
   const content = choice?.message?.content;
@@ -212,5 +246,6 @@ export const judgePage = Effect.fn("judge.page")(function* (config: JudgeConfig,
   if (verdicts.size !== labels.length) {
     return yield* new JudgeError({ retryable: true, message: "Judge did not score every parse." });
   }
+  config.onUsage?.(model, body.usage);
   return [...verdicts.values()];
 });

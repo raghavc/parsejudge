@@ -2,6 +2,7 @@ export * from "./document.ts";
 export * from "./domain.ts";
 export * from "./errors.ts";
 export * from "./judge.ts";
+export * from "./openai.ts";
 export * from "./pdf.ts";
 export * from "./presets.ts";
 export * from "./provider.ts";

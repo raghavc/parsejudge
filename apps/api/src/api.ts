@@ -11,7 +11,7 @@ import { deleteRun, deleteUser } from "./deletion.ts";
 import type { Env } from "./env.ts";
 import { INTERNAL_HEADER, internalUser } from "./internal.ts";
 import { documentKey, markdownKey, pageId as pageIdOf, pagePdfKey, pagePngKey, sourceKey } from "./keys.ts";
-import { continueRun } from "./run.ts";
+import { continueRun, reconcileRun } from "./run.ts";
 import { generateTitle } from "./title.ts";
 
 const cf = env as unknown as Env;
@@ -512,8 +512,21 @@ const runScores = (runId: string) =>
 
 const findRun = (column: "id" | "share_id", value: string) =>
   Effect.gen(function* () {
-    const row = yield* query(() => cf.DB.prepare(`SELECT * FROM runs WHERE ${column} = ?`).bind(value).first<RunRow>());
+    const select = () => cf.DB.prepare(`SELECT * FROM runs WHERE ${column} = ?`).bind(value).first<RunRow>();
+    let row = yield* query(select);
     if (row === null) return yield* notFound;
+    if (row.status === "running") {
+      const runId = row.id;
+      const failed = yield* reconcileRun(cf, runId).pipe(
+        Effect.catchTag("ContinueFailed", (error) =>
+          Effect.sync(() => {
+            console.warn("Could not check run workflow", runId, error.step, error.message);
+            return false;
+          }),
+        ),
+      );
+      if (failed) row = (yield* query(select)) ?? row;
+    }
     const owned = (yield* signedInUser) === row.user_id;
     if (!owned && (column === "id" || row.visibility !== "link")) return yield* notFound;
     const documents = yield* runDocuments(row.id);

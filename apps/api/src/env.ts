@@ -12,9 +12,19 @@ export interface Env {
   readonly PAGE_WORKFLOW: Workflow<PageWorkflowParams>;
   readonly DOCUMENT_WORKFLOW: Workflow<DocumentWorkflowParams>;
   readonly PUBLIC_URL: string;
+  /** Primary OpenAI judge model, called directly with workload identity. */
   readonly JUDGE_MODEL: string;
+  /** Comma-separated OpenAI models tried in order when the one before is rate limited. */
+  readonly JUDGE_FALLBACK_MODELS?: string;
+  readonly OPENAI_BASE_URL: string;
+  readonly OPENAI_AUTH_URL: string;
+  readonly OPENAI_IDENTITY_PROVIDER_ID: string;
+  readonly OPENAI_SERVICE_ACCOUNT_ID: string;
+  /** mTLS certificate binding whose client certificate OpenAI trusts. Unbound uses plain fetch (local fakes). */
+  readonly OPENAI_MTLS?: Fetcher;
   readonly SMALL_MODEL: string;
   readonly JUDGE_REASONING_EFFORT: "low" | "medium" | "high";
+  /** OpenRouter, for the small-model steps (notes, locations, titles) and the budget check. */
   readonly JUDGE_BASE_URL: string;
   readonly MAX_PAGES_PER_RUN: string;
   /** JSON map from provider id or "judge" to max requests in flight per API key, e.g. `{"reducto": 200}`. */

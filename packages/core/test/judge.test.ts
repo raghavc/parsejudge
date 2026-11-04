@@ -1,9 +1,14 @@
-import { Effect, Exit, Layer } from "effect";
+import { Cause, Effect, Exit, Layer } from "effect";
 import { FetchHttpClient } from "effect/http";
 import { describe, expect, it } from "vitest";
 import { blindLabels, judgePage, unblind } from "../src/judge.ts";
 
-const config = { apiKey: "test", model: "judge", reasoningEffort: "medium" as const, baseUrl: "https://judge.test/v1" };
+const config = {
+  token: Effect.succeed("test"),
+  models: ["judge"],
+  reasoningEffort: "medium" as const,
+  baseUrl: "https://judge.test/v1",
+};
 const input = {
   pageId: "doc-0",
   imagePng: new Uint8Array([1, 2, 3]),
@@ -72,7 +77,7 @@ describe("judgePage", () => {
         Effect.provide(Layer.succeed(FetchHttpClient.Fetch, fetch)),
       ),
     );
-    expect(String(exit)).toContain("Judge error 429: Rate limit exceeded");
+    expect(String(exit)).toContain("judge error 429: Rate limit exceeded");
   });
 
   it("keeps the body when a 200 response has an error on the choice or is not JSON", async () => {
@@ -88,8 +93,67 @@ describe("judgePage", () => {
       );
     };
     const choiceError = { choices: [{ finish_reason: "error", error: { code: 502, message: "upstream reset" } }] };
-    expect(await respond(JSON.stringify(choiceError))).toContain("Judge error 502: upstream reset");
+    expect(await respond(JSON.stringify(choiceError))).toContain("judge error 502: upstream reset");
     expect(await respond('{"choices": [')).toContain('body: {"choices": [');
+  });
+});
+
+const retryable = (exit: Exit.Exit<unknown, unknown>) =>
+  Exit.isFailure(exit) ? (Cause.squash(exit.cause) as { retryable?: boolean }).retryable : undefined;
+
+describe("judgePage fallback", () => {
+  const run = (models: Array<string>, answer: (model: string, labels: Array<string>) => Response) => {
+    const seen: Array<string> = [];
+    const fetch = (async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body));
+      seen.push(body.model);
+      return answer(body.model, body.response_format.json_schema.schema.properties.evaluations.items.properties.label.enum);
+    }) as unknown as typeof globalThis.fetch;
+    const used: Array<string> = [];
+    const exit = Effect.runPromiseExit(
+      judgePage({ ...config, models, onUsage: (model) => used.push(model) }, input).pipe(
+        Effect.provide(FetchHttpClient.layer),
+        Effect.provide(Layer.succeed(FetchHttpClient.Fetch, fetch)),
+      ),
+    );
+    return { exit, seen, used };
+  };
+  const ok = (labels: Array<string>) =>
+    new Response(
+      JSON.stringify({
+        choices: [{ message: { content: JSON.stringify({ evaluations: labels.map((l) => evaluation(l, 7)) }) } }],
+      }),
+    );
+  const rateLimited = () =>
+    new Response(JSON.stringify({ error: { code: "rate_limit_exceeded", type: "requests", message: "Rate limit reached" } }), {
+      status: 429,
+    });
+
+  it("judges the page with the next model when one is rate limited", async () => {
+    const { exit, seen, used } = run(["a", "b", "c"], (model, labels) => (model === "c" ? ok(labels) : rateLimited()));
+    expect(Exit.isSuccess(await exit)).toBe(true);
+    expect(seen).toEqual(["a", "b", "c"]);
+    expect(used).toEqual(["c"]);
+  });
+
+  it("fails retryable after every model is rate limited", async () => {
+    const { exit, seen } = run(["a", "b"], () => rateLimited());
+    const result = await exit;
+    expect(seen).toEqual(["a", "b"]);
+    expect(String(result)).toContain("b HTTP 429");
+    expect(retryable(result)).toBe(true);
+  });
+
+  it("does not fall back when the project spend limit is reached", async () => {
+    const quota = () =>
+      new Response(JSON.stringify({ error: { code: "insufficient_quota", type: "insufficient_quota", message: "quota" } }), {
+        status: 429,
+      });
+    const { exit, seen } = run(["a", "b"], () => quota());
+    const result = await exit;
+    expect(seen).toEqual(["a"]);
+    expect(String(result)).toContain("spend limit reached");
+    expect(retryable(result)).toBe(false);
   });
 });
 

@@ -20,7 +20,13 @@
   ],
   "vars": {
     "PUBLIC_URL": "http://localhost:8787",
-    "JUDGE_MODEL": "openai/gpt-6.1-sol",
+    "JUDGE_MODEL": "gpt-6.1-sol",
+    "JUDGE_FALLBACK_MODELS": "gpt-5.5,gpt-5.2",
+    "OPENAI_BASE_URL": "https://mtls.api.openai.com/v1",
+    "OPENAI_AUTH_URL": "https://mtls.auth.openai.com/oauth/token",
+    // OpenAI project "ParseJudge": X.509 workload identity provider and the service account it maps to.
+    "OPENAI_IDENTITY_PROVIDER_ID": "idp_95bc718802427e3d9d77c19b",
+    "OPENAI_SERVICE_ACCOUNT_ID": "user-0eaf0a6824553c5f307e1ab8",
     "SMALL_MODEL": "anthropic/claude-haiku-5.5",
     "JUDGE_REASONING_EFFORT": "medium",
     "JUDGE_BASE_URL": "https://openrouter.ai/api/v1",
@@ -30,6 +36,8 @@
     "AUTH_MODE": "email",
     "EMAIL_FROM": "noreply@parsejudge.com"
   },
+  // Client certificate for OpenAI workload identity (CN parsejudge-api, OU Production).
+  "mtls_certificates": [{ "binding": "OPENAI_MTLS", "certificate_id": "3ce8663f-b965-4edc-99c1-2d97a0cf5ab9" }],
   "kv_namespaces": [{ "binding": "OAUTH_KV", "id": "local" }],
   "d1_databases": [{ "binding": "DB", "database_name": "parsejudge", "database_id": "local", "migrations_dir": "migrations" }],
   "r2_buckets": [{ "binding": "BLOBS", "bucket_name": "parsejudge-blobs" }],

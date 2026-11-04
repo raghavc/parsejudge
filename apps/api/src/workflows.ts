@@ -1,5 +1,5 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep, type WorkflowStepConfig } from "cloudflare:workers";
-import { JUDGE_VERSION, judgePage, splitPages } from "@parsejudge/core";
+import { JUDGE_VERSION, judgePage, splitPages, workloadToken } from "@parsejudge/core";
 import { Data, Effect } from "effect";
 import { checkJudgeBudget } from "./budget.ts";
 import type { Env } from "./env.ts";
@@ -18,6 +18,7 @@ import {
   providerPool,
   runStep,
   saveFailure,
+  stopPendingPages,
   submitCell,
   summarizeRun,
 } from "./run.ts";
@@ -255,9 +256,19 @@ export class RunWorkflow extends WorkflowEntrypoint<Env, RunWorkflowParams> {
       Effect.flatMap((changed) =>
         changed
           ? bestEffort(
-              attempt("notify failed", () => step.do("notify failed", () => events(this.env, runId).runDone("failed"))),
-              "Run failed event failed",
+              attempt("stop pages", () =>
+                step.do("stop pages", RETRY, () => Effect.runPromise(stopPendingPages(this.env, runId))),
+              ),
+              "Could not stop pages of failed run",
               runId,
+            ).pipe(
+              Effect.andThen(
+                bestEffort(
+                  attempt("notify failed", () => step.do("notify failed", () => events(this.env, runId).runDone("failed"))),
+                  "Run failed event failed",
+                  runId,
+                ),
+              ),
             )
           : Effect.void,
       ),
@@ -495,17 +506,23 @@ export class PageWorkflow extends WorkflowEntrypoint<Env, PageWorkflowParams> {
     const image = await this.env.BLOBS.get(pagePngKey(page));
     if (image === null) throw new Error(`Missing image for ${page}`);
     const startedAt = Date.now();
+    const env = this.env;
+    const mtls = env.OPENAI_MTLS;
     const verdicts = await runStep(
       judgePage(
         {
-          apiKey: this.env.JUDGE_API_KEY,
-          model: this.env.JUDGE_MODEL,
-          reasoningEffort: this.env.JUDGE_REASONING_EFFORT,
-          baseUrl: this.env.JUDGE_BASE_URL,
-          onUsage: (usage) =>
+          token: workloadToken({
+            authUrl: env.OPENAI_AUTH_URL,
+            identityProviderId: env.OPENAI_IDENTITY_PROVIDER_ID,
+            serviceAccountId: env.OPENAI_SERVICE_ACCOUNT_ID,
+          }),
+          models: [env.JUDGE_MODEL, ...(env.JUDGE_FALLBACK_MODELS ?? "").split(",").map((m) => m.trim())].filter(Boolean),
+          reasoningEffort: env.JUDGE_REASONING_EFFORT,
+          baseUrl: env.OPENAI_BASE_URL,
+          onUsage: (model, usage) =>
             recordUsage(this.env, {
               kind: "judge",
-              name: this.env.JUDGE_MODEL,
+              name: model,
               runId,
               pageId: page,
               status: "ok",
@@ -515,6 +532,9 @@ export class PageWorkflow extends WorkflowEntrypoint<Env, PageWorkflowParams> {
         },
         { pageId: page, imagePng: new Uint8Array(await image.arrayBuffer()), markdownByPreset },
       ),
+      mtls === undefined
+        ? undefined
+        : (((input: RequestInfo | URL, init?: RequestInit) => mtls.fetch(input, init)) as typeof fetch),
     );
     await this.env.DB.batch(
       verdicts.map((verdict) =>
