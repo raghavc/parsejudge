@@ -1,7 +1,8 @@
 import { Effect, Schema } from "effect";
 import { HttpClient, HttpClientRequest } from "effect/http";
 import { ErrorCategory, type PresetVerdict, Severity } from "./domain.ts";
-import { JudgeError } from "./errors.ts";
+import { isRetryableStatus, JudgeError } from "./errors.ts";
+import { httpErrorMessage, snippet } from "./http.ts";
 import { findPreset } from "./presets.ts";
 import { comparePrompt } from "./prompt.ts";
 
@@ -53,6 +54,29 @@ const Verdicts = Schema.Struct({
       score: Schema.Number,
     }),
   ),
+});
+
+/** Bounds one judge call below the 5-minute workflow step timeout; high reasoning effort can take minutes. */
+const JUDGE_TIMEOUT = "4 minutes";
+
+const CompletionError = Schema.Struct({
+  code: Schema.optional(Schema.Union([Schema.Number, Schema.String])),
+  message: Schema.optional(Schema.String),
+});
+
+/** The fields read from an OpenRouter chat completion. Anything can be absent; the checks below say which is missing. */
+const Completion = Schema.Struct({
+  error: Schema.optional(Schema.NullOr(CompletionError)),
+  choices: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        finish_reason: Schema.optional(Schema.NullOr(Schema.String)),
+        error: Schema.optional(Schema.NullOr(CompletionError)),
+        message: Schema.optional(Schema.NullOr(Schema.Struct({ content: Schema.optional(Schema.NullOr(Schema.String)) }))),
+      }),
+    ),
+  ),
+  usage: Schema.optional(Schema.Unknown),
 });
 
 const responseFormat = (labels: ReadonlyArray<string>) => ({
@@ -132,35 +156,40 @@ export const judgePage = Effect.fn("judge.page")(function* (config: JudgeConfig,
       ],
     }),
   );
-  const response = yield* client
-    .execute(request)
-    .pipe(Effect.mapError((error) => new JudgeError({ retryable: true, message: error.message })));
-  const text = yield* response.text.pipe(Effect.mapError((error) => new JudgeError({ retryable: true, message: error.message })));
-  if (response.status !== 200) {
-    const retryable = response.status === 429 || response.status >= 500;
-    return yield* new JudgeError({ retryable, message: `HTTP ${response.status}: ${text.slice(0, 500)}` });
+  const { status, text } = yield* Effect.gen(function* () {
+    const response = yield* client.execute(request);
+    return { status: response.status, text: yield* response.text };
+  }).pipe(
+    Effect.mapError((error) => new JudgeError({ retryable: true, message: httpErrorMessage(error) })),
+    Effect.timeoutOrElse({
+      duration: JUDGE_TIMEOUT,
+      orElse: () => Effect.fail(new JudgeError({ retryable: true, message: `Judge request timed out after ${JUDGE_TIMEOUT}` })),
+    }),
+  );
+  if (status !== 200) {
+    return yield* new JudgeError({ retryable: isRetryableStatus(status), message: `HTTP ${status}: ${text.slice(0, 500)}` });
   }
-  const body = (() => {
-    try {
-      return JSON.parse(text);
-    } catch {
-      return undefined;
-    }
-  })();
-  config.onUsage?.(body?.usage);
-  // OpenRouter can answer 200 with an `error` object (e.g. an upstream 429) instead of choices.
-  if (body?.error !== undefined && body.error !== null) {
-    const code = Number(body.error.code);
+  const body = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(Completion))(text).pipe(
+    Effect.mapError(
+      (error) => new JudgeError({ retryable: true, message: `Invalid judge response: ${error.message}; body: ${snippet(text)}` }),
+    ),
+  );
+  config.onUsage?.(body.usage);
+  const choice = body.choices?.[0];
+  // OpenRouter can answer 200 with an `error` object (e.g. an upstream 429), at the top level or on the choice.
+  const error = body.error ?? choice?.error;
+  if (error !== undefined && error !== null) {
+    const code = Number(error.code);
     return yield* new JudgeError({
-      retryable: Number.isNaN(code) || code === 429 || code >= 500,
-      message: `Judge error ${body.error.code}: ${String(body.error.message).slice(0, 500)}`,
+      retryable: Number.isNaN(code) || isRetryableStatus(code),
+      message: `Judge error ${error.code}: ${String(error.message).slice(0, 500)}`,
     });
   }
-  const content = body?.choices?.[0]?.message?.content;
+  const content = choice?.message?.content;
   if (typeof content !== "string" || content === "") {
     return yield* new JudgeError({
       retryable: true,
-      message: `Judge response has no message content: ${text.slice(0, 500)}`,
+      message: `Judge response has no message content (finish_reason ${choice?.finish_reason ?? "none"}): ${snippet(text)}`,
     });
   }
   const parsed = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(Verdicts))(content).pipe(

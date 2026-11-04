@@ -1,10 +1,18 @@
-import { Effect, Option } from "effect";
+import { Effect, Option, Schema } from "effect";
 import { HttpClientRequest } from "effect/http";
-import { sendJson } from "../http.ts";
-import { number, record, string } from "../json.ts";
-import { credential, failure, type ProviderAdapter, pending } from "../provider.ts";
+import { decodeBody, sendJson } from "../http.ts";
+import { number, record } from "../json.ts";
+import { credential, jobFailure, type ProviderAdapter, pending } from "../provider.ts";
 
 const BASE_URL = "https://www.datalab.to";
+
+const Submitted = Schema.Struct({ request_check_url: Schema.String });
+const Check = Schema.Struct({
+  status: Schema.String,
+  success: Schema.optional(Schema.NullOr(Schema.Boolean)),
+  error: Schema.optional(Schema.NullOr(Schema.String)),
+});
+const Complete = Schema.Struct({ markdown: Schema.String });
 
 const formValue = (value: unknown): string =>
   typeof value === "string" ? value : value === null || value === undefined ? "" : JSON.stringify(value);
@@ -23,22 +31,21 @@ export const datalab: ProviderAdapter = {
         HttpClientRequest.bodyFormData(form),
       ),
     );
-    const checkUrl = string(record(response.body).request_check_url);
-    if (checkUrl === undefined) return yield* failure("datalab", "convert response has no request_check_url", true);
-    return pending(checkUrl);
+    return pending((yield* decodeBody("datalab", Submitted, response.body)).request_check_url);
   }),
   poll: Effect.fn("datalab.poll")(function* (job, credentials) {
     const key = yield* credential("datalab", credentials, "DATALAB_API_KEY");
     const response = yield* sendJson("datalab", HttpClientRequest.get(job).pipe(HttpClientRequest.setHeader("X-Api-Key", key)));
-    const body = record(response.body);
-    if (body.status === "processing") return Option.none();
-    if (body.status !== "complete" || body.success === false) {
-      return yield* failure("datalab", `conversion failed: ${string(body.error) ?? String(body.status)}`);
+    const check = yield* decodeBody("datalab", Check, response.body);
+    if (check.status === "processing") return Option.none();
+    if (check.status !== "complete" || check.success === false) {
+      return yield* jobFailure("datalab", check.status, check.error, response.body);
     }
-    const cents = number(record(body.cost_breakdown).final_cost_cents);
+    const { markdown } = yield* decodeBody("datalab", Complete, response.body);
+    const cents = number(record(record(response.body).cost_breakdown).final_cost_cents);
     return Option.some({
-      markdown: string(body.markdown) ?? "",
-      raw: body,
+      markdown,
+      raw: response.body,
       ...(cents === undefined ? {} : { reportedCost: { usd: cents / 100, source: "provider" as const } }),
     });
   }),

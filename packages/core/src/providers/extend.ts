@@ -1,12 +1,23 @@
-import { Effect, Option } from "effect";
+import { Effect, Option, Schema } from "effect";
 import { HttpClientRequest } from "effect/http";
-import { sendJson } from "../http.ts";
-import { array, joinNonEmpty, number, record, string } from "../json.ts";
-import { credential, failure, type ProviderAdapter, pending } from "../provider.ts";
+import { decodeBody, sendJson } from "../http.ts";
+import { joinNonEmpty, number, record } from "../json.ts";
+import { credential, jobFailure, type ProviderAdapter, pending } from "../provider.ts";
 
 const BASE_URL = "https://api.extend.ai";
 const API_VERSION = "2026-02-09";
 const CREDIT_USD = 0.01;
+const RUNNING = new Set(["PENDING", "PROCESSING"]);
+
+const Created = Schema.Struct({ id: Schema.String });
+const Run = Schema.Struct({
+  status: Schema.String,
+  failureReason: Schema.optional(Schema.NullOr(Schema.String)),
+  failureMessage: Schema.optional(Schema.NullOr(Schema.String)),
+});
+const Processed = Schema.Struct({
+  output: Schema.Struct({ chunks: Schema.Array(Schema.Struct({ content: Schema.String })) }),
+});
 
 const request = (key: string, req: HttpClientRequest.HttpClientRequest) =>
   req.pipe(HttpClientRequest.bearerToken(key), HttpClientRequest.setHeader("x-extend-api-version", API_VERSION));
@@ -22,20 +33,23 @@ export const extend: ProviderAdapter = {
         HttpClientRequest.bodyJsonUnsafe({ file: { url: page.imageUrl }, config }),
       ),
     );
-    const id = string(record(response.body).id);
-    if (id === undefined) return yield* failure("extend", "parse_runs response has no id", true);
-    return pending(id);
+    return pending((yield* decodeBody("extend", Created, response.body)).id);
   }),
   poll: Effect.fn("extend.poll")(function* (job, credentials) {
     const key = yield* credential("extend", credentials, "EXTEND_API_KEY");
     const response = yield* sendJson("extend", request(key, HttpClientRequest.get(`${BASE_URL}/parse_runs/${job}`)));
-    const body = record(response.body);
-    if (body.status === "FAILED") return yield* failure("extend", `parse run failed: ${string(body.failureMessage) ?? ""}`);
-    if (body.status !== "PROCESSED") return Option.none();
-    const credits = number(record(body.usage).totalCredits) ?? number(record(body.usage).credits);
+    const run = yield* decodeBody("extend", Run, response.body);
+    if (RUNNING.has(run.status)) return Option.none();
+    if (run.status !== "PROCESSED") {
+      const error = [run.failureReason, run.failureMessage].filter(Boolean).join(": ");
+      return yield* jobFailure("extend", run.status, error || undefined, response.body);
+    }
+    const { output } = yield* decodeBody("extend", Processed, response.body);
+    const usage = record(record(response.body).usage);
+    const credits = number(usage.totalCredits) ?? number(usage.credits);
     return Option.some({
-      markdown: joinNonEmpty(array(record(body.output).chunks).map((chunk) => string(record(chunk).content) ?? "")),
-      raw: body,
+      markdown: joinNonEmpty(output.chunks.map((chunk) => chunk.content)),
+      raw: response.body,
       ...(credits === undefined ? {} : { reportedCost: { usd: credits * CREDIT_USD, source: "provider" as const } }),
     });
   }),

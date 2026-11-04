@@ -1,8 +1,23 @@
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { HttpClientRequest } from "effect/http";
-import { sendJson } from "../http.ts";
-import { array, joinNonEmpty, record, string } from "../json.ts";
+import { decodeBody, sendJson } from "../http.ts";
+import { joinNonEmpty } from "../json.ts";
 import { credential, done, type ProviderAdapter } from "../provider.ts";
+
+const Page = Schema.Struct({
+  markdown: Schema.String,
+  tables: Schema.optional(Schema.Array(Schema.Struct({ id: Schema.String, content: Schema.String }))),
+});
+const Ocr = Schema.Struct({ pages: Schema.Array(Page) });
+
+/**
+ * With `table_format` set, Mistral moves each table out of the page markdown into `tables[]` and leaves a
+ * `[tbl-0.html](tbl-0.html)` link in its place. Put the table back where the link is.
+ */
+export const pageMarkdown = (page: typeof Page.Type): string => {
+  const tables = new Map((page.tables ?? []).map((t) => [t.id, t.content]));
+  return page.markdown.replace(/\[([^\]]+)\]\(\1\)/g, (link, id: string) => tables.get(id) ?? link);
+};
 
 export const mistral: ProviderAdapter = {
   id: "mistral_ocr",
@@ -16,7 +31,7 @@ export const mistral: ProviderAdapter = {
         HttpClientRequest.bodyJsonUnsafe({ ...config, document: { type: "image_url", image_url: page.imageUrl } }),
       ),
     );
-    const pages = array(record(response.body).pages);
-    return done({ markdown: joinNonEmpty(pages.map((p) => string(record(p).markdown) ?? "")), raw: response.body });
+    const { pages } = yield* decodeBody("mistral_ocr", Ocr, response.body);
+    return done({ markdown: joinNonEmpty(pages.map(pageMarkdown)), raw: response.body });
   }),
 };

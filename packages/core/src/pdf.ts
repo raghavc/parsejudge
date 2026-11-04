@@ -20,5 +20,7 @@ export const splitPages = (bytes: Uint8Array, maxPages: number) =>
       return pages;
     },
     catch: (error) =>
-      new InvalidDocument({ message: error instanceof RangeError ? error.message : "File is not a readable PDF." }),
+      new InvalidDocument({
+        message: error instanceof RangeError ? error.message : `File is not a readable PDF: ${String(error).slice(0, 200)}`,
+      }),
   });
