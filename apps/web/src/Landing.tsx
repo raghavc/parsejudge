@@ -287,7 +287,6 @@ export const Landing = () => {
   const [keys, setKeys] = useState<Record<string, string>>({});
   const [uploads, setUploads] = useState<ReadonlyArray<Upload>>([]);
   const [filesOpen, setFilesOpen] = useState(false);
-  const [name, setName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [pending, setPending] = useState<ReadonlyArray<File> | null>(null);
@@ -390,7 +389,7 @@ export const Landing = () => {
     };
   }, [namesKey]);
   const suggested = titleFor?.key === ready.map((u) => u.name).join("\n") ? (titleFor.title ?? undefined) : undefined;
-  const title = name?.trim() || suggested;
+  const title = suggested;
 
   const [bump, setBump] = useState(0);
   const lastCost = useRef(cost);
@@ -488,21 +487,6 @@ export const Landing = () => {
             <div className="su-sec-meta">PDF, DOCX or PPTX. Up to {MAX_PAGES_PER_RUN.toLocaleString("en-US")} pages.</div>
           </div>
           <div className="su-fields">
-            <div>
-              <label className="field-label" htmlFor="setName">
-                Name
-              </label>
-              <input
-                className="set-name-input"
-                id="setName"
-                type="text"
-                autoComplete="off"
-                maxLength={80}
-                placeholder="Untitled run"
-                value={name ?? suggested ?? ""}
-                onChange={(e) => setName(e.target.value)}
-              />
-            </div>
             <div>
               {
                 // biome-ignore lint/a11y/useSemanticElements: the design's dropzone is a div with the button role.

@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type CellDone, currentUser, type Run } from "./api.ts";
+import { api, type CellDone, currentUser, type Preset, type Run } from "./api.ts";
 import { Icon } from "./ax/Icon.tsx";
 import { ContinueRun } from "./ContinueRun.tsx";
+import { CopyButton } from "./CopyButton.tsx";
 import { DeleteRun } from "./DeleteRun.tsx";
 import { Go, Shell } from "./Nav.tsx";
+import { providerName, seconds } from "./names.ts";
 import { Report } from "./Report.tsx";
 import { ShareDialog } from "./Share.tsx";
 
@@ -14,11 +16,37 @@ export const runTitle = (run: Run) => {
   return `${names.length} documents`;
 };
 
+const p50 = (values: ReadonlyArray<number>) => {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.floor((sorted.length - 1) / 2)] ?? null;
+};
+
+const elapsed = (ms: number) => {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+};
+
+const Bar = ({ value }: { readonly value: number }) => (
+  <span className="lp-bar">
+    <span style={{ transform: `scaleX(${value})` }} />
+  </span>
+);
+
 /** The load state while a run is in flight: live counts from the run's event socket, and Continue for the owner. */
-const Progress = ({ run, onDone }: { readonly run: Run; readonly onDone: () => void }) => {
+const Progress = ({
+  run,
+  presets,
+  onDone,
+}: {
+  readonly run: Run;
+  readonly presets: ReadonlyArray<Preset>;
+  readonly onDone: () => void;
+}) => {
   const [cells, setCells] = useState<ReadonlyMap<string, CellDone>>(new Map());
   const [judged, setJudged] = useState(0);
-  const [slow, setSlow] = useState(false);
+  const [startedPresets, setStartedPresets] = useState<ReadonlySet<string>>(new Set());
+  const [now, setNow] = useState(Date.now());
   const pages = run.documents.reduce((n, d) => n + d.pages.length, 0);
 
   useEffect(() => {
@@ -26,53 +54,107 @@ const Progress = ({ run, onDone }: { readonly run: Run; readonly onDone: () => v
     return api.events(run.id, (event) => {
       if (event.type === "progress") {
         setCells(new Map(event.cells.map((c) => [key(c), c])));
+        setStartedPresets(new Set(event.started ?? []));
         setJudged(event.done);
-      } else if (event.type === "parse_done") setCells((m) => new Map(m).set(key(event), event));
+      } else if (event.type === "parse_started") setStartedPresets((s) => new Set(s).add(event.presetId));
+      else if (event.type === "parse_done") setCells((m) => new Map(m).set(key(event), event));
       else if (event.type === "page_done") setJudged(event.done);
-      else if (event.type === "run_done") onDone();
+      else onDone();
     });
   }, [run.id, onDone]);
+
   useEffect(() => {
-    const timer = setTimeout(() => setSlow(true), 400);
-    return () => clearTimeout(timer);
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
   }, []);
 
+  const all = [...cells.values()];
   const total = pages * run.presetIds.length;
-  const parsed = cells.size;
-  const failed = [...cells.values()].filter((c) => !c.ok).length;
-  const phase = pages === 0 ? 0 : parsed < total ? 1 : judged < pages ? 2 : 3;
-  const lines = [
-    "Preparing pages…",
-    `Parsing pages… ${total === 0 ? 0 : Math.floor((parsed / total) * 100)}%`,
-    `Judging parses… ${judged} of ${pages} pages`,
-    "Preparing results…",
-  ];
+  const judgeDone = pages > 0 && judged === pages;
+  const progress = total === 0 ? 0 : (all.length + judged) / (total + pages);
+  const share = `${location.host}/r/${run.shareId}`;
   const user = currentUser();
+  const started = new Date(run.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
   return (
-    <div className={`load-state has-acts${slow ? " is-slow" : ""}`}>
-      <div className="ls-group">
-        <span className="ls-icon">
-          <Icon name="scan-text" />
-        </span>
-        <span className="ls-title">{runTitle(run)}</span>
-        <span className="ls-status">
-          {lines.map((l, i) => (
-            <span key={l.replace(/[\d%]+/g, "")} className={`ls-line${i === phase ? " is-on" : ""}`}>
-              {l}
-            </span>
-          ))}
-        </span>
-        <span className="ls-meta">
-          {parsed} of {total} parses{failed > 0 && ` · ${failed} failed`}
-        </span>
-        <span className="ls-meta">
-          {user ? `You can close this tab. We'll email ${user} when the report is ready.` : "You can close this tab."}
-        </span>
-        {run.owned && pages > 0 && (
-          <span className="ls-acts">
-            <ContinueRun runId={run.id} skip={pages - judged} onDone={onDone} />
-          </span>
-        )}
+    <div className="page rp-page lp-page">
+      <div className="rp-head">
+        <div className="title-wrap">
+          <div className="lp-status">
+            <span className="spin" />
+            {pages === 0 ? "Preparing pages" : judgeDone ? "Summarizing" : "Running"} · {elapsed(now - run.createdAt)} elapsed
+          </div>
+          <h1>{runTitle(run)}</h1>
+          <div className="pg-meta">
+            {run.documents.length} documents · {pages} pages · {run.presetIds.length} providers · started {started}
+          </div>
+        </div>
+        <div className="lp-pct">
+          <div className="lp-pct-n">{Math.floor(progress * 100)}%</div>
+          <div className="pg-meta">
+            {all.length} of {total} parses · {judged} of {pages} pages judged
+          </div>
+        </div>
+      </div>
+      <Bar value={progress} />
+
+      <section className="wf-table lb lp">
+        <div className="thead">
+          <div>Provider</div>
+          <div>Pages</div>
+          <div className="num">Done</div>
+          <div className="num">p50 latency</div>
+          <div className="num">Status</div>
+        </div>
+        {run.presetIds.map((id) => {
+          const preset = presets.find((p) => p.id === id);
+          const mine = all.filter((c) => c.presetId === id);
+          const failed = mine.filter((c) => !c.ok).length;
+          const latency = p50(mine.flatMap((c) => (c.latencyMs === null ? [] : [c.latencyMs])));
+          const finished = pages > 0 && mine.length === pages;
+          const status = finished ? "Done" : mine.length === 0 && !startedPresets.has(id) ? "Queued" : "Parsing";
+          return (
+            <div key={id} className="trow">
+              <div className="who-t">
+                <div className="who-n">{preset ? providerName(preset.provider) : id}</div>
+                {preset && <div className="who-m">{preset.mode}</div>}
+              </div>
+              <Bar value={pages === 0 ? 0 : mine.length / pages} />
+              <div className="num">
+                {mine.length} / {pages}
+              </div>
+              <div className="num soft">{seconds(latency)}</div>
+              <div className={`num${finished ? "" : " soft"}`}>
+                {status}
+                {failed > 0 && <span className="lp-bad"> · {failed} failed</span>}
+              </div>
+            </div>
+          );
+        })}
+        <div className="trow">
+          <div className="who-t">
+            <div className="who-n">Judge</div>
+            <div className="who-m">{run.judgeModel.replace(/^.*\//, "")}</div>
+          </div>
+          <Bar value={pages === 0 ? 0 : judged / pages} />
+          <div className="num">
+            {judged} / {pages}
+          </div>
+          <div className="num soft">–</div>
+          <div className={`num${judgeDone ? "" : " soft"}`}>{judgeDone ? "Done" : judged > 0 ? "Judging" : "Waiting"}</div>
+        </div>
+      </section>
+
+      <div className="lp-foot">
+        <div className="pg-meta">
+          You can close this tab.
+          {user ? ` We'll email ${user} when the report is ready.` : " The link below opens the report when it is ready."}
+        </div>
+        <div className="lp-acts">
+          <span className="lp-link mono">{share}</span>
+          <CopyButton text={`${location.protocol}//${share}`} label="Copy link" />
+          {run.owned && pages > 0 && <ContinueRun runId={run.id} skip={pages - judged} onDone={onDone} />}
+        </div>
       </div>
     </div>
   );
@@ -149,7 +231,7 @@ export const RunPage = ({ shareId }: { readonly shareId: string }) => {
         </div>
       )}
       {run && finished && <Report run={run} presets={presets} title={title} reveal={reveal} />}
-      {run && live && <Progress run={run} onDone={load} />}
+      {run && live && <Progress run={run} presets={presets} onDone={load} />}
       {run && sharing && (
         <ShareDialog
           runId={run.id}
