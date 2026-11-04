@@ -36,7 +36,10 @@ const convert = (env: Env, format: Exclude<DocumentFormat, "pdf">, bytes: Uint8A
         response.status === 422
           ? Effect.fail(new InvalidDocument({ message: `The ${format.toUpperCase()} file could not be converted.` }))
           : response.ok
-            ? Effect.promise(async () => new Uint8Array(await response.arrayBuffer()))
+            ? Effect.tryPromise({
+                try: async () => new Uint8Array(await response.arrayBuffer()),
+                catch: (error) => new ConverterUnavailable({ message: `Reading the converted PDF failed: ${error}` }),
+              })
             : Effect.fail(new ConverterUnavailable({ message: `Converter returned ${response.status}` })),
     ),
     Effect.retry({

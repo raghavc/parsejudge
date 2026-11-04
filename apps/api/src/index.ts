@@ -1,4 +1,5 @@
 import { getOAuthApi, type OAuthHelpers, OAuthProvider, type OAuthProviderOptions } from "@cloudflare/workers-oauth-provider";
+import { Option, Schema } from "effect";
 import { handler } from "./api.ts";
 import { cleanUpAuth, handleAuth, sessionUser } from "./auth.ts";
 import { verifyBlobUrl } from "./blobs.ts";
@@ -16,25 +17,43 @@ export { DocumentWorkflow, PageWorkflow, RunWorkflow } from "./workflows.ts";
 const EVENTS_PATH = /^\/v1\/runs\/([^/]+)\/events$/;
 const UPLOAD_PATH = /^\/v1\/uploads\/([^/]+)(?:\/([^/]+))?$/;
 
+const jsonError = (status: number, error: string) => Response.json({ error }, { status });
+
+/** decodeURIComponent, or null for a malformed escape instead of a URIError. */
+const decodePath = (part: string) => {
+  try {
+    return decodeURIComponent(part);
+  } catch {
+    return null;
+  }
+};
+
+const ApiErrorBody = Schema.Struct({ error: Schema.String });
+
 /** PUT /v1/uploads/<token>/<filename> (or ?filename=): an upload through a URL from the MCP create_upload_url tool. */
 const signedUpload = async (request: Request, env: Env, token: string, name: string | undefined) => {
-  if (request.method !== "PUT") return new Response("Method not allowed", { status: 405 });
-  const upload = await uploadUser(env, decodeURIComponent(token));
-  if (upload === null) return Response.json({ error: "This upload URL is invalid or expired." }, { status: 403 });
-  const filename = (name === undefined ? null : decodeURIComponent(name)) ?? new URL(request.url).searchParams.get("filename");
+  if (request.method !== "PUT") return jsonError(405, "Use PUT.");
+  const decodedToken = decodePath(token);
+  const decodedName = name === undefined ? undefined : decodePath(name);
+  if (decodedToken === null || decodedName === null) return jsonError(400, "The upload URL is malformed.");
+  const upload = await uploadUser(env, decodedToken);
+  if (upload === null) return jsonError(403, "This upload URL is invalid or expired.");
+  const filename = decodedName ?? new URL(request.url).searchParams.get("filename");
   const query = new URLSearchParams({ filename: filename ?? "document", upload: upload.uploadId });
+  const body = await request.arrayBuffer().catch(() => null);
+  if (body === null) return jsonError(400, "Could not read the request body.");
   const response = await handler(
     new Request(new URL(`/v1/documents?${query}`, request.url), {
       method: "POST",
       headers: { [INTERNAL_HEADER]: internalHeader(upload.userId), "content-type": "application/octet-stream" },
-      body: await request.arrayBuffer(),
+      body,
     }),
   );
   if (response.ok) return response;
-  const error =
-    response.status === 400
-      ? "Not a readable PDF, image, DOCX, PPTX or XLSX, or over 1,000 pages."
-      : `ParseJudge returned HTTP ${response.status}.`;
+  const error = Option.match(Schema.decodeUnknownOption(ApiErrorBody)(await response.json().catch(() => null)), {
+    onNone: () => `ParseJudge returned HTTP ${response.status}.`,
+    onSome: (body) => body.error,
+  });
   return Response.json({ filename, error }, { status: response.status });
 };
 
@@ -42,12 +61,15 @@ const app = {
   async fetch(request: Request, env: Env & { OAUTH_PROVIDER: OAuthHelpers }): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname.startsWith("/blobs/")) {
-      const key = decodeURIComponent(url.pathname.slice("/blobs/".length));
-      if (!(await verifyBlobUrl(env.BLOB_SIGNING_KEY, key, url.searchParams.get("exp"), url.searchParams.get("sig")))) {
-        return new Response("Forbidden", { status: 403 });
+      const key = decodePath(url.pathname.slice("/blobs/".length));
+      if (
+        key === null ||
+        !(await verifyBlobUrl(env.BLOB_SIGNING_KEY, key, url.searchParams.get("exp"), url.searchParams.get("sig")))
+      ) {
+        return jsonError(403, "This link is invalid or expired.");
       }
       const object = await env.BLOBS.get(key);
-      if (object === null) return new Response("Not found", { status: 404 });
+      if (object === null) return jsonError(404, "Not found.");
       return new Response(object.body, { headers: { "content-type": key.endsWith(".png") ? "image/png" : "application/pdf" } });
     }
     // Sign-in codes, links and sessions are HMACs under AUTH_KEY; without a real key, serve nothing.
@@ -106,7 +128,14 @@ const oauthFor = (origin: string) => {
 };
 
 export default {
-  fetch: (request, env, ctx) => oauthFor(new URL(request.url).origin).fetch(request, env, ctx),
+  async fetch(request, env, ctx) {
+    try {
+      return await oauthFor(new URL(request.url).origin).fetch(request, env, ctx);
+    } catch (error) {
+      console.error("Unhandled request error", request.method, new URL(request.url).pathname, error);
+      return jsonError(500, "Internal error.");
+    }
+  },
   scheduled(_controller, env, ctx) {
     ctx.waitUntil(cleanUpAuth(env));
   },
