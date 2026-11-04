@@ -166,7 +166,7 @@ const Dots = ({ scores, names }: { readonly scores: ReadonlyArray<number | null>
   const best = Math.max(...ok);
   const worst = Math.min(...ok);
   const groups = new Map<number | null, string[]>();
-  scores.forEach((s, i) => groups.set(s, [...(groups.get(s) ?? []), names[i] ?? ""]));
+  for (const [i, s] of scores.entries()) groups.set(s, [...(groups.get(s) ?? []), names[i] ?? ""]);
   return (
     <div className="dots">
       {[...groups].map(([s, who]) => {
@@ -177,6 +177,7 @@ const Dots = ({ scores, names }: { readonly scores: ReadonlyArray<number | null>
         return (
           <span
             key={String(s)}
+            role="img"
             className={`score-dot ${kind}`}
             style={{ left: `${(at - 1) * (100 / 9)}%` }}
             aria-label={`${who.join(", ")}: ${failed ? "failed" : `${s} out of 10`}`}

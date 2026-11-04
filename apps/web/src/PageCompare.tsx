@@ -337,6 +337,13 @@ const Score = ({ score, best }: { readonly score: number | null; readonly best: 
   </span>
 );
 
+const Warning = ({ parse }: { readonly parse: PageParse }) =>
+  parse.warning === null ? null : (
+    <p className="issues-line clip" style={{ color: "var(--bad)" }} title={parse.warning}>
+      ⚠ {parse.warning}
+    </p>
+  );
+
 const Issues = ({
   parse,
   flags,
@@ -374,6 +381,7 @@ const Issues = ({
           {flags.length === 0 ? "Judge's note" : `${flags.length} issue${flags.length === 1 ? "" : "s"}`} <Caret />
         </span>
       </button>
+      <Warning parse={parse} />
       {open && (
         <div className="popover issues-pop">
           {flags.length === 0 ? (
@@ -825,6 +833,7 @@ export const PageCompare = ({
                           {parse.score ?? "–"}
                         </td>
                         <td>
+                          <Warning parse={parse} />
                           {parse.status !== "succeeded" ? (
                             <span style={{ color: "var(--bad)" }}>{parse.error ?? "Parse failed."}</span>
                           ) : flags.length === 0 ? (

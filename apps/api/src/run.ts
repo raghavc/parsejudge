@@ -76,10 +76,19 @@ export const saveParse = async (env: Env, cell: Cell, output: ParseOutput, laten
   await env.BLOBS.put(markdownKey(runId, pageId, presetId), output.markdown);
   await env.BLOBS.put(rawKey(runId, pageId, presetId), JSON.stringify(output.raw));
   await env.DB.prepare(
-    `INSERT OR REPLACE INTO parses (run_id, page_id, preset_id, status, latency_ms, queue_ms, cost_usd, cost_source, error)
-     VALUES (?, ?, ?, 'succeeded', ?, ?, ?, ?, NULL)`,
+    `INSERT OR REPLACE INTO parses (run_id, page_id, preset_id, status, latency_ms, queue_ms, cost_usd, cost_source, error, warning)
+     VALUES (?, ?, ?, 'succeeded', ?, ?, ?, ?, NULL, ?)`,
   )
-    .bind(runId, pageId, presetId, latencyMs, queueMs, costUsd, output.reportedCost?.source ?? "list_price")
+    .bind(
+      runId,
+      pageId,
+      presetId,
+      latencyMs,
+      queueMs,
+      costUsd,
+      output.reportedCost?.source ?? "list_price",
+      output.warning ?? null,
+    )
     .run();
   recordUsage(env, { kind: "provider", name: presetId, runId, pageId, status: "ok", costUsd: costUsd ?? 0, latencyMs, queueMs });
 };

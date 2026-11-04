@@ -17,6 +17,8 @@ export interface ParseOutput {
   readonly raw: unknown;
   /** Cost reported by the provider for this call. Absent when the provider does not report it. */
   readonly reportedCost?: Cost;
+  /** Shown next to the parse when the provider returned partial output, e.g. it hit its token limit. */
+  readonly warning?: string;
 }
 
 /** Result of a submit call. Async providers return a job reference to poll later. */

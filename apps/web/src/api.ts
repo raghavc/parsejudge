@@ -86,6 +86,8 @@ export interface PageParse {
   readonly queueMs: number | null;
   readonly markdown: string | null;
   readonly error: string | null;
+  /** Set when the parse succeeded with partial output, e.g. the provider hit its token limit. */
+  readonly warning: string | null;
   readonly score: number | null;
   readonly reasoning: string | null;
   readonly errors: ReadonlyArray<JudgedError> | null;

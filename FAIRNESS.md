@@ -34,17 +34,17 @@ All presets ran on all 14 pages. Rendered pages: `s3://reducto-shared-ml-workspa
 
 ## 4. Summary
 
-| Vendor                      | Preset(s)                                                                    | Verdict                                                             |
-| --------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| Reducto                     | `reducto_r1`, `reducto_r1_mini`                                              | Fair                                                                |
-| Azure Document Intelligence | `azure_layout_high_res`                                                      | Fair                                                                |
-| AWS Textract                | `aws_textract`                                                               | Fixed (merged cells, page numbers)                                  |
-| Mistral OCR                 | `mistral_ocr_4_1`                                                            | Fair (table fix from PR #6 holds); image descriptions need decision |
-| Extend                      | `extend_performance_agentic`                                                 | Fixed (engine version 2.0.0 to 2.1.0)                               |
-| LlamaParse                  | `llamaparse_agentic_plus`, `llamaparse_agentic`, `llamaparse_cost_effective` | Fixed (page headers/footers dropped)                                |
-| Datalab                     | `datalab_accurate`, `datalab_balanced`, `datalab_fast`                       | Fair                                                                |
-| Pulse                       | `pulse_ultra_2_refine`                                                       | Needs decision (`refine` fails on the 1040 page)                    |
-| Cohere                      | `cohere_parse_v5`                                                            | Needs decision (truncated output is accepted)                       |
+| Vendor                      | Preset(s)                                                                    | Verdict                                                       |
+| --------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| Reducto                     | `reducto_r1`, `reducto_r1_mini`                                              | Fair                                                          |
+| Azure Document Intelligence | `azure_layout_high_res`                                                      | Fair                                                          |
+| AWS Textract                | `aws_textract`                                                               | Fixed (merged cells, page numbers)                            |
+| Mistral OCR                 | `mistral_ocr_4_1`                                                            | Fair (table fix from PR #6 holds)                             |
+| Extend                      | `extend_performance_agentic`                                                 | Fixed (engine follows latest, now 2.1.0, was pinned to 2.0.0) |
+| LlamaParse                  | `llamaparse_agentic_plus`, `llamaparse_agentic`, `llamaparse_cost_effective` | Fixed (page headers/footers dropped)                          |
+| Datalab                     | `datalab_accurate`, `datalab_balanced`, `datalab_fast`                       | Fair                                                          |
+| Pulse                       | `pulse_ultra_2`, `pulse_ultra_2_refine`                                      | Fixed (refine and no-refine are two presets)                  |
+| Cohere                      | `cohere_parse_v5`                                                            | Fixed (truncated output is kept and flagged in the UI)        |
 
 ## 5. Findings per vendor
 
@@ -83,16 +83,16 @@ All presets ran on all 14 pages. Rendered pages: `s3://reducto-shared-ml-workspa
 - Docs: `mistral-ocr-4-1` is the latest OCR model. Headers and footers stay inline unless `extract_header`/`extract_footer` is set. Image descriptions need annotations (`bbox_annotation_format`), which cost extra.
 - competitors.reducto.ai: model `mistral-ocr-latest`, `table_format: "html"` by default, `document_url` input. Its parser joins `pages[].markdown` only, so it has the table bug fixed here in PR #6.
 - Evidence: all `[tbl-N.html](tbl-N.html)` links are replaced by their tables. 232 raw blocks checked, 0 missing. The remaining self-links are image placeholders, for example `![img-0.jpeg](img-0.jpeg)` on the ResNet pages. Mistral returns only the crop box for them, with no text.
-- Verdict: fair. Whether to buy image annotations is a decision (section 6).
+- Verdict: fair. We do not buy image annotations (section 6).
 
 ### 5.5 Extend
 
 - Preset: `parse_performance`, markdown target, page chunks, agentic text and tables, HTML tables with cell blocks, figures with advanced chart extraction, signature detection.
 - Docs: Parse Performance is the highest-quality engine. Its current stable version is `2.1.0` (default for `latest`). Rotation correction is on by default.
 - competitors.reducto.ai: passes caller config with `target: "markdown"` as the only default; no engine pin.
-- Finding (fixed): the preset pinned `engineVersion: "2.0.0"`. The raw response confirms it ran `engineVersion: "2.0.0"`. The preset now uses `2.1.0`. All 14 pages parsed with `2.1.0`; the raw response confirms `engineVersion: "2.1.0"`.
+- Finding (fixed): the preset pinned `engineVersion: "2.0.0"`. The raw response confirms it ran `engineVersion: "2.0.0"`. The preset now omits `engineVersion`, so Extend runs its latest version. Today that is `2.1.0`: the raw response confirms `engineVersion: "2.1.0"`. All 14 pages parsed with `2.1.0`.
 - Evidence: 158 raw blocks checked, 0 missing. `<page_number>` tags are Extend's own markdown and are kept.
-- Verdict: fixed. Extend results change from this PR on.
+- Verdict: fixed. Extend results change now, and again when Extend ships a new version.
 
 ### 5.6 LlamaParse
 
@@ -117,12 +117,12 @@ All presets ran on all 14 pages. Rendered pages: `s3://reducto-shared-ml-workspa
 
 ### 5.8 Pulse
 
-- Preset: `{ model: "pulse-ultra-2", refine: true, figure_processing: { description: true } }`.
+- Presets: `pulse_ultra_2` is `{ model: "pulse-ultra-2", figure_processing: { description: true } }`. `pulse_ultra_2_refine` adds `refine: true`.
 - Docs: `refine` is off by default and corrects tables, text and layout. `detect_selections` (checkboxes) is on by default.
 - competitors.reducto.ai: passes caller config to the synchronous `/extract`; reads top-level `markdown`.
 - Evidence: the adapter returns the top-level `markdown`, which includes page headers (`MONETARY POLICY REPORT: JULY 2024 47`). No content is lost.
-- Finding (needs decision): the 1040 page fails with `job failed: Internal server error` when `refine: true`. It failed 2 of 2 times through the adapter. Direct calls: `refine: true` failed; without `refine` it completed, with or without figure descriptions. Pulse's server fails, not the adapter. Our key's responses show `plan_info.tier: "free"`.
-- Verdict: needs decision (section 6).
+- Finding (fixed): the 1040 page fails with `job failed: Internal server error` when `refine: true`. It failed 2 of 2 times through the adapter. Direct calls: `refine: true` failed; without `refine` it completed, with or without figure descriptions. Pulse's server fails, not the adapter. Our key's responses show `plan_info.tier: "free"`. Pulse now has two presets: `pulse_ultra_2` (no refine) and `pulse_ultra_2_refine`. A page that fails with one shows as an error for that preset only. `pulse_ultra_2` parsed the 1040 page in 68 seconds.
+- Verdict: fixed.
 
 ### 5.9 Cohere
 
@@ -130,17 +130,19 @@ All presets ran on all 14 pages. Rendered pages: `s3://reducto-shared-ml-workspa
 - Docs: `parse-v5.0` is the latest model. Input must be an image (we send the page PNG). Cohere Parse does not detect headers or footers. `finish_reason: "MAX_TOKENS"` means the output was cut off.
 - competitors.reducto.ai: same model and output format, `image_url` input.
 - Evidence: the adapter reads `pages[].markdown.content`. Image descriptions are kept.
-- Finding (needs decision): on the W-9 and 1040 pages Cohere returned `finish_reason: "MAX_TOKENS"`. The output ends in a repeated dot leader (`. . . . . . .`, about 17,500 characters). The adapter returns this cut-off output as a success. The truncation is the vendor's, not ours.
-- Verdict: needs decision (section 6).
+- Finding (fixed): on the W-9 and 1040 pages Cohere returned `finish_reason: "MAX_TOKENS"`. The output ends in a repeated dot leader (`. . . . . . .`, about 17,500 characters). The truncation is the vendor's, not ours. The adapter still counts the parse as a success and keeps the partial output. It now also sets `ParseOutput.warning`. The warning is stored in `parses.warning` (migration `0013`), and the page view shows it under the parse.
+- Verdict: fixed.
 
-## 6. Decisions for a human
+## 6. Decisions
 
-1. LlamaParse tier: the published presets include `agentic_plus`, the best tier. Decide whether `agentic` and `cost_effective` stay in published comparisons. Also decide whether to turn on `processing_options.forms` (Agentic and Agentic Plus) for form pages.
-2. Mistral image annotations: Mistral gives no text for figures unless you pay for annotations. Other vendors describe figures by default. Decide whether to add `bbox_annotation_format`.
-3. Pulse `refine`: it improves quality but fails some pages on Pulse's side. Decide whether to keep it, and whether to ask Pulse about the failure. Also confirm that the free plan has the same quality as paid plans.
-4. Cohere `MAX_TOKENS`: decide whether a cut-off result counts as a failure (retry or error) or as a low-scored success.
-5. Textract features: the preset uses `LAYOUT` and `TABLES` only (Raunak's call). `FORMS` would add key-value pairs on form pages at extra cost.
-6. Extend engine version: this PR moves the pin to `2.1.0`. Decide whether to pin future versions or to follow `latest`.
+Raunak made these decisions.
+
+1. LlamaParse: publish all three tiers (`agentic_plus`, `agentic`, `cost_effective`). No forms option.
+2. Mistral: no image annotations by default. Anyone who wants them can open a PR.
+3. Pulse: two presets, `pulse_ultra_2` and `pulse_ultra_2_refine`. If a key or a page works with one and not the other, the other shows errors.
+4. Cohere `MAX_TOKENS`: count it as a success, because the partial output is real output. Flag it as truncated in the UI.
+5. Textract: no `FORMS`.
+6. Extend: follow latest. Do not pin the engine version.
 
 ## 7. Limits that apply to every vendor
 

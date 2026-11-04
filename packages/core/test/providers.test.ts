@@ -12,6 +12,7 @@ const credentials: Credentials = {
   PULSE_API_KEY: "k",
   LLAMA_CLOUD_API_KEY: "k",
   AZURE_DI_KEY: "k",
+  COHERE_API_KEY: "k",
 };
 
 /** Runs an adapter call against a fetch that always answers `respond()`. */
@@ -91,5 +92,12 @@ describe("provider adapters", () => {
     });
     if (Exit.isFailure(exit)) throw new Error(String(exit.cause));
     expect(Option.getOrThrow(exit.value).markdown).toBe("# A\n\nB");
+  });
+  it("keep Cohere output cut off at MAX_TOKENS, with a warning (recorded W-9 response)", async () => {
+    const recorded = JSON.parse(readFileSync(new URL("fixtures/responses/cohere-max-tokens.json", import.meta.url), "utf8"));
+    const exit = await run(PROVIDERS.cohere.submit(page, {}, credentials), json(recorded));
+    if (Exit.isFailure(exit) || exit.value._tag !== "Done") throw new Error("expected a finished parse");
+    expect(exit.value.output.markdown).toContain("1 Name of entity/individual.");
+    expect(exit.value.output.warning).toContain("MAX_TOKENS");
   });
 });

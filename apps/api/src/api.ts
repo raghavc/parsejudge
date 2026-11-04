@@ -184,6 +184,7 @@ const PageDetail = Schema.Struct({
       queueMs: Schema.NullOr(Schema.Number),
       markdown: Schema.NullOr(Schema.String),
       error: Schema.NullOr(Schema.String),
+      warning: Schema.NullOr(Schema.String),
       score: Schema.NullOr(Schema.Number),
       reasoning: Schema.NullOr(Schema.String),
       errors: Schema.Unknown,
@@ -971,7 +972,7 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
         if (!(yield* canOpenRun(params.runId))) return yield* notFound;
         const rows = yield* query(() =>
           cf.DB.prepare(
-            `SELECT p.preset_id, p.status, p.latency_ms, p.queue_ms, p.error, v.score, v.reasoning, v.errors, l.quotes
+            `SELECT p.preset_id, p.status, p.latency_ms, p.queue_ms, p.error, p.warning, v.score, v.reasoning, v.errors, l.quotes
              FROM parses p LEFT JOIN verdicts v USING (run_id, page_id, preset_id)
              LEFT JOIN page_locations l USING (run_id, page_id, preset_id) WHERE p.run_id = ? AND p.page_id = ?`,
           )
@@ -982,6 +983,7 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
               latency_ms: number | null;
               queue_ms: number | null;
               error: string | null;
+              warning: string | null;
               score: number | null;
               reasoning: string | null;
               errors: string | null;
@@ -998,6 +1000,7 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
               queueMs: row.queue_ms,
               markdown: (await (await cf.BLOBS.get(markdownKey(params.runId, params.pageId, row.preset_id)))?.text()) ?? null,
               error: row.error,
+              warning: row.warning,
               score: row.score,
               reasoning: row.reasoning,
               errors: withQuotes(row.errors, row.quotes),

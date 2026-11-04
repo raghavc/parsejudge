@@ -78,7 +78,6 @@ export const PRESETS: ReadonlyArray<Preset> = [
     mode: "Performance, agentic",
     config: {
       engine: "parse_performance",
-      engineVersion: "2.1.0",
       target: "markdown",
       chunkingStrategy: { type: "page" },
       blockOptions: {
@@ -142,6 +141,15 @@ export const PRESETS: ReadonlyArray<Preset> = [
     mode: "Fast",
     config: datalab("fast"),
     listPriceUsdPerPage: 0.004,
+    hosted: false,
+  },
+  {
+    id: "pulse_ultra_2",
+    provider: "pulse",
+    label: "Pulse Ultra 2",
+    mode: "Ultra 2",
+    config: { model: "pulse-ultra-2", figure_processing: { description: true } },
+    listPriceUsdPerPage: 0.015,
     hosted: false,
   },
   {
