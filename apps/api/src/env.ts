@@ -20,8 +20,12 @@ export interface Env {
   readonly OPENAI_AUTH_URL: string;
   readonly OPENAI_IDENTITY_PROVIDER_ID: string;
   readonly OPENAI_SERVICE_ACCOUNT_ID: string;
-  /** mTLS certificate binding whose client certificate OpenAI trusts. Unbound uses plain fetch (local fakes). */
-  readonly OPENAI_MTLS?: Fetcher;
+  /** Claims of the JWT we sign for OpenAI OIDC workload identity; must match the identity provider and mapping. */
+  readonly OPENAI_JWT_ISSUER: string;
+  readonly OPENAI_JWT_AUDIENCE: string;
+  readonly OPENAI_JWT_SUBJECT: string;
+  /** Private P-256 JWK (JSON, with `kid`) whose public half is uploaded to the OpenAI identity provider. */
+  readonly OPENAI_SIGNING_KEY: string;
   readonly SMALL_MODEL: string;
   readonly JUDGE_REASONING_EFFORT: "low" | "medium" | "high";
   /** OpenRouter, for the small-model steps (notes, locations, titles) and the budget check. */

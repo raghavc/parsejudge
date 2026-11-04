@@ -81,14 +81,6 @@ const startPages = Effect.fn("startPages")(function* (
   }
 });
 
-/** The judge calls OpenAI through the mTLS binding when the deployment has one. */
-const mtlsFetch = (env: Env) => {
-  const mtls = env.OPENAI_MTLS;
-  return mtls === undefined
-    ? undefined
-    : (((input: RequestInfo | URL, init?: RequestInit) => mtls.fetch(input, init)) as typeof fetch);
-};
-
 const slots = (env: Env, pool: string) =>
   env.PROVIDER_SLOTS.get(env.PROVIDER_SLOTS.idFromName(`v2:${pool}`)) as unknown as DurableObjectStub<ProviderSlots>;
 
@@ -231,6 +223,10 @@ const judge = Effect.fn("judge")(function* (env: Env, runId: string, page: strin
         authUrl: env.OPENAI_AUTH_URL,
         identityProviderId: env.OPENAI_IDENTITY_PROVIDER_ID,
         serviceAccountId: env.OPENAI_SERVICE_ACCOUNT_ID,
+        issuer: env.OPENAI_JWT_ISSUER,
+        audience: env.OPENAI_JWT_AUDIENCE,
+        subject: env.OPENAI_JWT_SUBJECT,
+        signingKey: env.OPENAI_SIGNING_KEY,
       }),
       models: [env.JUDGE_MODEL, ...(env.JUDGE_FALLBACK_MODELS ?? "").split(",").map((m) => m.trim())].filter(Boolean),
       reasoningEffort: env.JUDGE_REASONING_EFFORT,
@@ -581,7 +577,7 @@ export class PageWorkflow extends WorkflowEntrypoint<Env, PageWorkflowParams> {
       Effect.mapError((error) => new StepFailed({ step: "judge pool", message: error.message })),
       Effect.flatMap((pool) =>
         this.withSlot(step, instanceId, "judge", pool, () =>
-          attempt("judge", () => step.do("judge", JUDGE_RETRY, () => runStep(judge(env, runId, page), mtlsFetch(env)))),
+          attempt("judge", () => step.do("judge", JUDGE_RETRY, () => runStep(judge(env, runId, page)))),
         ),
       ),
       Effect.catchTag("StepFailed", (error) =>
