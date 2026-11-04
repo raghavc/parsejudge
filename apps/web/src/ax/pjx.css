@@ -1,0 +1,5686 @@
+/* Ammar's Parse evaluation design (Claude prototype), every rule scoped to .pjx so the
+   per-document compare view keeps styles.css. Generated from the prototype CSS files:
+   colors_and_type.css, filters.css, eval-common.css, eval-run.css, data-list.css, app-shell.css. */
+
+/* ---------- colors_and_type.css ---------- */
+/* Reducto Design System — Core Colors & Type
+   Source: Figma tokens + ui/tokens/index.css from the codebase.
+   Import this file in any HTML to get the full token set. */
+
+/* ============================================================
+   FONTS
+   ============================================================ */
+
+/* Geist is the single primary UI font (replaces Roobert + system-ui).
+   Loaded from Google Fonts; Berkeley Mono + Reducto Serif unchanged. */
+
+/* Page H1s are Reducto Serif 400 (§0.6). The family ships ONE weight, and
+   the metric fallback (Georgia) is markedly heavier and wider — with
+   `font-display: swap` the first frame painted the fallback and then visibly
+   "un-bolded" and reflowed when the real face arrived.
+   Fixes, all at the font-loading layer:
+     · font-display: block — a short invisible period instead of a fallback
+       paint, so the first painted frame is already the final weight (the
+       woff2 is same-origin and ~tens of KB, so it lands within the block
+       period; after 3s the fallback still shows, so text is never lost).
+     · font-weight: 100 900 — the single face answers ANY requested weight,
+       so no synthetic bold can be manufactured from it.
+     · "Reducto Serif Fallback" — metric-adjusted Georgia, next in the
+       --font-serif chain, so the rare slow-network paint matches the real
+       face's density and advance widths (no shift when it swaps). */
+
+.pjx {
+  /* tooltip rest delay, read by every tip system (portal-tip.js, sidebar-tooltips.js, review.js, edit-node-sheet.js) */
+  --tip-delay: 600ms;
+  /* ============================================================
+       PRIMITIVE COLOR SCALES (Light mode — default)
+       ============================================================ */
+
+  --base-white: #ffffff;
+  --base-black: #000000;
+
+  /* Neutral — Grey (primary neutral scale) */
+  --grey-50: #fafafa;
+  --grey-100: #f5f5f5;
+  --grey-200: #e5e5e5;
+  --grey-300: #d4d4d4;
+  --grey-400: #a3a3a3;
+  --grey-500: #737373;
+  --grey-600: #525252;
+  --grey-700: #404040;
+  --grey-800: #262626;
+  --grey-900: #171717;
+  --grey-950: #0a0a0a;
+
+  /* Icon buttons: ONE resting ink for glyph-only controls that read as
+       dark (toolbars, FABs, viewer bars, split buttons) — #262626. Quiet
+       nav/chrome icons stay grey-500; this token is the darkest an icon
+       button gets at rest, so nothing paints grey-900/950 until hover. */
+  --icon-rest: #262626;
+
+  /* Brand — Plum (primary brand) */
+  --plum-50: #f4ebf1;
+  --plum-100: #f2e0ec;
+  --plum-200: #e3bdd6;
+  --plum-300: #d59dc3;
+  --plum-400: #be7dac;
+  --plum-500: #a15c8f;
+  --plum-600: #8a3d76;
+  --plum-700: #6f255b;
+  --plum-800: #4b163d; /* logo / primary brand hex */
+  --plum-900: #380f2d;
+  --plum-950: #1e0517;
+
+  /* Accent — Slate (cool blue) */
+  --slate-50: #e2e7ec;
+  --slate-100: #d7dbe4;
+  --slate-200: #b2bbd2;
+  --slate-300: #91a3ca;
+  --slate-400: #6b89c0;
+  --slate-500: #5270a4;
+  --slate-600: #3a5786;
+  --slate-700: #274067;
+  --slate-800: #142b4b;
+  --slate-900: #0d1a2d;
+  --slate-950: #070e1b;
+
+  /* Accent — Pine (success / positive) */
+  --pine-50: #e9edea;
+  --pine-100: #d2dfd9;
+  --pine-200: #b2d1c3;
+  --pine-300: #8cc5aa;
+  --pine-400: #66b892;
+  --pine-500: #46a579;
+  --pine-600: #34845f;
+  --pine-700: #236145;
+  --pine-800: #143d2a;
+  --pine-900: #0b1e15;
+  --pine-950: #060f0b;
+
+  /* Accent — Rust (warm orange) */
+  --rust-50: #efe8e3;
+  --rust-100: #edd9d4;
+  --rust-200: #edbaa9;
+  --rust-300: #e5a087;
+  --rust-400: #da8660;
+  --rust-500: #c5744b;
+  --rust-600: #ad6137;
+  --rust-700: #934f27;
+  --rust-800: #7a3d14;
+  --rust-900: #401f0c;
+  --rust-950: #281206;
+
+  /* Accent — Carmine (destructive / error) */
+  --carmine-50: #ebe3e2;
+  --carmine-100: #e0cccd;
+  --carmine-200: #dbabae;
+  --carmine-300: #dd8184;
+  --carmine-400: #d35b61;
+  --carmine-500: #b33c41;
+  --carmine-600: #91252b;
+  --carmine-700: #6b171b;
+  --carmine-800: #46070b;
+  --carmine-900: #2e0506;
+  --carmine-950: #150405;
+
+  /* Accent — Honey (warning / highlight) */
+  --honey-50: #f1ede2;
+  --honey-100: #ede2c9;
+  --honey-200: #ecd6ac;
+  --honey-300: #ebcb89;
+  --honey-400: #ebbd60;
+  --honey-500: #dba943;
+  --honey-600: #c18d25;
+  --honey-700: #aa7c1d;
+  --honey-800: #835f16;
+  --honey-900: #42300b;
+  --honey-950: #231906;
+
+  /* Accent — Espresso (dark warm brown) */
+  --espresso-50: #f6eee5;
+  --espresso-100: #edd9c6;
+  --espresso-200: #d9ba9e;
+  --espresso-300: #c09a77;
+  --espresso-400: #a67d5a;
+  --espresso-500: #896249;
+  --espresso-600: #6e4d37;
+  --espresso-700: #573a26;
+  --espresso-800: #40291a;
+  --espresso-900: #2b1a0e;
+  --espresso-950: #190e06;
+
+  /* Accent — Lagoon (cross-workflow reference / Lookup node) */
+  --lagoon-50: #e2ebec;
+  --lagoon-100: #cfe0e2;
+  --lagoon-200: #a9cdd1;
+  --lagoon-300: #83bcc2;
+  --lagoon-400: #5aa8b1;
+  --lagoon-500: #3f8e98;
+  --lagoon-600: #2d727c;
+  --lagoon-700: #1f5760;
+  --lagoon-800: #123c43;
+  --lagoon-900: #0b2429;
+  --lagoon-950: #051317;
+
+  /* ============================================================
+       SEMANTIC COLOR TOKENS
+       ============================================================ */
+
+  /* Surface */
+  --bg: var(--grey-50); /* app background */
+  --bg-secondary: var(--grey-50);
+  --bg-inverse: #1d1d1d;
+  --surface: var(--base-white); /* card surface */
+  --surface-hover: var(--grey-50);
+  --surface-pressed: var(--grey-100);
+
+  /* Text — CANONICAL NEUTRAL TEXT HIERARCHY (3 roles only; CLAUDE.md §0.6b)
+       Every NEUTRAL text color resolves to one of these three. Do NOT use
+       grey-600 / grey-700 / grey-800 as a *text* color — those greys remain
+       valid for icons, borders, and fills, but not for type. Semantic text
+       (pine / carmine / honey / plum / slate / rust) is exempt. */
+  --text-primary: var(--grey-950); /* main readable content, labels, values, nav, titles */
+  --text-secondary: var(--grey-500); /* descriptions, metadata, helper text */
+  --text-tertiary: var(--grey-400); /* timestamps, low-emphasis metadata, disabled */
+
+  /* Back-compat aliases — existing rules that reference --fg* keep working
+       and now resolve onto the 3-role hierarchy above. --fg-primary moves
+       from grey-900 → grey-950 so primary ink is a SINGLE value (titles and
+       body share one neutral; hierarchy comes from size/weight, not a second
+       near-black). */
+  --fg: var(--text-primary);
+  --fg-primary: var(--text-primary);
+  --fg-secondary: var(--text-secondary);
+  --fg-disabled: var(--text-tertiary);
+  --fg-error: var(--carmine-600);
+  --fg-inverse: var(--plum-50);
+  --fg-inverse-primary: var(--grey-50);
+  --fg-inverse-secondary: var(--grey-300);
+
+  /* Border */
+  --border: var(--grey-300);
+  --border-subtle: var(--grey-200);
+  --border-hover: var(--grey-400);
+  /* Active border for GENERIC interaction (focused field, active control).
+       Neutral by design — see CLAUDE.md §0.9. Plum is reserved for brand. */
+  --border-active: var(--grey-500);
+
+  /* Icon */
+  --icon: var(--grey-900);
+  --icon-hover: var(--grey-600);
+  --icon-disabled: var(--grey-400);
+  --icon-inverse: var(--grey-50);
+
+  /* Focus — GENERIC focus states are neutral (CLAUDE.md §0.9). The canonical
+       ring is `border-color: var(--focus-border); box-shadow: 0 0 0 3px var(--focus-ring)`. */
+  --focus-border: var(--grey-500);
+  --focus-ring: var(--grey-200);
+  --focus-ring-destructive: var(--carmine-200);
+
+  /* Generic SELECTED / checked states — neutral, NOT plum (CLAUDE.md §0.9).
+       Use these for selected rows, list items, dropdown options, radio cards,
+       active cell outlines, checked checkboxes — anywhere a control is chosen
+       rather than branded. */
+  --select-bg: var(--grey-100); /* selected row / item fill */
+  --select-bg-soft: var(--grey-50); /* lighter selected fill */
+  --select-border: var(--grey-400); /* selected card / option border */
+  --select-strong: var(--grey-900); /* checked checkbox fill, selected dot, active-cell outline */
+  --select-fg: var(--grey-950); /* text on a selected item */
+
+  /* Brand */
+  --brand: var(--plum-800);
+  --brand-fg: var(--plum-50);
+  --brand-subtle-bg: var(--plum-50);
+
+  /* ============================================================
+       SHADOWS / ELEVATION
+       ============================================================ */
+  --shadow-xs: 0px 1px 2px 0px hsla(60, 2%, 10%, 0.05);
+  --shadow-sm: 0 8px 24px -4px rgba(15, 16, 20, 0.1);
+  --shadow-md: 0 12px 32px 4px rgba(15, 16, 20, 0.1);
+  --shadow-card: 0px 0px 4px 0px rgba(26, 26, 25, 0.12), 0px 8px 16px 0px rgba(26, 26, 25, 0.1);
+  --shadow-card-soft: 0px 1px 56px 0px rgba(12, 10, 9, 0.04);
+  --shadow-tooltip: 0px 1px 6px 0px rgba(26, 26, 25, 0.08), 0px 1px 2px 0px rgba(26, 26, 25, 0.12);
+
+  /* ============================================================
+       MOTION — the one system (CLAUDE.md §0.11 + §1.63)
+       ============================================================
+       Every transition / animation in a shared module reads these.
+       No literal cubic-bezier() anywhere else; durations come from
+       the scale below. Values were set from what the product already
+       did (2026-10-15 inventory: 120ms ease on ~200 hover sites,
+       .34s panel travel, .42s dock/stack glide).
+
+       CURVES: pick by what the thing is doing, not by taste.
+         --ease-standard  state change in place (hover fill, color,
+                          border, icon swap). Plain CSS `ease`.
+         --ease-out       a surface ARRIVES or LEAVES: panels,
+                          popovers, dialogs, lightboxes, camera moves.
+                          Fast start, long quiet settle (ease-out-quint).
+         --ease-glide     content changes SIZE IN FLOW: collapse /
+                          expand, the composer dock, stacked cards,
+                          trays. Slightly softer start than --ease-out,
+                          no overshoot.
+         --ease-hero      a one-off continuity move across a layout
+                          (Home prompt box flying into chat). Slow
+                          lift, decisive land. Rare by design.
+         --ease-loop      pulses (in-out). Spinners + shimmers: linear.
+
+       DURATIONS: exits run one step shorter than their entrance
+       where the pair is asymmetric (dock: glide in, move out).
+         --dur-quick   120ms  hover, color, hover-revealed actions
+         --dur-pop     160ms  menus, popovers, dialogs, tooltips
+         --dur-fade    220ms  opacity of a moving surface; cross-fades
+         --dur-move    340ms  panels, collapse/expand, content rise
+         --dur-glide   420ms  dock + tray height, card stacks, canvas
+                              camera; the "more easing" tier
+         --dur-hero    580ms  continuity moves only
+
+       DISTANCE: things travel a little, never across the screen.
+         --rise-pop    4px    popover / menu entrance offset
+         --rise-in     6px    content rising into a dock or list
+         --panel-slide 12px   side-panel nudge toward its dock edge
+
+       LOOPS (indicate ongoing work; NOT zeroed by reduced motion,
+       each owner swaps a pulse/shimmer for a still state):
+         --loop-spin 1s · --loop-pulse 1.6s · --loop-shimmer 1.6s */
+  --ease-standard: ease;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-glide: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-hero: cubic-bezier(0.66, 0.05, 0.32, 1);
+  --ease-loop: ease-in-out;
+
+  /* seconds, not ms: --panel-dur / --panel-fade alias these and
+       existing code may parseFloat() them as seconds */
+  --dur-quick: 0.12s;
+  --dur-pop: 0.16s;
+  --dur-fade: 0.22s;
+  --dur-move: 0.34s;
+  --dur-glide: 0.42s;
+  --dur-hero: 0.58s;
+
+  --rise-pop: 4px;
+  --rise-in: 6px;
+
+  --loop-spin: 1s;
+  --loop-pulse: 1.6s;
+  --loop-shimmer: 1.6s;
+
+  /* ============================================================
+       SIDE-PANEL MOTION — system primitive (CLAUDE.md §1.5a)
+       ============================================================
+       Aliases of the motion scale above (kept: ~60 call sites use
+       them). Never give these their own values again.
+       ONE curve + ONE duration for every side panel that opens and
+       closes, so panels read as one product instead of one-off
+       behaviors. Benchmark = the Review drawer's ease-out-quint
+       "settle" (fast start, long quiet stop — comes to rest rather
+       than snapping). Two geometries share these tokens:
+         • Inline panels (flex sibling under .page-split) collapse
+           flex-basis → 0, fade, and nudge --panel-slide toward their
+           dock edge when closed. Never display:none a panel you want
+           to animate — discrete display can't tween.
+         • Floating canvas panels (Node Builder .props et al.) slide
+           fully off their edge; same curve + duration.
+       --panel-dur drives travel (flex-basis / min-width / transform);
+       --panel-fade settles opacity a touch sooner so the surface
+       reads as solid just before it finishes moving. */
+  --panel-ease: var(--ease-out);
+  --panel-dur: var(--dur-move);
+  --panel-fade: var(--dur-fade);
+  --panel-slide: 12px;
+
+  /* ============================================================
+       SPACING (4px baseline)
+       ============================================================ */
+  --space-0-5: 2px;
+  --space-1: 4px;
+  --space-1-5: 6px;
+  --space-2: 8px;
+  --space-2-5: 10px;
+  --space-3: 12px;
+  --space-3-5: 14px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-9: 36px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-14: 56px;
+  --space-15: 60px;
+  --space-16: 64px;
+  --space-18: 72px;
+
+  /* ============================================================
+       BORDER RADIUS
+       ============================================================ */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 12px;
+  --radius-full: 9999px;
+
+  /* Border widths */
+  --border-width-xs: 0.5px;
+  --border-width-sm: 1px;
+  --border-width-md: 2px;
+
+  /* ============================================================
+       TYPOGRAPHY — FAMILIES
+       ============================================================ */
+  --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+  --font-serif: "Reducto Serif", "Reducto Serif Fallback", Georgia, serif;
+  --font-mono: "Berkeley Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* ============================================================
+       TYPOGRAPHY — TYPE SCALE
+       The system is intentionally tight: most UI text sits at 12–14px.
+       ============================================================ */
+
+  /* Sizes */
+  --fs-xs-1: 12px;
+  --fs-xs-2: 13px;
+  --fs-sm: 14px;
+  --fs-md: 16px;
+  --fs-lg-1: 20px;
+  --fs-lg-2: 24px;
+  --fs-xl: 32px;
+  --fs-2xl: 40px;
+  --fs-3xl: 56px;
+
+  /* Weights */
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+
+  /* Line heights */
+  --lh-xs: 16px;
+  --lh-sm: 20px;
+  --lh-md: 24px;
+  --lh-lg-1: 28px;
+  --lh-lg-2: 32px;
+  --lh-xl: 40px;
+
+  /* Berkeley Mono METADATA size — the single size for mono used as a
+       label / metadata treatment (CLAUDE.md §0.6c): table metadata, node
+       group labels, section eyebrows, small identifiers/counts, schema
+       metadata, timestamps, secondary technical labels. Do NOT use 10.5 or
+       11px for these — point the rule at this token. (Mono VALUE roles are
+       separate and keep their own sizes: landing-table value cells 12px,
+       in-cell/identifier/code values 11.5–14px.) */
+  --fs-mono-meta: 10px;
+
+  --letter-spacing-default: 0px;
+  --letter-spacing-tight: -0.01em;
+
+  /* ============================================================
+       AVATAR PALETTE — person avatars only
+       Shared tokens for circular person avatars across the product
+       (Home owner cells, Review assignees, notifications, document /
+       cell activity logs, presence stacks, etc.).
+       Tone scale picked to feel lively + vibrant — sits at 500 on the
+       accent ramps so initials read cleanly on white but the tile no
+       longer looks heavy. White initials at 600 weight are the default
+       foreground; --av-fg-* overrides exist for tones that need a
+       darker initial for contrast (none today, kept for future tones).
+       Surfaces MUST consume these instead of hand-picking dark 700/600
+       fills — see CLAUDE.md "Avatar colors" for the rule.
+       ============================================================ */
+  --av-plum: var(--plum-500);
+  --av-rust: var(--rust-500);
+  --av-pine: var(--pine-500);
+  --av-slate: var(--slate-500);
+  --av-honey: var(--honey-500);
+  --av-carmine: var(--carmine-500);
+  --av-espresso: var(--espresso-500);
+  --av-grey: var(--grey-400);
+  --av-fg: #ffffff;
+}
+
+/* ============================================================
+   SEMANTIC TYPE RULES
+   Use these directly: <h1 class="h1">, <p class="body">, etc.
+   Or rely on the element tag — defaults below target raw tags.
+   ============================================================ */
+
+.pjx,
+.pjx {
+  font-family: var(--font-sans);
+  font-size: var(--fs-xs-2); /* 13px base — tight like the product */
+  line-height: var(--lh-xs);
+  color: var(--fg-primary);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  letter-spacing: 0;
+}
+
+/* No faux bold/italic anywhere: a synthesized weight is what made H1s look
+   heavier before the real face loaded. */
+.pjx h1,
+.pjx h2,
+.pjx h3,
+.pjx h4,
+.pjx .display-xl,
+.pjx .display-lg,
+.pjx h1.display {
+  font-synthesis: none;
+}
+
+/* Display (serif, for marketing/hero) */
+.pjx .display-xl,
+.pjx h1.display {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: var(--fs-3xl);
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+}
+.pjx .display-lg {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: var(--fs-2xl);
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+}
+
+/* ---------- page H1 (ONE source, promoted 2026-09-12) ----------
+   The top-level page heading is GEIST, not the display serif: 28/1.2 at 400
+   with -0.015em tracking, left-aligned, `--text-primary` ink. Every page H1
+   reads these two tokens instead of restating the type, so the treatment is
+   changed here and nowhere else. The serif keeps `.display-*` and the
+   rendered-document facsimiles. */
+.pjx {
+  --h1-font: 400 28px / 1.2 var(--font-sans);
+  --h1-track: -0.015em;
+}
+
+/* Headings (sans — Geist) */
+.pjx h1,
+.pjx .h1 {
+  font: var(--h1-font);
+  letter-spacing: var(--h1-track);
+  color: var(--fg);
+}
+.pjx h2,
+.pjx .h2 {
+  font-family: var(--font-sans);
+  font-weight: 500;
+  font-size: var(--fs-lg-2);
+  line-height: var(--lh-lg-2);
+  color: var(--fg);
+}
+.pjx h3,
+.pjx .h3 {
+  font-family: var(--font-sans);
+  font-weight: 500;
+  font-size: var(--fs-lg-1);
+  line-height: var(--lh-lg-1);
+  color: var(--fg);
+}
+.pjx h4,
+.pjx .h4 {
+  font-family: var(--font-sans);
+  font-weight: 500;
+  font-size: var(--fs-md);
+  line-height: var(--lh-md);
+  color: var(--fg);
+}
+
+/* Body */
+.pjx .body-lg {
+  font-family: var(--font-sans);
+  font-weight: 400;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-sm);
+}
+.pjx .body,
+.pjx p {
+  font-family: var(--font-sans);
+  font-weight: 400;
+  font-size: var(--fs-xs-2);
+  line-height: var(--lh-xs);
+  color: var(--fg-primary);
+}
+.pjx .body-sm,
+.pjx small {
+  font-family: var(--font-sans);
+  font-weight: 400;
+  font-size: var(--fs-xs-1);
+  line-height: var(--lh-xs);
+  color: var(--fg-secondary);
+}
+
+/* Labels / UI */
+.pjx .label {
+  font-family: var(--font-sans);
+  font-weight: 500;
+  font-size: var(--fs-xs-2);
+  line-height: var(--lh-xs);
+  color: var(--fg);
+}
+.pjx .label-sm {
+  font-family: var(--font-sans);
+  font-weight: 500;
+  font-size: var(--fs-xs-1);
+  line-height: var(--lh-xs);
+  color: var(--fg);
+}
+.pjx .caption {
+  font-family: var(--font-sans);
+  font-weight: 400;
+  font-size: var(--fs-xs-1);
+  line-height: var(--lh-xs);
+  color: var(--fg-secondary);
+}
+
+/* Mono */
+.pjx code,
+.pjx .code,
+.pjx kbd,
+.pjx pre,
+.pjx .mono {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-sm);
+}
+
+/* Inline muted / subtle */
+.pjx .muted {
+  color: var(--fg-secondary);
+}
+.pjx .dim {
+  color: var(--fg-disabled);
+}
+
+/* Links */
+.pjx a,
+.pjx .link {
+  color: var(--plum-700);
+  text-decoration: none;
+  transition: color 0.12s ease;
+}
+.pjx a:hover,
+.pjx .link:hover {
+  color: var(--plum-800);
+}
+.pjx a:active,
+.pjx .link:active {
+  color: var(--plum-900);
+}
+
+/* ============================================================
+   SCROLLBARS — hidden by default, revealed on hover / active scroll.
+   Permanent scrollbar chrome is visual noise on a product full of
+   panels, tables, drawers, and popovers. The shared default keeps
+   scrollable regions clean until the user actually engages with
+   them.
+
+   Firefox: scrollbar-color transparent transparent → invisible.
+            scrollbar-width: thin keeps it discreet when revealed.
+   WebKit:  ::-webkit-scrollbar-thumb starts transparent; hover or
+            :focus-within on any ancestor tints it.
+   ============================================================ */
+/* ============================================================
+   FOCUS RING — never the UA blue, anywhere in the product.
+   Mouse and programmatic focus paint nothing (selection reads from the fill,
+   §0.9); keyboard-only focus gets a neutral grey ring. Rows that already carry
+   a selected fill opt out entirely.
+   ============================================================ */
+.pjx :focus {
+  outline: none;
+}
+.pjx :focus-visible {
+  outline: 1.5px solid var(--focus-border);
+  outline-offset: 1px;
+}
+.pjx .doc-item:focus-visible,
+.pjx .fnd:focus-visible,
+.pjx .sb-item:focus-visible,
+.pjx .fb-item:focus-visible,
+.pjx .rm-item:focus-visible {
+  outline: none;
+}
+
+.pjx * {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+.pjx *:hover,
+.pjx *:focus-within {
+  scrollbar-color: var(--grey-300) transparent;
+}
+
+.pjx ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.pjx ::-webkit-scrollbar-track {
+  background: transparent;
+}
+.pjx ::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  transition: background-color 0.15s ease;
+}
+.pjx :hover::-webkit-scrollbar-thumb,
+.pjx :focus-within::-webkit-scrollbar-thumb {
+  background: var(--grey-300);
+  background-clip: padding-box;
+}
+.pjx ::-webkit-scrollbar-thumb:hover {
+  background: var(--grey-400);
+  background-clip: padding-box;
+}
+.pjx ::-webkit-scrollbar-corner {
+  background: transparent;
+}
+/* Textarea resize grip (the diagonal-line "rectangle" WebKit paints in the
+   corner of any `resize: vertical/both` textarea). It only becomes visible
+   once the textarea gains a scrollbar — the grip then sits beside the track.
+   Drop the painted glyph globally; the drag-to-resize affordance still works
+   (matches the hidden-by-default scrollbar philosophy above). */
+.pjx ::-webkit-resizer {
+  background: transparent;
+}
+
+/* Native number-input spinner chevrons — generic browser chrome, never shown
+   (the same philosophy as hidden scrollbars). Numeric fields read as plain
+   inputs; steppers add noise without real affordance. */
+.pjx input[type="number"]::-webkit-outer-spin-button,
+.pjx input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.pjx input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+/* ============================================================
+   SIDE-PANEL MOTION — shared recipe (CLAUDE.md §1.5)
+   ============================================================
+   Add `side-panel` to any inline drawer that docks as a flex sibling
+   under .page-split (Review, Runs, Spreadsheet pinned / doc-preview /
+   view-properties, Knowledge document drawer). Pair it with the
+   page's own open ↔ closed geometry:
+
+     .my-panel           { flex: 0 0 0; min-width: 0; opacity: 0;
+                           transform: translateX(var(--panel-slide));
+                           pointer-events: none; overflow: hidden; }
+     .has-x .my-panel    { flex: 0 0 var(--w); min-width: …;
+                           opacity: 1; transform: none;
+                           pointer-events: auto; }
+
+   The transition list is the single source of truth for panel timing.
+   margin is included so panels whose gap is a margin (not a resizer
+   gutter) collapse that gap in step with the panel. */
+.pjx .side-panel {
+  transition:
+    flex-basis var(--panel-dur) var(--panel-ease),
+    min-width var(--panel-dur) var(--panel-ease),
+    margin var(--panel-dur) var(--panel-ease),
+    width var(--panel-dur) var(--panel-ease),
+    transform var(--panel-dur) var(--panel-ease),
+    opacity var(--panel-fade) ease-out;
+}
+/* While a resizer is dragged, kill the tween so width tracks the
+   pointer 1:1 instead of lerping behind it. Covers both resize-state
+   conventions in the project: .page-split.resizing (Review / Runs),
+   body.pin-resizing (Spreadsheet pinned + doc-preview) and body.pb-resizing
+   (Policy Builder's rail). */
+.pjx .page-split.resizing .side-panel,
+.pjx.pb-resizing .side-panel,
+.pjx.pin-resizing .side-panel {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pjx .side-panel {
+    transition: none;
+  }
+}
+/* Reduced motion, system-wide: every token-driven transition lands
+   at once. 0.01ms (not 0) so transitionend / animationend still fire
+   for code that waits on them. Loops are untouched (see the token
+   comment); local `transition: none` blocks stay valid. */
+@media (prefers-reduced-motion: reduce) {
+  .pjx {
+    --dur-quick: 0.01ms;
+    --dur-pop: 0.01ms;
+    --dur-fade: 0.01ms;
+    --dur-move: 0.01ms;
+    --dur-glide: 0.01ms;
+    --dur-hero: 0.01ms;
+    --rise-pop: 0px;
+    --rise-in: 0px;
+    --panel-slide: 0px;
+  }
+}
+
+/* round 161 (Ammar: "never wrap text inside segmented control"): a segment's label is one line, product-wide; the
+   segment keeps at least its label's width (min-width: max-content), so a narrow host gets a wider control, never a
+   two-line one. Covers every segmented family: .mode-seg, .ed-seg, .seg, and tablists of buttons. */
+.pjx .mode-seg.mode-seg .mode-btn,
+.pjx .ed-seg.ed-seg > button,
+.pjx .seg.seg > button,
+.pjx .seg-btn.seg-btn,
+.pjx [role="tablist"].mode-seg > button,
+.pjx [role="tablist"].ed-seg > button {
+  white-space: nowrap;
+  min-width: max-content;
+} /* round 169: segmented controls only; a tab strip (.ss-tabs) must still shrink its tabs */
+
+/* ---------- filters.css ---------- */
+/* ============================================================
+   FILTER BUILDER — popover + nested groups + chips
+   ============================================================ */
+
+/* -- Spacing baseline used throughout this file --
+   --fb-pad: outer popover padding + nested group padding
+   --fb-gap: gap between sibling rows
+   --fb-control: height of a control (trigger / input / button)
+   --fb-conj-w: width of the conjunction prefix column
+*/
+.pjx .fb-pop {
+  --fb-pad: 10px;
+  --fb-gap: 6px;
+  --fb-control: 30px;
+  --fb-conj-w: 64px;
+}
+
+/* Count chip inside the .tt-icon Filter button when filters active. */
+.pjx .tt-icon {
+  position: relative;
+}
+.pjx .tt-icon .tt-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 5px;
+  margin-left: 4px;
+  border-radius: 4px;
+  /* Dark neutral chip — matches other count chips/badges in the product
+     (and the example callout). Brand plum was too loud against a white
+     toolbar button. */
+  background: var(--grey-950);
+  color: white;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -0.01em;
+}
+/* `display: inline-flex` above defeats the [hidden] attribute (which is
+   only `display: none`). Force the chip off when no filters are active. */
+.pjx .tt-icon .tt-count[hidden] {
+  display: none !important;
+}
+/* When filters are active, the icon stays visible and the chip sits to
+   its right — the button just widens to host both. Keeps it on-brand
+   with the rest of the .tt-icon toolbar vocabulary (hover bg = white). */
+/* When filters are active, force the toolbar button to a wider, auto-sized
+   pill so the lucide icon AND the count chip both render side-by-side. The
+   icon must remain visible no matter what — explicitly de-clip it. */
+.pjx .tt-icon.has-filters {
+  width: auto !important;
+  min-width: 28px;
+  padding: 0 6px;
+  gap: 4px;
+  background: transparent;
+  color: var(--grey-700);
+  overflow: visible;
+}
+.pjx .tt-icon.has-filters > svg,
+.pjx .tt-icon.has-filters > i {
+  display: inline-flex;
+}
+.pjx .tt-icon.has-filters:hover {
+  background: white;
+  color: var(--grey-900);
+  box-shadow: 0 1px 2px rgba(16, 17, 23, 0.06);
+}
+
+/* ===== Popover shell ===== */
+.pjx .fb-pop {
+  position: fixed;
+  z-index: 10020;
+  background: white;
+  /* Match popover/menu chrome elsewhere: hairline grey-200 border. */
+  border: 0.5px solid var(--grey-200);
+  border-radius: 10px;
+  /* Lighter elevation — readable as a popover, not heavy. */
+  box-shadow:
+    0 1px 2px rgba(15, 16, 20, 0.04),
+    0 6px 18px -6px rgba(15, 16, 20, 0.1);
+  padding: var(--fb-pad);
+  /* Hug contents: width is determined by the widest row inside (a
+     top-level rule row, or — when a nested group is present — a nested
+     rule row indented one level deeper). No artificial floor. */
+  width: max-content;
+  min-width: 0;
+  max-width: min(880px, calc(100vw - 32px));
+  max-height: 70vh;
+  overflow: auto;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--grey-900);
+}
+.pjx .fb-pop.hidden {
+  display: none;
+}
+
+/* ===== Filter group container ===== */
+.pjx .fb-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fb-gap);
+}
+.pjx .fb-group.is-nested {
+  background: var(--grey-50);
+  border-radius: 8px;
+  padding: var(--fb-pad);
+  border: 1px solid var(--grey-200);
+}
+
+/* Row = either a rule or a nested group + the conjunction prefix to its left. */
+.pjx .fb-row {
+  display: grid;
+  grid-template-columns: var(--fb-conj-w) 1fr;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--fb-control);
+}
+/* Rows that wrap a nested group should align the group block to top so the
+   group's first row aligns vertically with the conjunction label. */
+.pjx .fb-row.is-group-row {
+  align-items: start;
+}
+.pjx .fb-row.is-group-row > .fb-conj {
+  padding-top: 0;
+}
+
+/* Conjunction column ("Where" / "and" / "or"). The static label is padded
+   to match the button-version's character offset so they x-align. */
+.pjx .fb-conj {
+  display: inline-flex;
+  align-items: center;
+  height: var(--fb-control);
+  font-size: 12px;
+  color: var(--grey-700);
+  justify-self: start;
+}
+/* When .fb-conj wraps the static "Where" / "and" / "or" label (no picker
+   button), pad it 9px so its text x-aligns with the picker button's text
+   (the button itself has 1px border + 8px left padding = 9px). */
+.pjx .fb-conj.is-where,
+.pjx .fb-row:not(.is-group-row) .fb-conj:not(:has(.fb-conj-btn)),
+.pjx .fb-row.is-group-row > .fb-conj:not(:has(.fb-conj-btn)) {
+  padding-left: 9px;
+}
+.pjx .fb-conj-btn {
+  appearance: none;
+  box-sizing: border-box;
+  /* Match the .cp-input chrome used by other triggers — 0.5px grey-300. */
+  border: 0.5px solid var(--grey-300);
+  background: white;
+  border-radius: 6px;
+  padding: 0 6px 0 8px;
+  font-size: 12px;
+  color: var(--grey-950);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 30px;
+  min-height: 30px;
+  line-height: 1;
+  flex-shrink: 0;
+  min-width: 0;
+  font-family: var(--font-sans);
+  outline: none;
+}
+.pjx .fb-conj-btn:hover {
+  background: var(--grey-50);
+  border-color: var(--grey-400);
+}
+.pjx .fb-conj-btn.is-open {
+  background: var(--grey-50);
+  border-color: var(--grey-500);
+}
+.pjx .fb-conj-btn:focus-visible {
+  border-color: var(--grey-500);
+  box-shadow: 0 0 0 3px var(--grey-100);
+}
+.pjx .fb-conj-btn svg {
+  width: 10px;
+  height: 10px;
+  color: var(--grey-500);
+}
+/* When the static "Where"/"and"/"or" is shown, we want a slightly smaller
+   visual to match the button's compact height. */
+/* (static-label padding handled above) */
+
+/* ===== Rule row inner ===== */
+/* Rule row is laid out as: field — operator — value — [more]. Each control
+   has a fixed width, so the row's natural width is predictable and the
+   popover can hug it. The .fb-row-actions stays pinned right after the
+   value (no margin-left:auto inside a non-stretching row). */
+.pjx .fb-rule {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-height: var(--fb-control);
+}
+/* Inputs and triggers borrow the same chrome used by other form controls
+   across Workflow Builder / Spreadsheet / Document Detail: hairline
+   grey-200 border at rest, grey-400 on hover, and no darker focus border
+   (focus only flips the outline). */
+.pjx .fb-rule .fb-input,
+.pjx .fb-rule .fb-trigger {
+  height: var(--fb-control);
+  box-sizing: border-box;
+  /* Match .cp-input chrome (column properties edit state): hairline grey-300
+     border, 6px radius, 12px text. Keep consistent across filter rows so the
+     filter edit state reads the same as the column edit state. */
+  border: 0.5px solid var(--grey-300);
+  /* Single-line text; overflow truncates with ellipsis */
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  background: white;
+  border-radius: 6px;
+  padding: 0 8px;
+  font-size: 12px;
+  color: var(--grey-950);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-sans);
+  outline: none;
+}
+.pjx .fb-rule .fb-input {
+  cursor: text;
+}
+.pjx .fb-rule .fb-input::placeholder {
+  color: var(--grey-400);
+}
+/* Strip native number spinners — the filter inputs match the column-properties
+   edit state, which is a clean text field, not a system stepper. */
+.pjx .fb-rule .fb-input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+.pjx .fb-rule .fb-input[type="number"]::-webkit-outer-spin-button,
+.pjx .fb-rule .fb-input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+}
+.pjx .fb-rule .fb-input:hover {
+  border-color: var(--grey-400);
+}
+.pjx .fb-rule .fb-trigger:hover {
+  background: var(--grey-50);
+  border-color: var(--grey-400);
+}
+.pjx .fb-rule .fb-trigger.is-open {
+  background: var(--grey-50);
+  border-color: var(--grey-500);
+}
+.pjx .fb-rule .fb-trigger.is-placeholder {
+  color: var(--grey-500);
+}
+.pjx .fb-rule .fb-trigger svg.caret {
+  width: 10px;
+  height: 10px;
+  color: var(--grey-500);
+  margin-left: auto;
+}
+
+/* Focus is shown on the field itself via a neutral border — no outer halo
+   (CLAUDE.md §0.9a). */
+.pjx .fb-rule .fb-input:focus,
+.pjx .fb-rule .fb-input:focus-visible,
+.pjx .fb-rule .fb-trigger:focus-visible {
+  border-color: var(--focus-border);
+  box-shadow: none;
+}
+
+.pjx .fb-trigger.field-trigger {
+  /* Compact default; ellipsis trims long field names to a single line. */
+  min-width: 0;
+  width: 132px;
+  max-width: 180px;
+  overflow: hidden;
+  justify-content: flex-start; /* labels left-aligned */
+}
+/* Empty state placeholder ("Field or confidence") sizes to its text so the
+   full prompt is legible; once a field is chosen the fixed width returns. */
+.pjx .fb-trigger.field-trigger.is-placeholder {
+  width: auto;
+  max-width: 210px;
+}
+.pjx .fb-trigger.op-trigger {
+  min-width: 0;
+  width: 112px;
+  max-width: 150px;
+  overflow: hidden;
+  justify-content: flex-start;
+}
+.pjx .fb-trigger .ft-label {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pjx .fb-trigger.field-trigger .ft-node {
+  font-size: 10.5px;
+  color: var(--grey-500);
+  flex-shrink: 0;
+  margin-right: 4px;
+}
+/* Value field: a single compact width used at every level so a top-level
+   row's value and a nested-group row's value visually match for the same
+   value-type. Don't let it stretch — the .fb-rule is no longer flex-1, so
+   the popover hugs the row's natural width instead of the value stretching
+   to fill it. */
+.pjx .fb-rule .fb-value {
+  flex: 0 0 auto;
+  width: 200px;
+  min-width: 200px;
+  max-width: 200px;
+}
+.pjx .fb-rule .fb-input.fb-value {
+  padding-left: 10px;
+}
+
+/* "between" / two-input grouping — wider because it hosts two inputs and
+   an "and" separator. Same fixed width at every level. */
+.pjx .fb-pair.fb-value {
+  width: 240px;
+  min-width: 240px;
+  max-width: 240px;
+}
+.pjx .fb-pair {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.pjx .fb-pair .fb-input {
+  flex: 1;
+  min-width: 0;
+  max-width: none;
+}
+.pjx .fb-pair .fb-and-sep {
+  color: var(--grey-500);
+  font-size: 11px;
+  padding: 0 2px;
+}
+
+/* Confidence threshold input: a single bordered field hosting the number
+   input + a trailing "%" INSIDE the field box, so the % reads as a unit
+   within the control rather than a sign floating outside it. */
+.pjx .fb-rule .fb-pct {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: var(--fb-control);
+  box-sizing: border-box;
+  border: 0.5px solid var(--grey-300);
+  border-radius: 6px;
+  background: white;
+  padding: 0 8px;
+}
+.pjx .fb-rule .fb-pct:hover {
+  border-color: var(--grey-400);
+}
+.pjx .fb-rule .fb-pct:focus-within {
+  border-color: var(--focus-border);
+  box-shadow: none;
+}
+.pjx .fb-rule .fb-pct .fb-input {
+  flex: 1;
+  min-width: 0;
+  max-width: none;
+  width: auto;
+  height: auto;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+}
+.pjx .fb-rule .fb-pct .fb-input:hover {
+  border-color: transparent;
+}
+.pjx .fb-rule .fb-pct .fb-input:focus,
+.pjx .fb-rule .fb-pct .fb-input:focus-visible {
+  border-color: transparent;
+  box-shadow: none;
+}
+/* In the "between" (two-input) layout each percent box shares the row width. */
+.pjx .fb-pair .fb-pct {
+  flex: 1;
+  min-width: 0;
+}
+.pjx .fb-pct-sign {
+  color: var(--grey-500);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+/* Multi-value chips inside an inline trigger */
+.pjx .fb-multi {
+  min-height: var(--fb-control);
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  background: white;
+  border-radius: 6px;
+  padding: 3px 6px;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+/* Multi-value chip cluster (used for is-any-of / contains-any-of). Same
+   rest/hover/focus vocabulary as the other inputs in the row. */
+.pjx .fb-multi {
+  border-color: var(--grey-200);
+}
+.pjx .fb-multi:hover {
+  border-color: var(--grey-400);
+  background: var(--grey-50);
+}
+.pjx .fb-multi.is-empty {
+  color: var(--grey-500);
+  padding: 0 8px;
+  align-items: center;
+}
+.pjx .fb-multi:focus-within {
+  border-color: var(--focus-border);
+  box-shadow: none;
+  outline: none;
+}
+.pjx .fb-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 20px;
+  padding: 0 4px 0 8px;
+  background: var(--grey-100);
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--grey-900);
+}
+.pjx .fb-chip .fb-chip-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  color: var(--grey-500);
+  cursor: pointer;
+}
+.pjx .fb-chip .fb-chip-x:hover {
+  background: white;
+  color: var(--grey-800);
+}
+.pjx .fb-chip .fb-chip-x svg {
+  width: 9px;
+  height: 9px;
+}
+
+/* Boolean / "is empty" placeholder note */
+.pjx .fb-bool-note {
+  color: var(--grey-500);
+  font-size: 11px;
+  padding: 0 4px;
+}
+
+/* Row overflow + delete cluster. The more button follows immediately after
+   the value field (no margin-left: auto \u2014 the rule no longer stretches). */
+.pjx .fb-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.pjx .fb-iconbtn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--grey-500);
+}
+.pjx .fb-iconbtn:hover {
+  background: var(--grey-100);
+  color: var(--grey-900);
+}
+.pjx .fb-iconbtn:focus-visible {
+  outline: none;
+  background: var(--grey-100);
+  box-shadow: 0 0 0 3px var(--grey-100);
+}
+.pjx .fb-iconbtn svg {
+  width: 13px;
+  height: 13px;
+  stroke-width: 1.75;
+}
+
+/* ===== Footer ===== */
+/* Add filter / Add filter group / [spacer] / Clear all
+   Flushed left — no left indent at the popover or nested-group level. */
+.pjx .fb-footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: var(--fb-gap);
+  padding: 0;
+}
+.pjx .fb-add-btn {
+  appearance: none;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0 12px;
+  height: var(--fb-control);
+  font-size: 12px;
+  color: var(--grey-900);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-sans);
+  font-weight: 500;
+}
+.pjx .fb-add-btn.is-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--grey-600);
+  font-weight: 400;
+  padding: 0 8px;
+}
+/* Add filter / Add filter group — mirrors .btn-secondary from Workflow
+   Builder so the footer buttons read as the same component family used
+   throughout the product. */
+.pjx .fb-add-btn:hover {
+  background: var(--grey-50);
+  border-color: var(--grey-400);
+}
+.pjx .fb-add-btn.is-ghost:hover {
+  background: var(--grey-100);
+  color: var(--grey-900);
+  border-color: transparent;
+}
+.pjx .fb-add-btn:focus-visible {
+  outline: none;
+  border-color: var(--grey-300);
+  box-shadow: 0 0 0 3px var(--grey-100);
+}
+.pjx .fb-add-btn svg {
+  width: 11px;
+  height: 11px;
+  color: var(--grey-500);
+}
+.pjx .fb-footer .fb-spacer {
+  flex: 1;
+}
+
+/* Global "Clear all" — visually secondary but discoverable. */
+.pjx .fb-clear-all {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  height: var(--fb-control);
+  padding: 0 8px;
+  border-radius: 6px;
+  color: var(--grey-500);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-family: var(--font-sans);
+}
+.pjx .fb-clear-all svg {
+  width: 12px;
+  height: 12px;
+}
+.pjx .fb-clear-all:hover {
+  background: var(--grey-100);
+  color: var(--carmine-600);
+}
+.pjx .fb-clear-all:focus-visible {
+  outline: none;
+  background: var(--grey-100);
+  color: var(--carmine-600);
+  box-shadow: 0 0 0 3px var(--grey-100);
+}
+.pjx .fb-clear-all[disabled] {
+  color: var(--grey-300);
+  cursor: not-allowed;
+  background: transparent;
+}
+.pjx .fb-clear-all[disabled]:hover {
+  background: transparent;
+  color: var(--grey-300);
+}
+
+/* Empty state */
+.pjx .fb-empty {
+  padding: 18px 12px;
+  color: var(--grey-500);
+  font-size: 12px;
+  text-align: left;
+}
+
+/* ===== Inner popovers (field/operator/value select) ===== */
+.pjx .fb-menu {
+  position: fixed;
+  z-index: 10030;
+  background: white;
+  /* Match the cell context menu chrome (.ctx-menu) so popovers across the
+     sheet share one visual vocabulary. */
+  border: 0.5px solid var(--grey-200);
+  border-radius: 10px;
+  box-shadow:
+    0 1px 2px rgba(16, 17, 23, 0.05),
+    0 12px 28px -8px rgba(16, 17, 23, 0.18),
+    0 4px 10px -2px rgba(16, 17, 23, 0.08);
+  min-width: 220px;
+  max-width: 320px;
+  padding: 4px;
+  font-size: 12px;
+  color: var(--grey-900);
+  max-height: 320px;
+  overflow: auto;
+}
+.pjx .fb-menu.hidden {
+  display: none;
+}
+.pjx .fb-menu .fb-search {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  border: 0;
+  border-bottom: 0.5px solid var(--grey-100);
+  background: transparent;
+  padding: 6px 8px;
+  font-size: 12px;
+  font-family: var(--font-sans);
+  outline: none;
+  margin-bottom: 4px;
+  color: var(--grey-900);
+}
+.pjx .fb-menu .fb-search::placeholder {
+  color: var(--grey-400);
+}
+.pjx .fb-menu .fb-search:focus {
+  outline: none;
+  border-bottom-color: var(--grey-200);
+}
+.pjx .fb-menu .fb-section {
+  padding: 6px 8px 2px;
+  font-size: 10.5px;
+  color: var(--grey-500);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.pjx .fb-menu .fb-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  user-select: none;
+  text-align: left;
+}
+.pjx .fb-menu .fb-item:hover,
+.pjx .fb-menu .fb-item.is-hl {
+  background: var(--grey-100);
+}
+.pjx .fb-menu .fb-item.is-active {
+  background: var(--grey-100);
+}
+.pjx .fb-menu .fb-item .fb-i-label {
+  flex: 1;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pjx .fb-menu .fb-item .fb-i-meta {
+  color: var(--grey-500);
+  font-size: 10.5px;
+  flex-shrink: 0;
+}
+.pjx .fb-menu .fb-item .fb-i-check {
+  width: 12px;
+  height: 12px;
+  color: var(--grey-600);
+  flex-shrink: 0;
+}
+.pjx .fb-menu .fb-item .fb-i-chev {
+  width: 10px;
+  height: 10px;
+  color: var(--grey-400);
+  flex-shrink: 0;
+}
+.pjx .fb-menu .fb-empty-list {
+  padding: 8px;
+  color: var(--grey-500);
+  font-size: 11px;
+}
+
+/* Field-selector breadcrumb when drilling into object/array */
+.pjx .fb-menu .fb-crumb {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px 2px;
+  margin: 0;
+  border: 0;
+  border-bottom: 0 !important;
+  font-size: 11px;
+  color: var(--grey-600);
+}
+.pjx .fb-menu .fb-crumb .fb-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  cursor: pointer;
+  color: var(--grey-700);
+  border-radius: 4px;
+  padding: 2px 4px;
+}
+.pjx .fb-menu .fb-crumb .fb-back:hover {
+  background: var(--grey-100);
+}
+.pjx .fb-menu .fb-crumb .fb-back svg {
+  width: 11px;
+  height: 11px;
+}
+.pjx .fb-menu .fb-crumb-sep {
+  color: var(--grey-400);
+}
+
+/* Type sigil on field items — matches the node-builder field picker:
+   a quiet monospace glyph (T, #, [], {}) at the start of each row, no
+   chip background. The label sits next to it; node meta floats right. */
+.pjx .fb-i-sigil {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: var(--grey-500);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 400;
+  flex-shrink: 0;
+}
+/* Inline SVG sigils (e.g. enum's circle-chevron-down) — match the visual
+   weight of the surrounding mono glyphs. */
+.pjx .fb-i-sigil > svg {
+  width: 13px;
+  height: 13px;
+  display: block;
+  stroke-width: 1.75;
+}
+/* When the sigil rides inside a field trigger (selected field on a rule),
+   keep it the same compact mono glyph. */
+.pjx .fb-trigger .fb-i-sigil {
+  margin-right: 2px;
+}
+/* Field menu items get a touch more breathing room than action menu items
+   so the type column reads as a column. */
+.pjx .fb-menu .fb-item {
+  padding: 6px 8px;
+  gap: 8px;
+}
+.pjx .fb-menu .fb-item .fb-i-label {
+  font-size: 12px;
+  color: var(--grey-900);
+}
+.pjx .fb-menu .fb-item .fb-i-meta {
+  font-size: 11px;
+  color: var(--grey-500);
+}
+
+/* Compact menu for the and/or conjunction picker — short values only. */
+.pjx .fb-menu.fb-conj-menu {
+  min-width: 88px;
+  max-width: 120px;
+}
+
+/* Row-action overflow menu */
+.pjx .fb-menu.fb-action-menu {
+  min-width: 180px;
+}
+.pjx .fb-menu.fb-action-menu .fb-item svg {
+  width: 12px;
+  height: 12px;
+  color: var(--grey-500);
+}
+.pjx .fb-menu.fb-action-menu .fb-i-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  flex-shrink: 0;
+}
+.pjx .fb-menu.fb-action-menu .fb-item.is-danger {
+  color: var(--carmine-600);
+}
+.pjx .fb-menu.fb-action-menu .fb-item.is-danger svg {
+  color: var(--carmine-500);
+}
+.pjx .fb-menu.fb-action-menu .fb-item.is-danger:hover {
+  background: var(--carmine-50);
+}
+.pjx .fb-menu .fb-divider {
+  height: 1px;
+  background: var(--border-subtle);
+  margin: 4px -4px;
+}
+
+/* Multi-select option row */
+.pjx .fb-menu .fb-item .fb-checkbox {
+  width: 13px;
+  height: 13px;
+  border: 1px solid var(--grey-400);
+  border-radius: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.pjx .fb-menu .fb-item .fb-checkbox.is-on {
+  /* Checked = neutral dark fill (CLAUDE §0.9), matching the asg-popover check.
+     Plum is reserved for brand, not generic selection. */
+  background: var(--select-strong);
+  border-color: var(--select-strong);
+  color: white;
+}
+.pjx .fb-menu .fb-item .fb-checkbox svg {
+  width: 9px;
+  height: 9px;
+}
+
+/* Status chip styling reuse — small dot */
+.pjx .fb-i-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--grey-300);
+  flex-shrink: 0;
+}
+.pjx .fb-i-dot.tone-pine {
+  background: var(--pine-500);
+}
+.pjx .fb-i-dot.tone-carmine {
+  background: var(--carmine-500);
+}
+.pjx .fb-i-dot.tone-honey {
+  background: var(--honey-600);
+}
+.pjx .fb-i-dot.tone-slate {
+  background: var(--slate-500);
+}
+.pjx .fb-i-dot.tone-plum {
+  background: var(--plum-600);
+}
+
+/* Scrollbar within fb-pop */
+.pjx .fb-pop::-webkit-scrollbar,
+.pjx .fb-menu::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.pjx .fb-pop::-webkit-scrollbar-thumb,
+.pjx .fb-menu::-webkit-scrollbar-thumb {
+  background: var(--grey-300);
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+/* ============================================================
+   DATE TRIGGER + DATE PICKER POPOVER
+   Mirrors the sheet's .edit-pop.date-pop chrome.
+   ============================================================ */
+.pjx .fb-date-wrap {
+  display: inline-flex;
+  flex: 1;
+  min-width: 0;
+}
+.pjx .fb-date-trigger {
+  flex: 1;
+  min-width: 0;
+  justify-content: space-between !important;
+}
+.pjx .fb-date-trigger .ft-label {
+  flex: 1;
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pjx .fb-date-trigger.is-placeholder .ft-label {
+  font-family: var(--font-sans);
+  color: var(--grey-400);
+}
+.pjx .fb-date-trigger .fb-i-cal {
+  display: inline-flex;
+  align-items: center;
+  color: var(--grey-500);
+  flex-shrink: 0;
+}
+.pjx .fb-date-trigger .fb-i-cal svg {
+  width: 14px;
+  height: 14px;
+}
+.pjx .fb-date-trigger:hover .fb-i-cal {
+  color: var(--grey-700);
+}
+
+/* Date popover */
+.pjx .fb-date-pop {
+  min-width: 240px;
+  padding: 6px;
+}
+.pjx .fb-date-pop .fb-dp-input-wrap {
+  padding: 0;
+  margin-bottom: 4px;
+}
+.pjx .fb-date-pop .fb-dp-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  border: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  background: transparent;
+  padding: 6px 8px;
+  font-size: 12px;
+  font-family: var(--font-sans);
+  outline: none;
+  color: var(--grey-900);
+  border-radius: 0;
+  height: auto;
+}
+.pjx .fb-date-pop .fb-dp-input::placeholder {
+  color: var(--grey-400);
+}
+.pjx .fb-date-pop .fb-dp-input:focus {
+  outline: none;
+  border-bottom-color: var(--grey-400);
+  box-shadow: none;
+}
+.pjx .fb-date-pop .dp-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 6px 6px;
+}
+.pjx .fb-date-pop .dp-month {
+  font-weight: 500;
+  color: var(--grey-900);
+  font-size: 12px;
+}
+.pjx .fb-date-pop .dp-nav {
+  width: 22px;
+  height: 22px;
+  border: 0;
+  background: transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--grey-500);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.pjx .fb-date-pop .dp-nav:hover {
+  background: var(--grey-100);
+  color: var(--grey-900);
+}
+.pjx .fb-date-pop .dp-nav svg {
+  width: 12px;
+  height: 12px;
+}
+.pjx .fb-date-pop .dp-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  padding: 0 2px 2px;
+}
+.pjx .fb-date-pop .dp-dow {
+  font-size: 10px;
+  color: var(--grey-400);
+  text-align: center;
+  padding: 4px 0;
+  font-family: var(--font-mono);
+}
+.pjx .fb-date-pop .dp-day {
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: var(--grey-900);
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  user-select: none;
+}
+.pjx .fb-date-pop .dp-day.muted {
+  color: var(--grey-300);
+}
+.pjx .fb-date-pop .dp-day:hover {
+  background: var(--grey-100);
+}
+.pjx .fb-date-pop .dp-day.today {
+  box-shadow: inset 0 0 0 1px var(--grey-300);
+}
+.pjx .fb-date-pop .dp-day.sel {
+  background: var(--select-strong);
+  color: white;
+}
+.pjx .fb-date-pop .dp-day.sel:hover {
+  background: var(--grey-800);
+}
+
+/* ---------- eval-common.css ---------- */
+/* Evaluate — vocabulary shared by the directory and both evaluation workspaces.
+   Loaded by evaluate.html, evaluate-parse.html, evaluate-extract.html.
+   Buttons, crumb links, modal chrome, report tables, severity, segmented control.
+   Shell geometry still comes from app-shell.css (linked last) */
+
+.pjx .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 7px;
+  border: 0.5px solid var(--grey-300);
+  background: white;
+  font-size: 13px;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-family: inherit;
+}
+.pjx .btn:hover {
+  background: var(--grey-50);
+}
+.pjx .btn svg {
+  width: 13px;
+  height: 13px;
+  stroke-width: 1.75;
+  flex-shrink: 0;
+}
+.pjx .btn.primary {
+  background: var(--grey-950);
+  border-color: var(--grey-950);
+  color: white;
+  font-weight: 500;
+}
+.pjx .btn.primary:hover {
+  background: var(--grey-800);
+}
+.pjx .btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.pjx .btn .btn-label {
+  min-width: 0;
+  flex: 0 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pjx .crumb a {
+  color: var(--grey-500);
+  text-decoration: none;
+}
+.pjx .crumb a:hover {
+  color: var(--grey-950);
+}
+/* topbar breadcrumb: Parse Judge / run / current (the last crumb may be the document
+   picker). Ancestors are plain links, grey-500 to primary on hover; separators grey-300. */
+.pjx .crumb.tb-crumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--grey-500);
+  flex-shrink: 0;
+  padding-left: 4px;
+}
+.pjx .crumb.tb-crumb a {
+  white-space: nowrap;
+  border-radius: 5px;
+  padding: 3px 4px;
+  margin: 0 -4px;
+  transition:
+    color var(--dur-quick) var(--ease-standard),
+    background var(--dur-quick) var(--ease-standard);
+}
+.pjx .crumb.tb-crumb a:hover {
+  color: var(--text-primary);
+  background: var(--grey-100);
+}
+.pjx .crumb.tb-crumb .sep {
+  color: var(--grey-300);
+}
+.pjx .crumb.tb-crumb .cur {
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pjx .crumb.tb-crumb + .doc-pick {
+  margin-left: -4px;
+  padding-left: 6px;
+}
+/* the topbar's left cluster keeps ONE rhythm: 2px between icon buttons, and a
+   hairline divider (with 5px either side) separating groups of them — panel
+   toggles from the agent chat, the chat from the evaluation's own crumb */
+.pjx .topbar .tb-divider {
+  width: 1px;
+  height: 18px;
+  margin: 0 -4px;
+  background: var(--grey-200);
+  flex-shrink: 0;
+}
+.pjx .crumb .crumb-back-btn + .cur {
+  margin-left: 2px;
+}
+/* back to the Evaluate index: the topbar icon button, one step up */
+.pjx .crumb .crumb-back-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  margin: 0 0 0 -4px;
+  border-radius: 6px;
+  color: var(--grey-500);
+  flex-shrink: 0;
+}
+.pjx .crumb .crumb-back-btn:hover {
+  background: var(--grey-100);
+  color: var(--grey-950);
+}
+.pjx .crumb .crumb-back-btn svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 1.75;
+}
+.pjx a {
+  color: var(--text-primary);
+}
+.pjx a:hover {
+  color: var(--grey-700);
+}
+
+/* ---------- transient minor alert (EvalShared.toast) ---------- */
+.pjx .ev-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%) translateY(8px);
+  z-index: 10200;
+  background: var(--grey-950);
+  color: white;
+  font: 500 12.5px var(--font-sans);
+  padding: 10px 16px;
+  border-radius: 9px;
+  box-shadow: 0 8px 24px rgba(16, 17, 23, 0.24);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
+}
+.pjx .ev-toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+/* the alert's action link: on the dark alert, underlined so it reads as a link */
+.pjx .ev-toast {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.pjx .ev-toast-a,
+.pjx .ev-toast-a:hover {
+  color: white;
+}
+.pjx .ev-toast-a {
+  font: 12.5px var(--font-sans);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  white-space: nowrap;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.pjx .ev-toast-a:hover {
+  text-decoration-color: var(--grey-400);
+}
+
+/* ---------- evaluation report modal (width lives with the modal rules below) ---------- */
+.pjx .rep-modal .m-body {
+  gap: 22px;
+  padding-bottom: 22px;
+}
+.pjx .rep-note {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  text-wrap: pretty;
+}
+.pjx .rep-sec-h {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+.pjx .rep-sec-note {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  margin: -4px 0 10px;
+  text-wrap: pretty;
+}
+.pjx .rep-scores {
+  display: flex;
+  flex-direction: column;
+}
+.pjx .rep-score-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 110px 52px;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 0;
+  border-bottom: 0.5px solid var(--grey-100);
+}
+.pjx .rep-score-row:last-child {
+  border-bottom: 0;
+}
+.pjx .rs-name {
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pjx .rs-bar {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--grey-100);
+  overflow: hidden;
+}
+.pjx .rs-bar span {
+  display: block;
+  height: 100%;
+  background: var(--grey-800);
+}
+.pjx .rep-score-row:first-child .rs-bar span {
+  background: var(--plum-600);
+}
+.pjx .rs-val {
+  font-size: 14px;
+  color: var(--text-primary);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.pjx .rep-delta {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-wrap: pretty;
+}
+.pjx .rep-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.pjx .rep-table th {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--text-secondary);
+  text-align: left;
+  padding: 0 0 7px;
+  border-bottom: 0.5px solid var(--grey-200);
+}
+.pjx .rep-table td {
+  padding: 7px 0;
+  border-bottom: 0.5px solid var(--grey-100);
+  color: var(--text-primary);
+}
+.pjx .rep-table tr:last-child td {
+  border-bottom: 0;
+}
+.pjx .mc-modal .m-foot .cost-wrap {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.pjx .mc-modal .m-foot .btn {
+  flex: 0 0 auto;
+}
+.pjx .rep-note.sm {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.pjx .rep-table th.num,
+.pjx .rep-table td.num {
+  text-align: right;
+  padding-left: 16px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* model comparison: aggregate read + sortable document x model matrix */
+.pjx .rep-table td.doc {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pjx .rep-table td.soft {
+  color: var(--text-secondary);
+}
+.pjx .mc-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  padding: 0 6px;
+  margin-left: 7px;
+  border-radius: 9999px;
+  background: var(--grey-100);
+  color: var(--text-secondary);
+  font-size: 11px;
+  vertical-align: 1px;
+}
+.pjx .mc-table td.dash {
+  color: var(--text-tertiary);
+}
+.pjx .mc-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.pjx .mc-sort:hover {
+  color: var(--grey-950);
+}
+.pjx .mc-sort svg {
+  width: 11px;
+  height: 11px;
+  stroke-width: 1.75;
+  flex-shrink: 0;
+  opacity: 0;
+}
+.pjx .mc-sort:hover svg {
+  opacity: 0.5;
+}
+.pjx .mc-sort.is-on {
+  color: var(--grey-950);
+}
+.pjx .mc-sort.is-on svg {
+  opacity: 1;
+}
+
+/* severity vocabulary */
+.pjx .sev-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.pjx .sev-dot.critical {
+  background: var(--carmine-500);
+}
+.pjx .sev-dot.notable {
+  background: var(--honey-500);
+}
+.pjx .sev-dot.info {
+  background: var(--grey-400);
+}
+.pjx .sev-set {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.pjx .sev-set .si {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+.pjx .sev-clean {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+/* ---------- new-evaluation modal (canonical .modal-backdrop → .modal, api-keys chrome) ---------- */
+.pjx .modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 16, 20, 0.32);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 10050;
+  animation: mb-fade 0.14s ease;
+}
+.pjx .modal-backdrop.open {
+  display: flex;
+}
+@keyframes mb-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.pjx .modal {
+  width: 480px;
+  max-width: calc(100vw - 32px);
+  background: white;
+  border: 0.5px solid var(--grey-300);
+  border-radius: 12px;
+  box-shadow:
+    0 24px 60px rgba(15, 16, 20, 0.18),
+    0 4px 12px rgba(15, 16, 20, 0.08);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+/* the two setup modals match the report width: their file lists, dropzones and
+   intake rows read better wide, and + New and Summary open at one size */
+.pjx .ne-modal {
+  width: 760px;
+  max-height: min(760px, calc(100vh - 48px));
+}
+/* report/summary modals read wider than a form modal: they carry stat grids,
+   finding narratives and the by-field table side by side */
+.pjx .rep-modal {
+  width: 760px;
+  max-height: min(820px, calc(100vh - 48px));
+}
+.pjx .mc-modal {
+  width: 600px;
+  max-height: min(820px, calc(100vh - 48px));
+}
+.pjx .mc-modal .m-body {
+  gap: 22px;
+  padding-bottom: 22px;
+}
+.pjx .m-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 18px 20px 12px;
+  flex-shrink: 0;
+}
+.pjx .m-title-wrap {
+  flex: 1;
+  min-width: 0;
+}
+.pjx .m-title {
+  font-family: var(--font-sans);
+  font-weight: 400;
+  font-size: 18px;
+  letter-spacing: -0.005em;
+  color: var(--grey-950);
+  margin: 0;
+}
+.pjx .m-sub {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--grey-500);
+  margin-top: 4px;
+  text-wrap: pretty;
+}
+.pjx .m-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  border-radius: 5px;
+  color: var(--grey-500);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.pjx .m-close:hover {
+  background: var(--grey-100);
+  color: var(--grey-950);
+}
+.pjx .m-close svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 1.75;
+}
+.pjx .m-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 20px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.pjx .m-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  border-top: 0.5px solid var(--grey-200);
+  background: white;
+  flex-shrink: 0;
+}
+.pjx .cost-wrap {
+  flex: 1;
+  min-width: 0;
+}
+.pjx .cost-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.pjx .cost-num {
+  font-size: 15px;
+  color: var(--text-primary);
+}
+.pjx .cost-detail {
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+  margin-top: 1px;
+}
+
+/* global Rendered / Raw segmented control (§1.3 vocabulary) */
+.pjx .mode-seg {
+  display: inline-flex;
+  gap: 1px;
+  padding: 2px;
+  background: var(--grey-100);
+  border-radius: 7px;
+  flex-shrink: 0;
+}
+.pjx .mode-seg .mode-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 20px;
+  border: 0;
+  background: transparent;
+  padding: 0 10px;
+  border-radius: 5px;
+  font: 12px var(--font-sans);
+  color: var(--grey-600);
+  cursor: pointer;
+}
+.pjx .mode-seg .mode-btn.active {
+  background: white;
+  color: var(--grey-950);
+  box-shadow: var(--shadow-xs);
+}
+.pjx .mode-seg .mode-btn.icon {
+  width: 26px;
+  padding: 0;
+}
+.pjx .mode-seg .mode-btn.icon svg {
+  width: 13px;
+  height: 13px;
+  stroke-width: 1.75;
+}
+.pjx .mode-seg .mode-btn.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  padding: 3px 0;
+}
+.pjx .mode-seg .mode-btn.icon svg {
+  width: 13px;
+  height: 13px;
+  stroke-width: 1.75;
+}
+
+/* ---------- tweaks panel (project pattern), shared by the Parse and Extract workspaces ---------- */
+.pjx .tweaks {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  width: 250px;
+  background: white;
+  border: 0.5px solid var(--grey-200);
+  border-radius: 10px;
+  box-shadow:
+    0 8px 24px -6px rgba(15, 16, 20, 0.12),
+    0 2px 6px rgba(15, 16, 20, 0.05);
+  padding: 12px;
+  display: none;
+  z-index: 10300;
+  max-height: 70vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.pjx .tweaks.open {
+  display: block;
+}
+.pjx .tweaks h4 {
+  font: 500 11px var(--font-sans);
+  letter-spacing: 0.02em;
+  color: var(--text-secondary);
+  margin: 12px 0 6px;
+}
+.pjx .tweaks h4:first-child {
+  margin-top: 0;
+}
+.pjx .tweaks .t-options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pjx .tweaks .t-opt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: 7px;
+  font: 12px var(--font-sans);
+  color: var(--text-secondary);
+  cursor: pointer;
+  border: 0.5px solid transparent;
+}
+.pjx .tweaks .t-opt:hover {
+  background: var(--grey-50);
+}
+.pjx .tweaks .t-opt.active {
+  background: var(--grey-50);
+  border-color: var(--grey-200);
+  color: var(--text-primary);
+}
+.pjx .tweaks .t-opt .t-radio {
+  width: 12px;
+  height: 12px;
+  border-radius: 9999px;
+  border: 1px solid var(--grey-300);
+  flex-shrink: 0;
+  position: relative;
+}
+.pjx .tweaks .t-opt.active .t-radio {
+  border-color: var(--select-strong);
+}
+.pjx .tweaks .t-opt.active .t-radio::after {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border-radius: 9999px;
+  background: var(--select-strong);
+}
+.pjx .tweaks .t-note {
+  margin: 6px 0 0;
+  font: 11px var(--font-sans);
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+/* running placeholder on history */
+.pjx .run-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+.pjx .spin {
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--grey-300);
+  border-top-color: var(--grey-700);
+  border-radius: 50%;
+  animation: evspin 0.8s linear infinite;
+}
+@keyframes evspin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pjx .spin {
+    animation: none;
+  }
+  .pjx .blk,
+  .pjx .fnd,
+  .pjx .btn {
+    transition: none;
+  }
+}
+
+/* ---------- eval-run.css ---------- */
+/* eval-run.css — the two provider-run pages: New evaluation (evaluate-new.html) and
+   the run report (evaluate-results.html). Shell geometry stays with app-shell.css
+   (linked last); buttons, segmented control, severity and toast come from
+   eval-common.css; menus from filters.css.
+
+   LIFTED VERBATIM from Atlas (reuse, §0.3), because this artifact never carried the
+   Evaluate directory: the setup fields (.field-label, .set-name-input, .dropzone,
+   .set-files / .sf-*, .mg-label) and the chips (.nx-ichip) from evaluate-dir.css /
+   extract-setup.css, and the data-list table (.wf-table, .thead, .trow) from
+   evaluate-dir.css + data-list.css. Edit them there first if Atlas changes. */
+
+/* ---------- page frame ---------- */
+.pjx,
+.pjx {
+  height: 100%;
+  margin: 0;
+  background: var(--grey-100);
+  overflow: hidden;
+}
+.pjx * {
+  box-sizing: border-box;
+}
+.pjx button {
+  font-family: inherit;
+}
+.pjx .app {
+  display: flex;
+  height: 100vh;
+  min-height: 0;
+}
+.pjx .main-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.pjx .topbar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 12px;
+  flex-shrink: 0;
+  background: white;
+}
+.pjx .topbar-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.pjx .crumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--grey-500);
+  min-width: 0;
+}
+.pjx .crumb .cur {
+  color: var(--grey-950);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pjx .icon-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 6px;
+  color: var(--grey-500);
+  cursor: pointer;
+  border: 0;
+  background: transparent;
+}
+.pjx .icon-btn:hover {
+  background: var(--grey-100);
+  color: var(--grey-800);
+}
+.pjx .icon-btn svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 1.75;
+}
+.pjx .content-pane {
+  flex: 1;
+  position: relative;
+  min-height: 0;
+  overflow: auto;
+}
+.pjx .page {
+  max-width: 1040px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+.pjx .page h1 {
+  font: var(--h1-font);
+  letter-spacing: var(--h1-track);
+  color: var(--text-primary);
+  margin: 0;
+}
+.pjx .pg-meta {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.pjx [hidden] {
+  display: none !important;
+}
+
+/* ---------- Home site header: brand left, nav right, aligned to the page column ---------- */
+.pjx .topbar.site-bar {
+  padding: 0;
+}
+.pjx .site-bar-in {
+  flex: 1;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 32px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+.pjx .site-brand,
+.pjx .site-nav a {
+  text-decoration: none;
+}
+.pjx .site-brand {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+.pjx .site-brand:hover {
+  color: var(--text-primary);
+}
+.pjx .site-nav {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+.pjx .site-nav a {
+  font-size: 13px;
+  color: var(--text-secondary);
+  transition: color var(--dur-quick) var(--ease-standard);
+}
+.pjx .site-nav a:hover,
+.pjx .site-nav a.is-strong {
+  color: var(--text-primary);
+}
+
+/* ---------- lifted: setup fields (Atlas evaluate-dir.css) ---------- */
+.pjx .field-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+.pjx .set-name-input {
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  border: 0.5px solid var(--grey-300);
+  border-radius: 7px;
+  font: 13px var(--font-sans);
+  color: var(--text-primary);
+  background: white;
+  outline: none;
+}
+.pjx .set-name-input:focus {
+  border-color: var(--focus-border);
+  box-shadow: none;
+}
+.pjx .dropzone {
+  border: 1px dashed var(--grey-300);
+  border-radius: 8px;
+  padding: 18px 16px;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition:
+    border-color var(--dur-quick) var(--ease-standard),
+    background var(--dur-quick) var(--ease-standard);
+}
+.pjx .dropzone:hover,
+.pjx .dropzone.over {
+  border-color: var(--grey-500);
+  background: var(--grey-50);
+}
+.pjx .dropzone .dz-hint {
+  display: block;
+  margin-top: 3px;
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+}
+.pjx .set-files {
+  display: flex;
+  flex-direction: column;
+  margin-top: 10px;
+  border: 0.5px solid var(--grey-200);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.pjx .set-files:empty {
+  display: none;
+}
+.pjx .sf-name {
+  min-width: 0;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pjx .sf-meta {
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+.pjx .sf-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 0;
+  background: transparent;
+  font: 12.5px var(--font-sans);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+.pjx .sf-group:hover {
+  background: var(--grey-50);
+}
+/* header row: the group toggle + a Clear all action at its right end (Ammar 2026-10-29) */
+.pjx .sf-head {
+  display: flex;
+  align-items: center;
+}
+.pjx .sf-head .sf-group {
+  flex: 1;
+  min-width: 0;
+}
+.pjx .sf-head .sf-clear {
+  flex-shrink: 0;
+  margin: 0 12px 0 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.pjx .sf-head .sf-clear:hover {
+  color: var(--text-primary);
+}
+.pjx .sf-group svg {
+  width: 13px;
+  height: 13px;
+  stroke-width: 1.75;
+  color: var(--grey-500);
+  flex-shrink: 0;
+}
+.pjx .sf-chev {
+  transition: transform var(--dur-pop) var(--ease-standard);
+}
+.pjx .sf-group[aria-expanded="true"] .sf-chev {
+  transform: rotate(180deg);
+}
+.pjx .sf-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 2px 12px 10px;
+}
+.pjx .sf-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 2px 2px 2px 8px;
+  border-radius: 6px;
+  background: var(--grey-100);
+  font-size: 12px;
+  color: var(--text-primary);
+}
+.pjx .sf-chip-n {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pjx .sf-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  border-radius: 5px;
+  color: var(--grey-500);
+  cursor: pointer;
+}
+.pjx .sf-x:hover {
+  background: var(--grey-100);
+  color: var(--grey-950);
+}
+.pjx .sf-x svg {
+  width: 13px;
+  height: 13px;
+  stroke-width: 1.75;
+}
+.pjx .sf-chip .sf-x {
+  width: 18px;
+  height: 18px;
+}
+.pjx .sf-chip .sf-x svg {
+  width: 11px;
+  height: 11px;
+}
+.pjx .sf-chip .sf-x:hover {
+  background: var(--grey-200);
+}
+.pjx .mg-label {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--text-secondary);
+}
+
+/* ---------- lifted: chips (Atlas extract-setup.css .nx-ichip) ---------- */
+.pjx .nx-ichip {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 6px;
+  border: 0.5px solid var(--grey-200);
+  background: white;
+  font: 12px var(--font-sans);
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+}
+.pjx .nx-ichip:hover {
+  border-color: var(--grey-400);
+}
+.pjx .nx-ichip.is-on {
+  background: var(--select-bg);
+  border-color: var(--select-border);
+}
+
+/* ---------- lifted: data-list table (Atlas evaluate-dir.css + data-list.css) ---------- */
+.pjx .wf-table {
+  background: white;
+  border: 0.5px solid var(--grey-200);
+  border-radius: 10px;
+  box-shadow: var(--shadow-xs);
+  overflow: hidden;
+}
+.pjx .wf-table .thead,
+.pjx .wf-table .trow {
+  display: grid;
+  align-items: center;
+  gap: 14px;
+  padding: 0 16px;
+}
+.pjx .wf-table .thead {
+  height: 36px;
+  border-bottom: 0.5px solid var(--grey-100);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: var(--grey-500);
+  text-transform: uppercase;
+}
+.pjx .wf-table .thead > div {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pjx .wf-table .trow {
+  min-height: 52px;
+  border-bottom: 0.5px solid var(--grey-100);
+  transition: background var(--dur-quick) var(--ease-standard);
+}
+.pjx .wf-table .trow:last-child {
+  border-bottom: 0;
+}
+.pjx .wf-table .trow > div {
+  min-width: 0;
+}
+.pjx .dl-link {
+  color: inherit;
+  text-decoration: underline dotted var(--grey-400);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+.pjx .dl-link:hover {
+  color: var(--text-primary);
+  text-decoration-color: var(--grey-500);
+}
+.pjx .dl-act {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-weight: 400;
+  color: var(--text-primary);
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: underline dotted var(--grey-400);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+.pjx .dl-act:hover {
+  text-decoration-color: var(--grey-600);
+}
+
+/* ============================================================
+   NEW EVALUATION (evaluate-new.html)
+   ============================================================ */
+/* Home hero. The ONE page heading that departs from --h1-font (§0.6e): a landing
+   display line, Geist 300 at up to 56px, tight tracking. Scoped to .su-hero. */
+/* Home runs a touch wider (1120) so the hero proof row fits one line; header + run bar match */
+.pjx .page.su-page {
+  max-width: 1120px;
+}
+.pjx .su-head {
+  padding: 40px 0 44px;
+}
+.pjx .page h1.su-hero {
+  font: 300 clamp(34px, 5vw, 56px) / 1.08 var(--font-sans);
+  letter-spacing: -0.035em;
+  max-width: 960px;
+  margin: 0;
+  text-wrap: balance;
+}
+.pjx .su-lede {
+  max-width: 560px;
+  margin: 18px 0 0;
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  text-wrap: pretty;
+}
+.pjx .su-proof {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 20px;
+  margin-top: 28px;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.pjx .su-proof span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.pjx .su-proof svg {
+  width: 13px;
+  height: 13px;
+  stroke-width: 1.75;
+  color: var(--icon-rest);
+  flex-shrink: 0;
+}
+.pjx .su-proof-link {
+  color: var(--text-primary);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--grey-400);
+}
+.pjx .su-proof-link:hover {
+  color: var(--text-primary);
+  text-decoration-color: var(--grey-950);
+}
+/* one section per input: label column left, controls right (stacks under 900px) */
+.pjx .su-sec {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 40px;
+  padding: 28px 0;
+  border-top: 0.5px solid var(--grey-200);
+}
+.pjx .su-sec-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+.pjx .su-sec-meta {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  text-wrap: pretty;
+}
+.pjx .su-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+@media (max-width: 900px) {
+  .pjx .su-sec {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+}
+
+/* provider rows: checkbox · name · every mode as a chip, visible up front · price / key */
+.pjx .pv-group + .pv-group {
+  margin-top: 22px;
+}
+.pjx .pv-group .mg-label {
+  margin-bottom: 4px;
+}
+.pjx .pv-list {
+  display: flex;
+  flex-direction: column;
+}
+.pjx .pv-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 14px 190px minmax(0, 1fr) 104px;
+  align-items: center;
+  column-gap: 14px;
+  min-height: 48px;
+  padding: 10px 0;
+  border-bottom: 0.5px solid var(--grey-100);
+}
+.pjx .pv-row:last-child {
+  border-bottom: 0;
+}
+/* full-bleed hover wash (§1.47b): the fill bleeds sideways, content never moves */
+.pjx .pv-row::before {
+  content: "";
+  position: absolute;
+  inset: 0 -12px;
+  border-radius: 8px;
+  background: var(--grey-50);
+  opacity: 0;
+  transition: opacity var(--dur-quick) var(--ease-standard);
+  pointer-events: none;
+}
+.pjx .pv-row:hover::before {
+  opacity: 1;
+}
+.pjx .pv-row > * {
+  position: relative;
+}
+.pjx .pv-check {
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 1px solid var(--grey-400);
+  border-radius: 3px;
+  background: white;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  cursor: pointer;
+  transition:
+    background var(--dur-quick) var(--ease-standard),
+    border-color var(--dur-quick) var(--ease-standard);
+}
+.pjx .pv-check svg {
+  width: 10px;
+  height: 10px;
+  stroke-width: 2.5;
+  opacity: 0;
+  transform: scale(0.6);
+  transition:
+    opacity var(--dur-quick) var(--ease-standard),
+    transform var(--dur-pop) var(--ease-out);
+}
+.pjx .pv-check.is-on {
+  background: var(--select-strong);
+  border-color: var(--select-strong);
+}
+.pjx .pv-check.is-on svg {
+  opacity: 1;
+  transform: none;
+}
+.pjx .pv-check.is-part {
+  background: var(--select-strong);
+  border-color: var(--select-strong);
+}
+.pjx .pv-check.is-part::after {
+  content: "";
+  width: 7px;
+  height: 1.5px;
+  background: white;
+  border-radius: 1px;
+  position: absolute;
+}
+.pjx .pv-check.is-part svg {
+  opacity: 0;
+}
+.pjx .pv-name {
+  font-size: 13px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.pjx .pv-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+/* a mode chip: the .nx-ichip, plus a check that eases in when picked and the price */
+.pjx .pv-chip {
+  gap: 6px;
+}
+.pjx .pv-chip .pv-tick {
+  width: 0;
+  height: 11px;
+  stroke-width: 2.25;
+  opacity: 0;
+  margin-right: -6px;
+  transition:
+    width var(--dur-pop) var(--ease-out),
+    opacity var(--dur-quick) var(--ease-standard),
+    margin var(--dur-pop) var(--ease-out);
+}
+.pjx .pv-chip.is-on .pv-tick {
+  width: 11px;
+  opacity: 1;
+  margin-right: 0;
+}
+.pjx .pv-chip .pv-cost {
+  color: var(--text-tertiary);
+  font-size: 11.5px;
+}
+.pjx .pv-row.is-locked .pv-chip {
+  color: var(--text-secondary);
+}
+.pjx .pv-side {
+  justify-self: end;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+.pjx .pv-side .dl-act {
+  font-size: 12px;
+}
+.pjx .pv-key-ok {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-secondary);
+}
+.pjx .pv-key-ok svg {
+  width: 12px;
+  height: 12px;
+  stroke-width: 1.75;
+  color: var(--pine-600);
+}
+
+/* API key popover: the .fb-menu chrome, one field + Save */
+.pjx .fb-menu.pv-key-menu {
+  width: 300px;
+  max-width: calc(100vw - 16px);
+  padding: 12px;
+  overflow: visible;
+  animation: popIn var(--dur-pop) var(--ease-out);
+}
+.pjx .pv-key-menu .field-label {
+  margin-bottom: 6px;
+}
+.pjx .pv-key-menu .pv-key-note {
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+}
+.pjx .pv-key-menu .pv-key-acts {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+@keyframes popIn {
+  from {
+    opacity: 0;
+    transform: translateY(calc(-1 * var(--rise-pop))) scale(0.98);
+  }
+}
+
+/* previous runs: a .wf-table whose rows are links back into each run's report (§1.48:
+   a navigable row, plain text, row hover + chevron; keyboard reaches each row) */
+/* no card: the list sits on the page like the provider rows, hairlines between rows,
+   the same full-bleed hover wash (Ammar 2026-10-29) */
+.pjx .wf-table.runs {
+  overflow-x: auto;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  padding: 0 12px;
+  margin: 0 -12px;
+}
+/* the Providers column starts where the provider chips start above: .pv-row's
+   14px check + 14px gap + 190px name + 14px gap = 232px = 218px run column + 14px gap */
+.pjx .runs .thead,
+.pjx .runs .trow {
+  grid-template-columns: 218px minmax(140px, 1fr) 110px 100px 16px;
+  min-width: 620px;
+  padding: 0;
+}
+.pjx .runs .thead {
+  height: 28px;
+  border-bottom-color: var(--grey-200);
+}
+.pjx .runs .trow {
+  position: relative;
+  border-bottom-color: var(--grey-100);
+}
+.pjx .runs .trow > * {
+  position: relative;
+}
+.pjx .runs .trow::before {
+  content: "";
+  position: absolute;
+  inset: 0 -12px;
+  border-radius: 8px;
+  background: var(--grey-50);
+  opacity: 0;
+  transition: opacity var(--dur-quick) var(--ease-standard);
+  pointer-events: none;
+}
+.pjx .runs .trow:hover::before {
+  opacity: 1;
+}
+.pjx .runs .thead .num,
+.pjx .runs .trow .num {
+  text-align: right;
+  justify-self: end;
+}
+.pjx .runs .trow {
+  text-decoration: none;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.pjx .runs .trow:hover {
+  background: transparent;
+  color: var(--text-primary);
+}
+.pjx .runs .trow:focus-visible {
+  outline: 1.5px solid var(--focus-border);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+.pjx .run-n {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 8px 0;
+}
+.pjx .run-t {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pjx .run-m,
+.pjx .run-p,
+.pjx .run-d {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pjx .runs .trow .run-s {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+} /* left-aligned (Ammar 2026-10-29) */
+.pjx .run-lead {
+  color: var(--text-secondary);
+}
+.pjx .run-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+}
+.pjx .run-go {
+  display: flex;
+  justify-content: flex-end;
+  color: var(--grey-400);
+  transition:
+    color var(--dur-quick) var(--ease-standard),
+    transform var(--dur-quick) var(--ease-standard);
+}
+.pjx .run-go svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 1.75;
+}
+.pjx .runs .trow:hover .run-go {
+  color: var(--grey-950);
+  transform: translateX(2px);
+}
+
+/* run summary: totals + estimated cost + Start, IN the flow under the form (aligned to the
+   field column) and above Previous runs. No longer a sticky footer (Ammar 2026-10-29). */
+.pjx .su-run {
+  padding: 20px 0;
+  align-items: center;
+}
+.pjx .su-run-in {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.pjx .su-run-in .btn {
+  height: 34px;
+  padding: 0 14px;
+}
+.pjx .su-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.pjx .su-stat .n {
+  font-size: 15px;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.pjx .su-stat .l {
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+.pjx .su-run .sp {
+  flex: 1;
+}
+.pjx .su-run .n.bump {
+  animation: bump var(--dur-move) var(--ease-out);
+}
+@keyframes bump {
+  30% {
+    transform: translateY(-2px);
+    color: var(--grey-950);
+  }
+}
+
+/* ============================================================
+   RUN REPORT (evaluate-results.html)
+   ============================================================ */
+.pjx .rp-page {
+  gap: 28px;
+}
+.pjx .rp-head {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  padding-top: 8px;
+}
+.pjx .rp-head .title-wrap {
+  flex: 1;
+  min-width: 0;
+}
+.pjx .rp-head-acts {
+  flex-shrink: 0;
+  display: flex;
+  gap: 8px;
+  padding-bottom: 2px;
+}
+.pjx .rp-head-acts a.btn {
+  text-decoration: none;
+}
+.pjx .rp-head-acts a.btn.primary,
+.pjx .rp-head-acts a.btn.primary:hover {
+  color: white;
+}
+.pjx .rp-sec-h {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 26px;
+  margin-bottom: 12px;
+}
+.pjx .rp-sec-h h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  color: var(--text-primary);
+}
+.pjx .rp-sec-h .rp-count {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.pjx .rp-sec-h .sp {
+  flex: 1;
+}
+.pjx .rp-card {
+  background: white;
+  border: 0.5px solid var(--grey-200);
+  border-radius: 10px;
+  padding: 16px 18px;
+  min-width: 0;
+}
+.pjx .rp-cap {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+/* series identity (one color per provider mode). The product has no categorical
+   palette, so series borrow the accent ramps in a fixed order (ink first); scoped
+   to these charts by the --series-* custom props, never a new token (§0.4). */
+.pjx .s-ink {
+  --sc: var(--grey-950);
+}
+/* Reducto's series is the brand plum (Ammar 2026-10-29); the other providers keep the accent ramps */
+.pjx .s-plum {
+  --sc: var(--plum-600);
+}
+.pjx .s-slate {
+  --sc: var(--slate-500);
+}
+.pjx .s-rust {
+  --sc: var(--rust-400);
+}
+.pjx .s-pine {
+  --sc: var(--pine-500);
+}
+.pjx .s-honey {
+  --sc: var(--honey-500);
+}
+.pjx .s-espresso {
+  --sc: var(--espresso-400);
+}
+.pjx .s-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--sc);
+  flex-shrink: 0;
+}
+
+/* leaderboard */
+.pjx .lb .thead,
+.pjx .lb .trow {
+  grid-template-columns: 22px minmax(170px, 1.5fr) minmax(160px, 1.3fr) 100px 90px 100px 56px;
+}
+.pjx .lb .thead .num,
+.pjx .lb .trow .num {
+  text-align: right;
+}
+/* narrow: the table scrolls sideways; columns are never dropped (§1.16) */
+.pjx .wf-table.lb {
+  overflow-x: auto;
+}
+.pjx .lb .thead,
+.pjx .lb .trow {
+  min-width: 760px;
+}
+.pjx .lb .trow {
+  cursor: default;
+}
+.pjx .lb .trow:hover {
+  background: var(--grey-50);
+}
+.pjx .lb .rank {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.pjx .lb .who {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.pjx .lb .who-t {
+  min-width: 0;
+}
+.pjx .lb .who-n {
+  font-size: 13px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pjx .lb .who-m {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pjx .lb .score {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.pjx .lb .score-n {
+  width: 30px;
+  font-size: 15px;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.pjx .lb .score-bar {
+  flex: 1;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--grey-100);
+  overflow: hidden;
+}
+.pjx .lb .score-bar span {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 3px;
+  background: var(--sc);
+  transition: width var(--dur-glide) var(--ease-out);
+}
+.pjx .lb .trow > .num {
+  font-size: 13px;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.pjx .lb .trow > .num.soft {
+  color: var(--text-secondary);
+}
+
+/* charts */
+.pjx .rp-charts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+@media (max-width: 860px) {
+  .pjx .rp-charts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.pjx .rp-chart-t {
+  font-size: 13px;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+.pjx .chart {
+  display: block;
+  width: 100%;
+  overflow: visible;
+  font-family: var(--font-sans);
+}
+.pjx .chart .ax {
+  font-size: 11px;
+  fill: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.pjx .chart .ax-t {
+  font-size: 11px;
+  fill: var(--text-secondary);
+}
+.pjx .chart .grid {
+  stroke: var(--grey-100);
+  stroke-width: 1;
+}
+.pjx .chart .base {
+  stroke: var(--grey-200);
+  stroke-width: 1;
+}
+/* the ideal quadrant (high score, low cost / latency): the positive pine tone (Ammar 2026-10-29) */
+.pjx .chart .zone {
+  fill: color-mix(in oklab, var(--pine-100) 45%, white);
+}
+.pjx .chart .zone-l {
+  font-size: 11px;
+  font-weight: 500;
+  fill: var(--pine-700);
+}
+.pjx .chart .front {
+  fill: none;
+  stroke: var(--grey-300);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+.pjx .sc-pt {
+  cursor: default;
+}
+.pjx .sc-pt circle {
+  fill: var(--sc);
+  stroke: white;
+  stroke-width: 2;
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform var(--dur-pop) var(--ease-out);
+}
+.pjx .sc-pt:hover circle {
+  transform: scale(1.3);
+}
+.pjx .sc-pt text {
+  font-size: 12px;
+  fill: var(--text-primary);
+}
+.pjx .sc-pt text .v {
+  fill: var(--text-secondary);
+}
+.pjx .sc-in .sc-pt {
+  animation: ptIn var(--dur-move) var(--ease-out) backwards;
+}
+@keyframes ptIn {
+  from {
+    opacity: 0;
+    transform: translateY(var(--rise-in));
+  }
+}
+
+/* head to head */
+.pjx .h2h {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.pjx .h2h th {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--text-secondary);
+  text-align: left;
+  padding: 0 12px 8px 0;
+  border-bottom: 0.5px solid var(--grey-200);
+  white-space: nowrap;
+}
+.pjx .h2h td {
+  padding: 10px 12px 10px 0;
+  border-bottom: 0.5px solid var(--grey-100);
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+.pjx .h2h tr:last-child td {
+  border-bottom: 0;
+}
+.pjx .h2h .rn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.pjx .h2h .dash {
+  color: var(--text-tertiary);
+}
+.pjx .h2h .sep {
+  color: var(--grey-300);
+  margin: 0 2px;
+}
+.pjx .h2h-n {
+  border: 0;
+  background: transparent;
+  padding: 2px 5px;
+  margin: 0 -2px;
+  border-radius: 5px;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background var(--dur-quick) var(--ease-standard);
+}
+.pjx .h2h-n:hover {
+  background: var(--grey-100);
+}
+.pjx .h2h-n.is-on {
+  background: var(--select-bg);
+  box-shadow: inset 0 0 0 0.5px var(--select-border);
+}
+.pjx .h2h-n.w {
+  color: var(--pine-600);
+}
+.pjx .h2h-n.l {
+  color: var(--carmine-500);
+}
+.pjx .h2h-n.t {
+  color: var(--text-secondary);
+}
+.pjx .h2h-n:disabled {
+  cursor: default;
+  color: var(--text-tertiary);
+}
+
+/* ---------- where providers disagree: range chart ---------- */
+.pjx .dg-card {
+  padding-bottom: 12px;
+}
+.pjx .dg-legend {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.pjx .dg-leg {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font: 12px var(--font-sans);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition:
+    background var(--dur-quick) var(--ease-standard),
+    color var(--dur-quick) var(--ease-standard),
+    opacity var(--dur-quick) var(--ease-standard);
+}
+.pjx .dg-leg:hover {
+  background: var(--grey-50);
+  color: var(--text-primary);
+}
+.pjx .dg-leg.is-on {
+  background: var(--select-bg);
+  color: var(--text-primary);
+}
+.pjx .dg-legend.has-on .dg-leg:not(.is-on) {
+  opacity: 0.5;
+}
+.pjx .dg-focus {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 2px 0 9px;
+  border-radius: 6px;
+  background: var(--select-bg);
+  font-size: 12px;
+  color: var(--text-primary);
+  animation: popIn var(--dur-pop) var(--ease-out);
+}
+.pjx .dg-focus .sf-x {
+  width: 20px;
+  height: 20px;
+}
+.pjx .dg-focus .sf-x svg {
+  width: 11px;
+  height: 11px;
+}
+.pjx .dg-wrap {
+  position: relative;
+  outline: none;
+}
+.pjx .dg-svg {
+  display: block;
+  width: 100%;
+  overflow: visible;
+  font-family: var(--font-sans);
+  user-select: none;
+}
+.pjx .dg-svg .band {
+  fill: var(--grey-50);
+  transition: width var(--dur-move) var(--ease-glide);
+}
+.pjx .dg-svg .band-l {
+  font-size: 11px;
+  fill: var(--text-secondary);
+  transition: opacity var(--dur-fade) var(--ease-standard);
+}
+.pjx .dg-col {
+  cursor: pointer;
+}
+.pjx .dg-col .hit {
+  fill: transparent;
+}
+.pjx .dg-bg .hov {
+  fill: var(--grey-100);
+  opacity: 0;
+  transition: opacity var(--dur-quick) var(--ease-standard);
+}
+.pjx .dg-bg.is-hov .hov,
+.pjx .dg-bg.is-kb .hov {
+  opacity: 0.7;
+}
+.pjx .dg-bg.is-sel .hov {
+  opacity: 1;
+}
+.pjx .dg-col .rng {
+  fill: var(--grey-300);
+  transform-box: fill-box;
+  transform-origin: center;
+  transition:
+    fill var(--dur-pop) var(--ease-standard),
+    opacity var(--dur-fade) var(--ease-standard);
+}
+.pjx .dg-col .pt {
+  fill: var(--sc);
+  stroke: white;
+  stroke-width: 1.5;
+  transform-box: fill-box;
+  transform-origin: center;
+  transition:
+    transform var(--dur-pop) var(--ease-out),
+    opacity var(--dur-fade) var(--ease-standard),
+    cy var(--dur-move) var(--ease-out);
+}
+.pjx .dg-col:hover .pt,
+.pjx .dg-col.is-sel .pt,
+.pjx .dg-col.is-kb .pt {
+  transform: scale(1.35);
+}
+.pjx .dg-col text {
+  pointer-events: none;
+} /* axis labels never trigger the read-out */
+.pjx .dg-col .gap-l {
+  font-size: 10.5px;
+  fill: var(--text-tertiary);
+  text-anchor: middle;
+  font-variant-numeric: tabular-nums;
+  transition: opacity var(--dur-fade) var(--ease-standard);
+}
+/* below the threshold / outside a focus set: present but quiet */
+.pjx .dg-col.is-off .rng {
+  fill: var(--grey-200);
+}
+.pjx .dg-col.is-off .pt {
+  opacity: 0.28;
+}
+.pjx .dg-col.is-off .gap-l {
+  opacity: 0;
+}
+.pjx .dg-col.is-out .rng {
+  opacity: 0.35;
+}
+.pjx .dg-col.is-out .pt {
+  opacity: 0.12;
+}
+.pjx .dg-col .pt.is-mute {
+  opacity: 0.15;
+}
+.pjx .dg-col.is-sel .rng {
+  fill: var(--grey-400);
+}
+/* first paint: ranges grow from the middle, points drop in column by column */
+.pjx .dg-svg.is-pre .rng {
+  transform: scaleY(0);
+}
+.pjx .dg-svg.is-pre .pt {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+.pjx .dg-svg.is-anim .rng {
+  transition:
+    transform var(--dur-move) var(--ease-out) var(--d, 0s),
+    fill var(--dur-pop) var(--ease-standard),
+    opacity var(--dur-fade) var(--ease-standard);
+}
+.pjx .dg-svg.is-anim .pt {
+  transition:
+    transform var(--dur-move) var(--ease-out) var(--d, 0s),
+    opacity var(--dur-fade) var(--ease-standard) var(--d, 0s);
+}
+.pjx .dg-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+.pjx .dg-foot .sp {
+  flex: 1;
+}
+.pjx .dg-foot a.btn {
+  text-decoration: none;
+}
+.pjx .dg-foot a.btn.primary,
+.pjx .dg-foot a.btn.primary:hover {
+  color: white;
+}
+/* .mode-seg one step up (30px tall, 13px labels) so it sits level with a .btn beside it.
+   A size modifier on the shared control, not a new segmented control (§1.3 / §0.4). */
+.pjx .mode-seg.lg {
+  padding: 3px;
+  border-radius: 8px;
+}
+.pjx .mode-seg.lg .mode-btn {
+  height: 24px;
+  padding: 0 12px;
+  font-size: 13px;
+  border-radius: 6px;
+}
+.pjx .mode-seg.lg .mode-btn.icon {
+  width: 30px;
+  padding: 0;
+}
+.pjx .mode-seg.lg .mode-btn.icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* page order (default) vs widest gap: the sort switch slides each column to its new
+   place (FLIP) */
+.pjx .dg-col,
+.pjx .dg-bg {
+  transition: transform var(--dur-move) var(--ease-out);
+}
+.pjx .dg-bg .qb {
+  fill: var(--grey-50);
+  opacity: 0;
+  transition: opacity var(--dur-fade) var(--ease-standard);
+}
+/* no per-page wash in page order (Ammar 2026-10-29): washing only the pages that pass
+   the gap filter left the ones that don't as white bars in a grey run. Lit pages read
+   by their marks alone (the rest are dimmed, .is-off); hover and selection keep .hov */
+.pjx .dg-svg.by-page .dg-bg .qb {
+  opacity: 0;
+}
+/* head-to-head focus: each focused page gets a grey-100 column band so the few pages stand
+   out (Ammar 2026-10-29); any order, any view with columns */
+.pjx .dg-svg.has-focus .dg-bg:not(.is-out) .qb {
+  opacity: 1;
+  fill: var(--grey-100);
+}
+.pjx .dg-svg .pg-l {
+  font-size: 10.5px;
+}
+.pjx .dg-foot #dgSort {
+  margin-right: -4px;
+} /* 12px foot gap - 4 = the 8px control rhythm */
+
+/* view toggle (range · line · area): the icon .mode-seg; the swap cross-fades */
+/* chart controls: ONE size (.mode-seg.lg, 30px, level with .btn) and ONE 8px gap between
+   neighbouring controls, header and footer alike (Ammar 2026-10-29) */
+.pjx #dgView {
+  margin-left: -2px;
+} /* 10px header gap - 2 = 8px */
+.pjx .dg-wrap {
+  transition: opacity var(--dur-fade) var(--ease-standard);
+}
+.pjx .dg-wrap.is-swap {
+  opacity: 0;
+}
+/* line view: one path per provider; draws in left to right */
+.pjx .dg-line {
+  pointer-events: none;
+  fill: none;
+  stroke: var(--sc);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  transition: opacity var(--dur-fade) var(--ease-standard);
+}
+/* head-to-head focus: lines step back, the focused pages' dots stay full (.is-out dims the rest) */
+.pjx .dg-line.is-dim {
+  opacity: 0.18;
+}
+.pjx .dg-line.is-mute,
+.pjx .ar-fill.is-mute {
+  opacity: 0.12;
+}
+.pjx .dg-svg.is-line .dg-col.is-off .pt {
+  opacity: 0.55;
+}
+.pjx .dg-svg.is-pre .dg-line {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+}
+.pjx .dg-svg.is-anim .dg-line {
+  stroke-dasharray: 1;
+  transition:
+    stroke-dashoffset var(--dur-hero) var(--ease-out),
+    opacity var(--dur-fade) var(--ease-standard);
+}
+/* area view: soft fills under each curve, a guide + dots on hover */
+.pjx .ar-fill {
+  fill: var(--sc);
+  opacity: 0.045;
+  transition: opacity var(--dur-fade) var(--ease-standard);
+}
+.pjx .dg-svg.is-pre .ar-fill {
+  opacity: 0;
+}
+.pjx .dg-svg.is-anim .ar-fill {
+  transition: opacity var(--dur-move) var(--ease-standard) 0.2s;
+}
+.pjx .dg-svg.is-area .dg-line,
+.pjx .dg-svg.is-area .ar-fill {
+  transition:
+    d var(--dur-move) var(--ease-out),
+    opacity var(--dur-fade) var(--ease-standard);
+}
+.pjx .ar-guide {
+  stroke: var(--grey-300);
+  stroke-width: 1;
+  opacity: 0;
+  transition: opacity var(--dur-quick) var(--ease-standard);
+}
+.pjx .ar-guide.on {
+  opacity: 1;
+}
+.pjx .ar-dot {
+  fill: var(--sc);
+  stroke: white;
+  stroke-width: 1.5;
+  opacity: 0;
+  transition: opacity var(--dur-quick) var(--ease-standard);
+  pointer-events: none;
+}
+.pjx .ar-dot.on {
+  opacity: 1;
+}
+
+/* hover read-out: the shared dark tip (portal-tip chrome), positioned by the chart */
+.pjx .dg-tip {
+  position: fixed;
+  z-index: 10100;
+  pointer-events: none;
+  background: var(--grey-950);
+  color: white;
+  font: 12px / 1.45 var(--font-sans);
+  padding: 6px 9px;
+  border-radius: 6px;
+  box-shadow: var(--shadow-sm);
+  white-space: nowrap;
+  opacity: 0;
+  transform: translate(-50%, 2px);
+  transition:
+    opacity var(--dur-pop) var(--ease-out),
+    transform var(--dur-pop) var(--ease-out);
+}
+.pjx .dg-tip.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+.pjx .dg-tip .m {
+  color: var(--grey-400);
+}
+
+/* page popover: .fb-menu chrome (border, radius, shadow), wider, portaled + clamped */
+.pjx .pg-pop {
+  position: fixed;
+  z-index: 10040;
+  width: 560px;
+  max-width: calc(100vw - 16px);
+  background: white;
+  border: 0.5px solid var(--grey-200);
+  border-radius: 10px;
+  box-shadow:
+    0 1px 2px rgba(16, 17, 23, 0.05),
+    0 12px 28px -8px rgba(16, 17, 23, 0.18),
+    0 4px 10px -2px rgba(16, 17, 23, 0.08);
+  display: flex;
+  flex-direction: column;
+  opacity: 0;
+  transform: translateY(var(--rise-pop)) scale(0.98);
+  transform-origin: var(--ox, left) center;
+  pointer-events: none;
+  transition:
+    opacity var(--dur-pop) var(--ease-out),
+    transform var(--dur-pop) var(--ease-out);
+}
+.pjx .pg-pop.open {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+/* moving between pages glides the open popover instead of re-opening it */
+.pjx .pg-pop.glide {
+  transition:
+    opacity var(--dur-pop) var(--ease-out),
+    transform var(--dur-pop) var(--ease-out),
+    left var(--dur-move) var(--ease-out),
+    top var(--dur-move) var(--ease-out);
+}
+.pjx .pp-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 8px 10px 14px;
+  border-bottom: 0.5px solid var(--grey-100);
+}
+.pjx .pp-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 13px;
+}
+.pjx .pp-title .d {
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.pjx .pp-title .p {
+  color: var(--text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.pjx .pp-nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.pjx .pp-nav .pp-pos {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin-right: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.pjx .pp-nav .icon-btn {
+  width: 24px;
+  height: 24px;
+  color: var(--icon-rest);
+}
+.pjx .pp-nav .icon-btn svg {
+  width: 13px;
+  height: 13px;
+}
+.pjx .pp-nav .icon-btn:disabled {
+  color: var(--grey-300);
+  cursor: default;
+  background: transparent;
+}
+.pjx .pp-body {
+  display: grid;
+  grid-template-columns: 172px minmax(0, 1fr);
+  gap: 16px;
+  padding: 14px;
+}
+.pjx .pp-swap {
+  transition:
+    opacity var(--dur-fade) var(--ease-standard),
+    transform var(--dur-fade) var(--ease-out);
+}
+.pjx .pp-swap.is-leaving {
+  opacity: 0;
+  transform: translateX(calc(var(--dir, 1) * -6px));
+}
+.pjx .pp-swap.is-entering {
+  opacity: 0;
+  transform: translateX(calc(var(--dir, 1) * 6px));
+  transition: none;
+}
+.pjx .pp-thumb {
+  position: relative;
+  width: 172px;
+  aspect-ratio: 8.5 / 11;
+  border: 0.5px solid var(--grey-200);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--grey-50);
+  cursor: zoom-in;
+}
+.pjx .pp-thumb img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top;
+  opacity: 0;
+  transition: opacity var(--dur-fade) var(--ease-standard);
+}
+.pjx .pp-thumb img.ok {
+  opacity: 1;
+}
+.pjx .pp-thumb .shim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.7) 50%, transparent 70%) var(--grey-50);
+  background-size: 240% 100%;
+  animation: lsShimmer var(--loop-shimmer, 1.6s) linear infinite;
+}
+.pjx .pp-gap {
+  margin-top: 10px;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.pjx .pp-gap b {
+  font-weight: 400;
+  font-size: 18px;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.pjx .pp-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.pjx .pp-note {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  text-wrap: pretty;
+}
+.pjx .pp-rows {
+  display: flex;
+  flex-direction: column;
+}
+.pjx .pp-row {
+  padding: 8px 0;
+  border-top: 0.5px solid var(--grey-100);
+}
+.pjx .pp-row:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.pjx .pp-row-h {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 72px 22px;
+  align-items: center;
+  gap: 8px;
+}
+.pjx .pp-row-n {
+  font-size: 13px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pjx .pp-row-n .m {
+  color: var(--text-tertiary);
+  margin-left: 4px;
+}
+.pjx .pp-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--grey-100);
+  overflow: hidden;
+}
+.pjx .pp-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--sc);
+  transition: width var(--dur-move) var(--ease-out);
+}
+.pjx .pp-row-s {
+  font-size: 14px;
+  text-align: right;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.pjx .pp-row.is-best .pp-row-s::after {
+  content: "";
+}
+.pjx .pp-errs {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pjx .pp-errs li {
+  display: block;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-primary);
+}
+.pjx .pp-errs li .c {
+  color: var(--text-secondary);
+}
+.pjx .pp-errs li .c.hi {
+  color: var(--carmine-600);
+}
+.pjx .pp-errs .clean {
+  display: block;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+.pjx .pp-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 0.5px solid var(--grey-100);
+}
+.pjx .pp-foot .hint {
+  flex: 1;
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+}
+.pjx .pp-foot kbd {
+  font: 11px var(--font-sans);
+  padding: 0 4px;
+  border: 0.5px solid var(--grey-300);
+  border-radius: 3px;
+  color: var(--text-secondary);
+}
+
+/* full-size page preview (lightbox) */
+.pjx .pg-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 10060;
+  background: rgba(15, 16, 20, 0.32);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity var(--dur-pop) var(--ease-out);
+  cursor: zoom-out;
+}
+.pjx .pg-lightbox.open {
+  opacity: 1;
+}
+.pjx .pg-lightbox img {
+  max-height: calc(100vh - 64px);
+  max-width: calc(100vw - 64px);
+  background: white;
+  border-radius: 6px;
+  box-shadow: var(--shadow-md);
+  transform: scale(0.97);
+  transition: transform var(--dur-move) var(--ease-out);
+}
+.pjx .pg-lightbox.open img {
+  transform: none;
+}
+
+/* about this run: facts row + agent command, one quiet card */
+.pjx .rp-about {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px 24px;
+}
+.pjx .rp-fact .l {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--text-secondary);
+}
+.pjx .rp-fact .v {
+  margin-top: 3px;
+  font-size: 13px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Ask your agent: a dark terminal strip right under the report title (Ammar
+   2026-10-29: moved up from About this run and made the most noticeable thing after
+   the title). grey-950, the toast's dark; the command in mono (it is code, §0.6c). */
+/* agent command under the title: one quiet line, not a banner (Ammar 2026-10-29):
+   grey glyph · secondary label · the command in a grey-50 code pill that hugs its text ·
+   a ghost icon copy button */
+.pjx .rp-agent {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-top: -12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.pjx .rp-agent-ic {
+  display: inline-flex;
+  color: var(--grey-400);
+  flex-shrink: 0;
+}
+.pjx .rp-agent-ic svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 1.75;
+}
+.pjx .rp-agent .l {
+  white-space: nowrap;
+}
+.pjx .rp-agent code {
+  flex: 0 1 auto;
+  min-width: 0;
+  padding: 3px 8px;
+  border-radius: 5px;
+  background: var(--grey-50);
+  border: 0.5px solid var(--grey-200);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pjx .rp-agent .rp-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--grey-500);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    background var(--dur-quick) var(--ease-standard),
+    color var(--dur-quick) var(--ease-standard);
+}
+.pjx .rp-agent .rp-copy:hover {
+  background: var(--grey-100);
+  color: var(--grey-950);
+}
+.pjx .rp-agent .rp-copy svg {
+  width: 13px;
+  height: 13px;
+  stroke-width: 1.75;
+}
+@media (max-width: 640px) {
+  .pjx .rp-agent .l {
+    display: none;
+  }
+}
+@media (max-width: 760px) {
+  .pjx .rp-about {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* report body: rises in once the load state leaves */
+.pjx .rp-page.is-pre > * {
+  opacity: 0;
+  transform: translateY(var(--rise-in));
+}
+.pjx .rp-page.is-in > * {
+  transition:
+    opacity var(--dur-move) var(--ease-out),
+    transform var(--dur-move) var(--ease-out);
+}
+.pjx .rp-page.is-in > *:nth-child(2) {
+  transition-delay: 40ms;
+}
+.pjx .rp-page.is-in > *:nth-child(3) {
+  transition-delay: 80ms;
+}
+.pjx .rp-page.is-in > *:nth-child(4) {
+  transition-delay: 120ms;
+}
+.pjx .rp-page.is-in > *:nth-child(n + 5) {
+  transition-delay: 160ms;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pjx .rp-page > * {
+    transition: none !important;
+  }
+  .pjx .dg-svg.is-pre .rng,
+  .pjx .dg-svg.is-pre .pt {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+/* ---------- data-list.css ---------- */
+/* data-list.css — the ONE data-list table header (.wf-table > .thead) shared by
+   Agent Platform, Developer Studio and Atlas (CLAUDE.md §1.16a). Lifted
+   verbatim on 2026-10-04 from evaluate-dir.css (header + sort treatment) and
+   agent-platform.css (column-edge resize); neither file declares it any more.
+   evaluate-dir.css @imports this file; pages that don't link evaluate-dir.css
+   link it directly, AFTER their own \3c style>. Behaviour lives in data-list.js.
+   No fill on the header row, ever: hierarchy is the hairline + type. */
+.pjx .wf-table .thead,
+.pjx .wf-table .trow {
+  display: grid;
+  align-items: center;
+  gap: 14px;
+  padding: 0 16px;
+}
+.pjx .wf-table .thead {
+  height: 36px;
+  border-bottom: 0.5px solid var(--grey-100);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: var(--grey-500);
+  text-transform: uppercase;
+}
+.pjx .wf-table .thead > div {
+  min-width: 0;
+}
+.pjx .wf-table .thead .col-h {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.pjx .wf-table .thead .col-h-label {
+  display: block;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* sortable header cells: every labeled column carries data-sk */
+.pjx .wf-table .thead .col-h[data-sk] {
+  cursor: pointer;
+  user-select: none;
+  padding: 0 5px;
+  margin: 0 -5px;
+  border-radius: 5px;
+  height: 22px;
+}
+.pjx .wf-table .thead .col-h[data-sk]:hover {
+  background: var(--grey-100);
+  color: var(--grey-700);
+}
+.pjx .wf-table .thead .col-h .sort-chev {
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
+  opacity: 0;
+  stroke-width: 2;
+}
+.pjx .wf-table .thead .col-h.sorted {
+  color: var(--grey-900);
+}
+.pjx .wf-table .thead .col-h.sorted .sort-chev {
+  opacity: 1;
+}
+.pjx .wf-table .thead .col-h.sorted.desc .sort-chev {
+  transform: rotate(180deg);
+}
+/* resizable columns (DataList.resizable): a handle on each header cell's right edge.
+   Unlabeled lanes (select gutter, row actions) stay fixed; the last data column fills. */
+.pjx .wf-table[data-cols] .thead,
+.pjx .wf-table[data-cols] .trow {
+  grid-template-columns: var(--cols) !important;
+}
+.pjx .wf-table .thead .ap-col-h {
+  position: relative;
+  overflow: visible;
+}
+/* always-visible column divider in the header (resting grey-200), darker while
+   the header is hovered, a solid 2px grey-500 line on the handle itself */
+.pjx .ap-col-rsz {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: -6px;
+  width: 12px;
+  cursor: col-resize;
+  z-index: 2;
+}
+.pjx .ap-col-rsz::after {
+  content: "";
+  position: absolute;
+  top: 25%;
+  bottom: 25%;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-0.5px);
+  background: var(--grey-200);
+  transition:
+    background-color 0.12s ease,
+    top 0.12s ease,
+    bottom 0.12s ease;
+}
+.pjx .wf-table .thead:hover .ap-col-rsz::after {
+  background: var(--grey-300);
+}
+.pjx .ap-col-rsz:hover::after,
+.pjx .ap-col-rsz.active::after {
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  transform: translateX(-1px);
+  background: var(--grey-500);
+}
+.pjx.ap-col-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+/* Standalone inline navigation (section-head actions, foot lines, panel facts) = the
+   product's link language: the Spreadsheet .doc-link dotted underline, visible at rest.
+   Inside a data-list ROW the row's hover + cursor already say "navigable", so a row's
+   primary value is plain text and a secondary cell link only reveals the underline on
+   hover (CLAUDE.md §1.48). */
+.pjx .dl-link {
+  color: inherit;
+  text-decoration: underline dotted var(--grey-400);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+.pjx .dl-link:hover {
+  color: var(--text-primary);
+  text-decoration-color: var(--grey-500);
+}
+.pjx .wf-table .trow .dl-link {
+  text-decoration-color: transparent;
+}
+.pjx .wf-table .trow .dl-link:hover {
+  text-decoration-color: var(--grey-500);
+}
+/* DISCRETE ROW ACTION (CLAUDE.md §1.52): the lightweight action at the end of a row
+   (Set budget, Request increase, Resend, Revoke, Cancel). Same dotted language as
+   .dl-link but the underline stays visible INSIDE rows: it is an action, not the
+   row's own navigation. 400 weight, primary ink. Works on <a> and <button>.
+   Several actions sit in .dl-acts (right-aligned, 12px apart). A real primary
+   (Publish, Evaluate draft) stays a .btn. */
+.pjx .dl-acts {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.pjx .dl-act {
+  appearance: none;
+  -webkit-appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-weight: 400;
+  letter-spacing: inherit;
+  color: var(--text-primary);
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: underline dotted var(--grey-400);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+.pjx .dl-act:hover {
+  color: var(--text-primary);
+  text-decoration-color: var(--grey-600);
+}
+.pjx .dl-act:focus-visible {
+  outline: 1.5px solid var(--focus-border);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+.pjx .dl-act:disabled,
+.pjx .dl-act[aria-disabled="true"] {
+  color: var(--text-tertiary);
+  text-decoration-color: var(--grey-200);
+  cursor: default;
+}
+/* HEIGHT CAP (§1.52): natural height through 10 rows; past that DataList.cap (automatic)
+   sets max-height to 10 rows + a half-row peek and the body scrolls under a sticky
+   header. The header's white is the surface itself, not a fill: it only masks rows
+   scrolling beneath it. Opt out per table with data-dl-cap="off"; data-dl-cap="N"
+   changes the row count. */
+.pjx .wf-table.dl-capped {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.pjx .wf-table.dl-capped > .thead {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--surface, #fff);
+}
+
+/* ---------- app-shell.css ---------- */
+/* =============================================================
+   APP SHELL — flat, continuous page layout (system primitive)
+   Load LAST in <head> on every app page (after the page's own
+   \3c style>) so it is the single source of truth for shell geometry:
+   .app / .sidebar / .main-col / .topbar / .content-pane /
+   .page-split / side panels / resize gutters.
+
+   The system: ONE continuous workspace. Surfaces extend to their
+   parent edges and are separated by SHARED hairlines — a stacked
+   pair shares one horizontal rule, an adjacent pair one vertical
+   rule. No rounded outer cards, no gaps between related surfaces,
+   no drop shadows, no doubled borders.
+
+   Color: white is the default surface for navigation, configuration,
+   tables, side panels, and content. Light grey (--work-surface) is
+   reserved for SPATIAL work surfaces only — the workflow canvas and
+   the document viewer, where white objects sit on a backdrop.
+
+   Density: --topbar-h replaces the old 48px floating bar; the
+   removed 8px shell padding + 8px inter-surface gaps give ~24px of
+   vertical and horizontal space back to content on every page.
+   ============================================================= */
+
+.pjx {
+  --shell-line-c: var(--grey-200);
+  --shell-line: 0.5px solid var(--shell-line-c);
+  --topbar-h: 44px;
+  /* the topbar's horizontal gutter is the shell's ONE inset: panel heads and
+     the bars stacked under them read from it, never their own value */
+  --topbar-pad-x: 12px;
+  --work-surface: var(--grey-50); /* canvas + document viewer only */
+  --gutter-hit: 4px; /* half-width of a resizer hit area */
+}
+
+.pjx {
+  background: var(--base-white);
+}
+
+/* ---------- shell frame ---------- */
+.pjx .app {
+  padding: 0;
+  gap: 0;
+  background: var(--base-white);
+}
+/* Navigation shares ONE vertical hairline with the main column. */
+.pjx .app > .sidebar {
+  border: 0;
+  border-right: var(--shell-line);
+  border-radius: 0;
+  box-shadow: none;
+  background: var(--base-white);
+  padding: 0;
+}
+.pjx .app > .main-col,
+.pjx .app .main-col {
+  gap: 0;
+}
+
+/* ---------- top bar: the bottom rule is CONDITIONAL on the Agent ----------
+   (Ammar 2026-09-14, supersedes the 2026-09-12 "every topbar carries the
+   hairline" decision.) The resting page is CONTINUOUS: no rule under the bar,
+   so the chrome and the content below it read as one surface. The rule appears
+   only while the Agent side panel is open, where it ties topbar + content +
+   panel together across the full application width.
+
+   The border is always DECLARED (0.5px, transparent) and only its COLOR
+   animates — geometry never shifts, and the line fades in/out with the panel's
+   own open/close transition (§1.5a tokens). The single source of state is
+   `body.agent-open`, stamped by workflow-chat.js for every surface that mounts
+   the panel (the shared module behind the Builder, the Spreadsheet, the
+   workspaces and agent-chat.js). Never re-declare a topbar bottom border in a
+   page's own CSS.
+
+   Exception: the WORKFLOW surfaces (Builder, Spreadsheet, Document viewer and
+   the Aggregate artifact) and the EVALUATION WORKSPACES (Parse, Extract,
+   Golden dataset) keep the rule permanently — they carry
+   `data-topbar-rule="always"` on <body>. */
+.pjx .app .topbar {
+  height: var(--topbar-h);
+  min-height: var(--topbar-h);
+  padding: 0 var(--topbar-pad-x);
+  border: 0;
+  border-bottom: 0.5px solid transparent;
+  border-radius: 0;
+  box-shadow: none;
+  background: #ffffff;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .pjx .app .topbar {
+    transition: border-bottom-color var(--panel-fade, 0.22s) var(--panel-ease, ease);
+  }
+}
+.pjx.agent-open .app .topbar,
+.pjx.ap-panel-open .app .topbar,
+.pjx[data-topbar-rule="always"] .app .topbar {
+  border-bottom-color: var(--shell-line-c);
+}
+/* `.topbar-flush` is inert: the flush reading is now the default. */
+/* ---------- topbar icon cluster: ONE rhythm (Ammar 2026-09-13) ----------
+   Leading icon buttons (sidebar toggle, agent, back arrow, panel toggles)
+   read as a single cluster with a constant 2px between 26px buttons, whether
+   a button is a direct child of the bar or the first child of the crumb. The
+   per-page `margin-left: -8px` tucks and the crumb's own `-4px` back-arrow
+   margin are superseded here — do not add page-local spacing to a topbar. */
+.pjx .app .topbar {
+  gap: 10px;
+}
+.pjx .app .topbar > .icon-btn + .icon-btn,
+.pjx .app .topbar > .icon-btn + .ac-btn,
+.pjx .app .topbar > .ac-btn + .icon-btn,
+.pjx .app .topbar > .icon-btn + .kb-back,
+.pjx .app .topbar > .ac-btn + .kb-back,
+.pjx .app .topbar > .icon-btn + .lb-back-split,
+.pjx .app .topbar > .ac-btn + .lb-back-split {
+  margin-left: -8px;
+}
+/* the crumb trail follows the cluster at the crumb's own 6px */
+.pjx .app .topbar > .lb-back-split + .lb-crumb {
+  margin-left: -4px;
+}
+/* a crumb that LEADS with a back arrow joins the cluster: pull the crumb in by
+   the bar's gap, then the arrow's 6px crumb gap + the same 2px spacing */
+.pjx .app .topbar > .crumb:has(> .crumb-back-btn:first-child) {
+  margin-left: -8px;
+}
+.pjx .app .topbar .crumb > .crumb-back-btn:first-child {
+  margin: 0;
+}
+.pjx .app .topbar > .kb-back + .crumb {
+  margin-left: -4px;
+}
+/* Home needs no override any more: no rule is the default everywhere. */
+/* ---------- RIGHT cluster: the same rhythm as the left (Ammar 2026-10-12) ----------
+   Adjacent icon-only buttons (more, panel toggles, bell, docs, new) sit 2px apart,
+   exactly like the leading cluster, wherever the right-hand action group lives:
+   the topbar's .topbar-actions, Document Detail / Aggregate's .lb-head-actions,
+   Studio's #swActions and the session artifact bar's .ss-bar-r. Every such
+   container runs ONE 8px gap between unlike items (text buttons, switches,
+   segmented controls); two icon buttons in a row pull in to 2px. Never restate a
+   gap or margin for these in page CSS. */
+.pjx .app :is(.topbar-actions, .lb-head-actions, #swActions, .ss-bar-r) {
+  column-gap: 8px;
+}
+.pjx
+  .app
+  :is(.topbar-actions, .lb-head-actions, #swActions, .ss-bar-r)
+  > :is(.icon-btn, .tbf-more, .lb-more-wrap)
+  + :is(.icon-btn, .tbf-more, .lb-more-wrap) {
+  margin-left: -6px;
+}
+/* Secondary bars that stack under the topbar (table toolbars, tab
+   strips) keep their own single bottom rule — never a box. */
+.pjx .app .tt-bar,
+.pjx .app .toolbar,
+.pjx .app .sub-bar {
+  border-left: 0;
+  border-right: 0;
+  border-top: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* ---------- primary content surface ---------- */
+.pjx .app .content-pane,
+.pjx .app .list-pane {
+  background: var(--base-white);
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+/* Content column density — the shell no longer supplies outer inset. */
+.pjx .app .content-pane > .page,
+.pjx .app .content-pane > .home,
+.pjx .app .list-pane > .page,
+.pjx .app .list-pane > .review {
+  padding: 26px 32px 56px;
+}
+
+/* ---------- horizontally adjacent panes share ONE vertical rule ---------- */
+.pjx .app .page-split {
+  gap: 0;
+}
+
+/* Full-height side panels: pages that open a drawer beside the page put the
+   topbar INSIDE the split, in a .split-stack column. The panel then runs from
+   the very top of the viewport to the very bottom instead of hanging under the
+   topbar, and the topbar's own actions (bell, avatar) shift left with the
+   narrowing column. */
+.pjx .app .page-split > .split-stack {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.pjx .app .review-drawer,
+.pjx .app .run-drawer,
+.pjx .app .pinned-panel,
+.pjx .app .doc-panel,
+.pjx .app .settings-panel,
+.pjx .app .lib-drawer,
+.pjx .app .conn-drawer,
+.pjx .app .nf-drawer,
+.pjx .app .nf-side-panel,
+.pjx .app .page-split > .drawer,
+.pjx .app .page-split > .ap-drawer,
+.pjx .app .ed-ws > .ed-right,
+.pjx .app .props {
+  border: 0;
+  border-left: var(--shell-line);
+  border-radius: 0;
+  box-shadow: none;
+  margin: 0;
+  background: var(--base-white);
+}
+/* The Node Builder properties panel docks flush to the canvas edge
+   instead of floating above it (its slide-out transform is intact). */
+.pjx .app .props {
+  top: 0;
+  right: 0;
+  bottom: 0;
+  max-height: none;
+  height: auto;
+}
+.pjx .app .props.collapsed {
+  bottom: auto;
+}
+.pjx .app .props-resize {
+  left: calc(-1 * var(--gutter-hit));
+  width: calc(var(--gutter-hit) * 2);
+}
+.pjx .app .props-resize::after {
+  top: 0;
+  bottom: 0;
+}
+
+/* Side panels NEVER carry an outer margin — an 8px margin beside the
+   shared hairline reads as a stray white gutter. Written at
+   ".page-split > x" / ".workspace x" specificity so a page's open-state
+   rule (.page-split.has-drawer .x { margin-left: 8px }) cannot re-open it.
+   Fix any new panel HERE, not per page. */
+.pjx .app .page-split > .review-drawer,
+.pjx .app .page-split > .run-drawer,
+.pjx .app .page-split > .pinned-panel,
+.pjx .app .page-split > .doc-panel,
+.pjx .app .page-split > .settings-panel,
+.pjx .app .page-split > .lib-drawer,
+.pjx .app .page-split > .conn-drawer,
+.pjx .app .page-split > .nf-drawer,
+.pjx .app .page-split > .drawer,
+.pjx .app .page-split > .ap-drawer,
+.pjx .app .workspace > .props,
+.pjx .app .workspace > .wc-panel,
+.pjx .app .ed-ws > .ed-right,
+.pjx .app .sk-split > .sk-rail,
+.pjx .app .ag-split > .ag-test,
+.pjx .app .pb-split > .pb-side {
+  margin: 0;
+}
+
+/* ---------- resize gutters: a hairline, not a gap ----------
+   The divider itself is the adjacent panel's border-left; the gutter
+   collapses to zero width and grows an invisible ±4px hit area, so
+   the drag affordance survives while the gap disappears. */
+.pjx .app .pin-resizer,
+.pjx .app .doc-resizer,
+.pjx .app .r-resizer,
+.pjx .app .page-split > .resizer,
+.pjx .app .page-split > .ap-resizer,
+.pjx .app .nf-resizer,
+.pjx .app .vp-resizer,
+.pjx .app .ev-resizer,
+.pjx .app .ed-resizer {
+  flex: 0 0 0px;
+  width: 0;
+  background: transparent;
+  overflow: visible;
+  /* Above pane content (sticky table headers, sheet footers) so the
+     hover/drag hairline is never painted over. */
+  z-index: 40;
+}
+.pjx .app .pin-resizer::before,
+.pjx .app .doc-resizer::before,
+.pjx .app .r-resizer::before,
+.pjx .app .page-split > .resizer::before,
+.pjx .app .page-split > .ap-resizer::before,
+.pjx .app .nf-resizer::before,
+.pjx .app .vp-resizer::before,
+.pjx .app .ev-resizer::before,
+.pjx .app .ed-resizer::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(-1 * var(--gutter-hit));
+  right: calc(-1 * var(--gutter-hit));
+  cursor: col-resize;
+}
+/* Hover/drag indicator sits ON the shared rule, full height. */
+.pjx .app .pin-resizer::after,
+.pjx .app .doc-resizer::after,
+.pjx .app .r-resizer::after,
+.pjx .app .page-split > .resizer::after,
+.pjx .app .page-split > .ap-resizer::after,
+.pjx .app .nf-resizer::after,
+.pjx .app .vp-resizer::after,
+.pjx .app .ev-resizer::after {
+  top: 0;
+  bottom: 0;
+}
+
+/* ---------- spatial work surfaces (the ONLY grey fields) ---------- */
+.pjx .app .canvas-pane,
+.pjx .app .canvas-wrap,
+.pjx .app .viewer,
+.pjx .app .d-viewer,
+.pjx .app .doc-panel .d-body {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.pjx .app .canvas-pane,
+.pjx .app .viewer {
+  background-color: var(--work-surface);
+}
+
+/* ---------- Knowledge primitives: Skills / Policies / Context ----------
+   Editor + canvas panes run flush to the page edges; the right rail shares
+   ONE vertical hairline with the pane beside it. Same radius / border /
+   spacing / background rules for all three pages. */
+.pjx .app .sk-editor-pane,
+.pjx .app .ag-config-pane,
+.pjx .app .pb-canvas-pane,
+.pjx .app .sk-sheet {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+/* Configuration + writing surfaces are WHITE; only the policy document
+   canvas keeps the grey spatial field. */
+.pjx .app .sk-editor-pane,
+.pjx .app .ag-config-pane,
+.pjx .app .sk-sheet {
+  background: var(--base-white);
+}
+.pjx .app .pb-canvas-pane {
+  background-color: var(--work-surface);
+}
+
+.pjx .app .sk-rail,
+.pjx .app .ag-test,
+.pjx .app .pb-side,
+.pjx .app .pb-side > .pb-panel {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  margin: 0;
+  background: var(--base-white);
+}
+.pjx .app .pb-side {
+  border-left: var(--shell-line);
+}
+/* collapsed, the panel keeps NO edge: the hairline would hold the box open at
+   0.5px and paint a stray line beside the canvas (§1.5a, Ammar 2026-09-13) */
+.pjx.pb-rail-collapsed .app .pb-side {
+  border-left-width: 0;
+}
+.pjx .app .pb-side > .pb-panel {
+  flex: 1;
+  min-height: 0;
+}
+.pjx .app .sk-rail,
+.pjx .app .ag-test {
+  border-left: var(--shell-line);
+}
+/* Rail gutters: zero-width, the shared hairline IS the divider. */
+.pjx .app .sk-resizer,
+.pjx .app .ag-resizer,
+.pjx .app .pb-resizer {
+  flex: 0 0 0px;
+  width: 0;
+  background: transparent;
+  overflow: visible;
+  z-index: 40;
+}
+.pjx .app .sk-resizer::before,
+.pjx .app .ag-resizer::before,
+.pjx .app .pb-resizer::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(-1 * var(--gutter-hit));
+  right: calc(-1 * var(--gutter-hit));
+  cursor: col-resize;
+}
+.pjx .app .sk-resizer::after,
+.pjx .app .ag-resizer::after,
+.pjx .app .pb-resizer::after {
+  top: 0;
+  bottom: 0;
+}
+
+/* ============================================================
+   SIDE-PANEL HEADER — one standard (CLAUDE.md §1.5b)
+   ============================================================
+   The node-properties panel (.props-head) is the reference: a 50px
+   header row, 15/500 title, 26x26 icon buttons with 14px glyphs.
+   Every secondary side panel (agent chat, notifications, live-preview
+   drawer, formula playground, pinned/settings/doc panels, run drawer,
+   artifact panels, evaluate panel, agent test panel, policy panel)
+   converges on it here so no page re-declares panel-header chrome.
+   Popovers, dropdowns, modals and in-body section heads are OUT of
+   scope — they keep their own compact scales. */
+/* One geometry for the stack: topbar, side-panel header, and the secondary bar
+   beneath it share the topbar's height and gutter (Ammar 2026-09-13). The head
+   was 50px/16px, which read as a second, larger inset directly under a 44px/12px
+   bar. 9px vertical keeps a 26px control centred in 44px and still lets a
+   title + subtitle head grow. */
+.pjx {
+  --panel-head-h: var(--topbar-h);
+}
+.pjx
+  :is(
+    .props .props-head,
+    .props-drawer .pd-head,
+    .formula-playground .fpg-head,
+    .wc-head,
+    .nf-side-panel .nf-d-head,
+    .pinned-panel > .pop-head,
+    .settings-panel > .pop-head,
+    .ap-drawer > .pop-head,
+    .doc-panel .d-head,
+    .review-drawer .d-head,
+    .d-viewer .d-head,
+    .run-drawer .rd-headbar,
+    .ask-panel .ap-head,
+    .eo-panel .ap-head,
+    .ev-panel .pp-head,
+    .ag-test .ag-test-head,
+    .ev-viewer > .evv-head,
+    .pb-panel > .pb-panel-head,
+    .ed-right > .ed-right-head
+  ) {
+  height: auto;
+  /* content-box pages (eval onboarding) otherwise add the 24px padding ON TOP
+     of the 50px min-height and the head paints ~75px tall */
+  box-sizing: border-box;
+  min-height: var(--panel-head-h);
+  padding: 9px var(--topbar-pad-x);
+  gap: 8px;
+  align-items: center;
+  flex-shrink: 0;
+}
+/* Heads that LEAD with an icon button (document viewers, back arrows)
+   pull the left padding in so the glyph optically aligns with the
+   body content below it. */
+.pjx
+  :is(.doc-panel .d-head, .review-drawer .d-head, .d-viewer .d-head, .settings-panel > .pop-head):has(
+    > :is(button, a):not([hidden]):first-child
+  ) {
+  padding-left: 6px;
+}
+/* Secondary bar directly under a panel head: same gutter, its own hairline.
+   Unscoped by shell class — the evaluation chat's shell is .eo-app/.eo-top. */
+.pjx .eo-panel .ec-results-bar {
+  box-sizing: border-box;
+  margin: -12px calc(var(--topbar-pad-x) * -1) 0;
+  padding: 9px var(--topbar-pad-x);
+  border-bottom: var(--shell-line);
+}
+
+/* Title — 15/500, truncating. Subtitle / count — 13/400 secondary. */
+.pjx
+  :is(
+    .props .props-head,
+    .props-drawer .pd-head,
+    .formula-playground .fpg-head,
+    .wc-head,
+    .nf-side-panel .nf-d-head,
+    .pinned-panel > .pop-head,
+    .settings-panel > .pop-head,
+    .ap-drawer > .pop-head,
+    .doc-panel .d-head,
+    .review-drawer .d-head,
+    .d-viewer .d-head,
+    .run-drawer .rd-headbar,
+    .ask-panel .ap-head,
+    .eo-panel .ap-head,
+    .ev-panel .pp-head,
+    .ag-test .ag-test-head,
+    .ev-viewer > .evv-head,
+    .pb-panel > .pb-panel-head
+  )
+  :is(
+    .name,
+    .pop-title,
+    .d-title,
+    .ph-title,
+    .ap-title,
+    .pp-title,
+    .fpg-title,
+    .pd-title-label,
+    .wc-title-label,
+    .nf-d-title,
+    .ag-test-title,
+    .pb-panel-title
+  ) {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  color: var(--text-primary, var(--grey-950));
+  flex: 1 1 auto; /* title owns the slack so trailing icon buttons sit at the far right */
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Notifications carries a count beside its title and an explicit spacer, so the spacer owns the slack and the count sits right after "Notifications" */
+.pjx .nf-side-panel .nf-d-head .nf-d-title {
+  flex: 0 1 auto;
+}
+.pjx .nf-side-panel .nf-d-head .nf-d-count {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.pjx
+  :is(.props-drawer .pd-head, .wc-head, .nf-side-panel .nf-d-head, .ev-panel .pp-head, .doc-panel .d-head, .review-drawer .d-head)
+  :is(.pd-sub, .nf-d-count, .pp-sub, .pop-meta, .d-sub) {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text-secondary, var(--grey-500));
+}
+
+/* Icon buttons — 26x26 / radius 6 / 14px glyph at stroke 1.75. */
+.pjx
+  :is(
+    .props .props-head,
+    .props-drawer .pd-head,
+    .formula-playground .fpg-head,
+    .wc-head,
+    .nf-side-panel .nf-d-head,
+    .pinned-panel > .pop-head,
+    .settings-panel > .pop-head,
+    .ap-drawer > .pop-head,
+    .doc-panel .d-head,
+    .review-drawer .d-head,
+    .d-viewer .d-head,
+    .run-drawer .rd-headbar,
+    .ask-panel .ap-head,
+    .eo-panel .ap-head,
+    .ev-panel .pp-head,
+    .ag-test .ag-test-head,
+    .ev-viewer > .evv-head,
+    .pb-panel > .pb-panel-head
+  )
+  :is(.icon-btn, .d-iconbtn, .wc-iconbtn, .nf-d-iconbtn, .pop-close, .pp-icon, .fpg-close, .vp-back, .tt-icon, .mini-btn) {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+.pjx
+  :is(
+    .props .props-head,
+    .props-drawer .pd-head,
+    .formula-playground .fpg-head,
+    .wc-head,
+    .nf-side-panel .nf-d-head,
+    .pinned-panel > .pop-head,
+    .settings-panel > .pop-head,
+    .ap-drawer > .pop-head,
+    .doc-panel .d-head,
+    .review-drawer .d-head,
+    .d-viewer .d-head,
+    .run-drawer .rd-headbar,
+    .ask-panel .ap-head,
+    .eo-panel .ap-head,
+    .ev-panel .pp-head,
+    .ag-test .ag-test-head,
+    .ev-viewer > .evv-head,
+    .pb-panel > .pb-panel-head
+  )
+  :is(.icon-btn, .d-iconbtn, .wc-iconbtn, .nf-d-iconbtn, .pop-close, .pp-icon, .fpg-close, .vp-back, .tt-icon, .mini-btn)
+  svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 1.75;
+}
+/* The chat panel's title dropdown is a button, not an icon target —
+   keep it sized to its 15px label. */
+.pjx .wc-head .wc-title-btn {
+  height: 26px;
+  padding: 0 6px 0 4px;
+}
+.pjx .wc-head .wc-title-btn .wc-title-chev,
+.pjx .wc-head .wc-title-btn .wc-title-chev svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* ---------- page-header subtitle: ALWAYS one line ----------
+   The sentence under a page H1 states what the page is; it never wraps to a
+   second line and never reflows the header's height. Long copy truncates —
+   which is also the signal that the copy needs shortening. Owned here so
+   every landing page reads the same, whatever its header class. */
+.pjx .app .k-header .sub,
+.pjx .app .lib-header .sub,
+.pjx .app .r-header .sub,
+.pjx .eh-header .sub {
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------- shell-level chrome cleanup ---------- */
+.pjx .app .content-pane > .page > .hdr,
+.pjx .app .content-pane > .home > .hdr {
+  border-radius: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .pjx .app .props {
+    transition-property: transform, opacity, width, border-color;
+  }
+}
+
+/* ---------- panel scroll areas: transparent track, subtle thumb ----------
+   Properties / side-panel bodies scroll against their own white fill; the
+   track never paints (a grey channel beside the divider read as chrome).
+   Shared across every panel that uses the properties-panel body. */
+.pjx .app .props-body::-webkit-scrollbar,
+.pjx .app .props-drawer-body::-webkit-scrollbar,
+.pjx .app .side-panel ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+  background: transparent;
+}
+.pjx .app .props-body::-webkit-scrollbar-track,
+.pjx .app .props-drawer-body::-webkit-scrollbar-track,
+.pjx .app .side-panel ::-webkit-scrollbar-track {
+  background: transparent;
+  box-shadow: none;
+}
+.pjx .app .props-body,
+.pjx .app .props-drawer-body {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+.pjx .app .props-body:hover,
+.pjx .app .props-drawer-body:hover {
+  scrollbar-color: var(--grey-300) transparent;
+}
+
+/* Presence avatars ("People currently in this workflow") are hidden product-wide for now
+   (Ammar 2026-10-01). Remove this rule to bring them back. */
+.pjx #presence {
+  display: none !important;
+}
+
+/* ---------- EMPTY STATE (CLAUDE.md §1.47) — one centred group in the region it empties ----------
+   anatomy: optional .es-icon · .es-title · optional .es-desc · optional .es-acts (primary first).
+   The host region gives it room (flex: 1 / min-height); the group never sits top-left. */
+.pjx .empty-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 140px;
+  padding: 24px 16px;
+  text-align: center;
+}
+.pjx .empty-state .es-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--grey-50);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--grey-500);
+  margin-bottom: 4px;
+}
+.pjx .empty-state .es-icon svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.75;
+}
+.pjx .empty-state .es-title {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+.pjx .empty-state .es-desc {
+  max-width: 300px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-tertiary);
+  text-wrap: pretty;
+}
+.pjx .empty-state .es-acts {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* ---------- LOADING STATE (CLAUDE.md §1.59) — the empty state's sibling for content that is still arriving ----------
+   Covers the bounded host (position: relative) as one white ground; the group is centred in THAT region,
+   never the viewport, never under the toolbar. Stable geometry: fixed-width group, fixed-height status slot,
+   lines crossfade in one grid cell. Markup + timing come from AP_UI.loading(); static hosts may write it by hand. */
+.pjx .load-state {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: white;
+  pointer-events: none;
+}
+.pjx .load-state[hidden] {
+  display: none;
+}
+.pjx .load-state {
+  transition: opacity 0.18s ease-out;
+}
+.pjx .load-state.is-out {
+  opacity: 0;
+}
+.pjx .load-state .ls-group {
+  width: 280px;
+  max-width: calc(100% - 32px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+  opacity: 0;
+  transition: opacity 0.2s ease-out;
+}
+.pjx .load-state.is-slow .ls-group {
+  opacity: 1;
+}
+.pjx .load-state .ls-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--grey-50);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--grey-500);
+  margin-bottom: 4px;
+  flex-shrink: 0;
+}
+.pjx .load-state .ls-icon[hidden],
+.pjx .load-state .ls-title[hidden] {
+  display: none;
+}
+.pjx .load-state .ls-icon svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.75;
+}
+.pjx .load-state .ls-title {
+  max-width: 100%;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 18px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pjx .load-state .ls-status {
+  display: grid;
+  width: 100%;
+  height: 18px;
+}
+.pjx .load-state .ls-line {
+  grid-area: 1 / 1;
+  min-width: 0;
+  font-size: 12.5px;
+  line-height: 18px;
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0;
+  transition: opacity 0.24s ease-out;
+  background-image: linear-gradient(
+    90deg,
+    var(--grey-400) 0%,
+    var(--grey-400) 30%,
+    var(--grey-950) 50%,
+    var(--grey-400) 70%,
+    var(--grey-400) 100%
+  );
+  background-size: 240% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: lsShimmer 1.9s linear infinite;
+}
+.pjx .load-state .ls-line.is-on {
+  opacity: 1;
+}
+@keyframes lsShimmer {
+  from {
+    background-position: 140% 0;
+  }
+  to {
+    background-position: -140% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pjx .load-state .ls-line {
+    animation: none;
+    -webkit-text-fill-color: var(--text-secondary);
+  }
+  .pjx .load-state .ls-group,
+  .pjx .load-state .ls-line {
+    transition: none;
+  }
+}
+
+/* ============================================================
+   PANE FIT (round 37, Ammar 2026-10-16) — ONE responsive rule for every split (pane-fit.js).
+   Minimum usable width per pane kind; a host needs the sum of its open panes' minimums.
+   Split while it fits → fold the rail → one pane at a time with a topbar switch.
+   ============================================================ */
+.pjx {
+  --pane-min-chat: 360px; /* a conversation: one readable line of prose + the composer */
+  --pane-min-list: 300px; /* a list / queue of items */
+  --pane-min-detail: 360px; /* one item, message or record beside its list */
+  --pane-min-work: 440px; /* an output: canvas, sheet, document, desk */
+  --pane-min-content: 400px; /* a page beside a drawer */
+  --pane-min-panel: 320px; /* a drawer / properties panel */
+  --pane-fit-hyst: 32px; /* back to split only with this much to spare (no flapping at the edge) */
+}
+/* SINGLE: the base pane fills the row; an active side pane covers it, full width. Nothing is unmounted,
+   so scroll, iframes, drafts and selection survive a switch. */
+.pjx [data-pf="single"] {
+  position: relative;
+}
+.pjx [data-pf="single"] > [data-pf-base] {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  max-width: none !important;
+}
+.pjx [data-pf="single"] > [data-pf-pane] {
+  position: absolute !important;
+  inset: var(--pf-top, 0px) 0 0 0 !important;
+  z-index: 30;
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  flex: none !important;
+  margin: 0 !important;
+  transform: none !important;
+  opacity: 1 !important;
+  border-left: 0 !important;
+  border-right: 0 !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
+.pjx [data-pf="single"] > [data-pf-pane]:not(.pf-on) {
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+.pjx [data-pf="single"][data-pf-at="pane"]:not([data-pf-bar="in"]) > [data-pf-base] {
+  visibility: hidden;
+}
+.pjx [data-pf="single"] > .pf-on,
+.pjx [data-pf="single"][data-pf-at="base"] > [data-pf-base] {
+  animation: pfIn var(--dur-move, 0.34s) var(--ease-glide, cubic-bezier(0.22, 1, 0.36, 1)) both;
+}
+@keyframes pfIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+/* gutters have nothing to divide */
+.pjx [data-pf="single"] > .ap-resizer,
+.pjx [data-pf="single"] > .ss-divider,
+.pjx [data-pf="single"] > .wc-resizer,
+.pjx [data-pf="single"] > .resizer,
+.pjx [data-pf="single"] > .r-resizer,
+.pjx [data-pf="single"] > .pin-resizer,
+.pjx [data-pf="single"] > .doc-resizer,
+.pjx [data-pf="single"] > .vp-resizer {
+  display: none !important;
+}
+/* the switch: a quiet two- or three-segment control in the topbar (the split toggle it replaces is hidden) */
+.pjx .pf-switch {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  height: 26px;
+  padding: 2px;
+  gap: 0;
+  border-radius: 7px;
+  background: var(--grey-100);
+}
+.pjx .pf-switch button {
+  height: 22px;
+  max-width: 128px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  font: 400 12px / 22px var(--font-sans);
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease;
+}
+.pjx .pf-switch button:hover {
+  color: var(--text-primary);
+}
+.pjx .pf-switch button[aria-selected="true"] {
+  background: white;
+  color: var(--text-primary);
+  box-shadow:
+    0 1px 2px rgba(15, 16, 20, 0.06),
+    0 0 0 0.5px var(--grey-200);
+}
+/* something the agent opened in the other pane: the label reads as unread until you look */
+.pjx .pf-switch button.has-news {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+.pjx .pf-switch.is-float {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 40;
+}
+.pjx .pf-hidden {
+  display: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pjx [data-pf="single"] > .pf-on,
+  .pjx [data-pf="single"][data-pf-at="base"] > [data-pf-base] {
+    animation: none;
+  }
+}
+
+/* ============================================================
+   BADGES & BANNERS CARRY NO BORDER (round 40, Ammar 2026-10-16) — ONE rule for the whole product, here in the shell
+   layer every page loads, so no component sets its own. The fill alone carries the tone; the border is made
+   transparent (not removed) so sizes and alignment don't move. Neutral badges that relied on their outline get the
+   grey-100 fill instead. A new badge or banner joins these lists; never give it a border of its own.
+   ============================================================ */
+.pjx
+  :is(
+    .st,
+    .hk-st,
+    .rc-tag,
+    .rc-pill,
+    .oc-gt-badge,
+    .aa-pill,
+    .scv-pill,
+    .rvc-pill,
+    .scv-tag,
+    .scs-tag,
+    .node-tag,
+    .sw-sbx,
+    .ap-badge,
+    .pr-banner,
+    .rc-notice,
+    .rc-banner,
+    .ib-result,
+    .en-fail,
+    .sw-err,
+    .scv-notice,
+    .scs-verbar
+  ) {
+  border-color: transparent !important;
+}
+.pjx .scv-pill:not(.t-pine):not(.t-honey):not(.t-rust):not(.t-carmine):not(.t-slate),
+.pjx .rvc-pill,
+.pjx .scs-tag,
+.pjx .scv-tag {
+  background-color: var(--grey-100);
+}
+
+/* round 48 (Ammar 2026-10-17, CLAUDE.md §0.0a minimum viable copy): modals carry a title, never a subtitle. The shared
+   modal head's .m-sub is hidden everywhere (Atlas, Agent Platform, Studio), so no modal sets its own. */
+.pjx .m-sub {
+  display: none !important;
+}

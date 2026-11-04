@@ -23,7 +23,7 @@ export const DeleteRun = ({ runId, dataDeleted }: { readonly runId: string; read
   };
   return (
     <>
-      <button type="button" className="btn" style={{ height: 40, padding: "0 16px" }} onClick={() => setOpen(true)}>
+      <button type="button" className="btn" onClick={() => setOpen(true)}>
         Delete
       </button>
       {open && (

@@ -18,7 +18,7 @@ export const Dialog = ({
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: a backdrop click closes the modal; Escape does the same from the keyboard.
     <div
-      className="modal-backdrop"
+      className="modal-backdrop open"
       role="presentation"
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
       style={{

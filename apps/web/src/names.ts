@@ -34,9 +34,9 @@ export const seconds = (ms: number | null) => (ms === null ? "–" : `${(ms / 10
 
 /** Display order on the landing page. */
 export const PROVIDER_ORDER = [
-  "aws_textract",
-  "azure_document_intelligence",
   "reducto",
+  "azure_document_intelligence",
+  "aws_textract",
   "llamaparse",
   "mistral_ocr",
   "extend",
@@ -44,6 +44,3 @@ export const PROVIDER_ORDER = [
   "pulse",
   "cohere",
 ];
-
-const NUMBER_WORDS = ["No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten"];
-export const numberWord = (n: number) => NUMBER_WORDS[n] ?? String(n);

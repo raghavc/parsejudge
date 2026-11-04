@@ -1,7 +1,8 @@
-import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
-import { api, auth, currentUser, DRAFT_KEY, type Draft, type Preset } from "./api.ts";
-import { Nav } from "./Nav.tsx";
-import { BYOK_KEY, numberWord, PROVIDER_ORDER, perThousand, providerName } from "./names.ts";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { api, auth, currentUser, DRAFT_KEY, type Draft, type Preset, type RunListItem } from "./api.ts";
+import { Icon } from "./ax/Icon.tsx";
+import { Go, Shell, SiteBar } from "./Nav.tsx";
+import { BYOK_KEY, PROVIDER_ORDER, providerName, shortName } from "./names.ts";
 import { navigate } from "./router.ts";
 import { SignIn } from "./SignIn.tsx";
 
@@ -16,237 +17,267 @@ interface Upload {
   readonly error?: string;
 }
 
-const section: CSSProperties = { borderTop: "1px solid var(--line)", display: "flex", gap: 80, padding: "48px var(--gutter)" };
-const aside: CSSProperties = { display: "flex", flexDirection: "column", flexShrink: 0, gap: 8, width: 280 };
-const h2: CSSProperties = { fontSize: 20, fontWeight: 500, letterSpacing: "-0.015em", lineHeight: "24px" };
-const note: CSSProperties = { color: "var(--muted)", fontSize: 14, lineHeight: "22px" };
+const price = (usdPerThousand: number) =>
+  usdPerThousand < 10 ? String(Math.round(usdPerThousand * 100) / 100) : String(Math.round(usdPerThousand));
+const modeCost = (p: Preset) => `$${price(p.listPriceUsdPerPage * 1000)}`;
+const perK = (presets: ReadonlyArray<Preset>) => {
+  const prices = presets.map((p) => p.listPriceUsdPerPage * 1000);
+  const lo = Math.min(...prices);
+  const hi = Math.max(...prices);
+  return lo === hi ? `$${price(lo)} / 1k pages` : `$${price(lo)}–${price(hi)} / 1k pages`;
+};
+const plural = (n: number, word: string) => `${n.toLocaleString("en-US")} ${word}${n === 1 ? "" : "s"}`;
+const runDate = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 
-const Check = ({ on, onClick }: { readonly on: boolean; readonly onClick: () => void }) => (
-  <button
-    type="button"
-    aria-pressed={on}
-    onClick={onClick}
-    style={{
-      alignItems: "center",
-      background: on ? "var(--accent)" : "#fff",
-      border: on ? 0 : "1px solid #c9c9c9",
-      borderRadius: 3,
-      display: "flex",
-      flexShrink: 0,
-      height: 16,
-      justifyContent: "center",
-      width: 16,
-    }}
-  >
-    {on && (
-      <svg width="10" height="8" viewBox="0 0 10 8" aria-hidden="true">
-        <path d="M1 4l2.5 2.5L9 1" fill="none" stroke="#fff" strokeWidth="1.6" />
-      </svg>
-    )}
-  </button>
-);
-
-const EXAMPLE = {
-  shareId: "1b48bf779d584fab",
-  label: "Example report · 150 documents · 188 pages",
-  rows: [
-    { name: "Reducto", mode: "r-1", score: 9.87 },
-    { name: "Reducto", mode: "r-1 mini", score: 9.85 },
-    { name: "Azure", mode: "Layout, high-res", score: 8.72 },
-    { name: "AWS Textract", mode: "Layout, tables", score: 8.36 },
-  ],
-} as const;
-
-const Scoreboard = () => (
-  <div style={{ fontSize: 15, minWidth: 0 }}>
-    <div
-      style={{
-        borderBottom: "1px solid var(--ink)",
-        color: "var(--muted)",
-        display: "flex",
-        fontSize: 12,
-        justifyContent: "space-between",
-        paddingBottom: 10,
-      }}
-    >
-      <a
-        className="u"
-        href={`/r/${EXAMPLE.shareId}`}
-        onClick={(e) => {
-          e.preventDefault();
-          navigate(`/r/${EXAMPLE.shareId}`);
-        }}
-      >
-        {EXAMPLE.label}
-      </a>
-      <span>mean score</span>
+/** The API key popover (.fb-menu chrome), placed under the row's side slot and kept in the viewport. */
+const KeyMenu = ({
+  provider,
+  anchor,
+  onSave,
+  onClose,
+}: {
+  readonly provider: string;
+  readonly anchor: HTMLElement;
+  readonly onSave: (key: string) => void;
+  readonly onClose: () => void;
+}) => {
+  const menu = useRef<HTMLDivElement>(null);
+  const [value, setValue] = useState("");
+  const [at, setAt] = useState<{ left: number; top: number } | null>(null);
+  useEffect(() => {
+    const el = menu.current;
+    if (el === null) return;
+    const r = anchor.getBoundingClientRect();
+    const w = el.offsetWidth;
+    const h = el.offsetHeight;
+    const top = r.bottom + 6 + h > innerHeight - 8 ? r.top - 6 - h : r.bottom + 6;
+    setAt({ left: Math.max(8, Math.min(r.right - w, innerWidth - 8 - w)), top: Math.max(8, top) });
+    el.querySelector("input")?.focus();
+  }, [anchor]);
+  useEffect(() => {
+    const down = (e: MouseEvent) => {
+      const t = e.target as Element;
+      if (!menu.current?.contains(t) && !t.closest("[data-key],[data-m],[data-all]")) onClose();
+    };
+    const key = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const scroll = () => onClose();
+    document.addEventListener("mousedown", down);
+    document.addEventListener("keydown", key);
+    document.querySelector(".content-pane")?.addEventListener("scroll", scroll);
+    return () => {
+      document.removeEventListener("mousedown", down);
+      document.removeEventListener("keydown", key);
+      document.querySelector(".content-pane")?.removeEventListener("scroll", scroll);
+    };
+  }, [onClose]);
+  const save = () => value.trim() && onSave(value.trim());
+  return (
+    <div ref={menu} className="fb-menu pv-key-menu" style={at ? { left: at.left, top: at.top } : { left: -9999, top: 0 }}>
+      <label className="field-label" htmlFor="keyIn">
+        {providerName(provider)} API key
+      </label>
+      <input
+        className="set-name-input"
+        id="keyIn"
+        type="password"
+        autoComplete="off"
+        placeholder="Paste key"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && save()}
+      />
+      <div className="pv-key-note">Encrypted. Deleted when the run ends.</div>
+      <div className="pv-key-acts">
+        <button className="btn" type="button" onClick={onClose}>
+          <span className="btn-label">Cancel</span>
+        </button>
+        <button className="btn primary" type="button" disabled={!value.trim()} onClick={save}>
+          <span className="btn-label">Save</span>
+        </button>
+      </div>
     </div>
-    {EXAMPLE.rows.map((r, i) => {
-      const top = i === 0;
-      return (
-        <div
-          key={`${r.name} ${r.mode}`}
-          style={{
-            alignItems: "center",
-            borderBottom: "1px solid var(--line)",
-            display: "grid",
-            gap: 12,
-            gridTemplateColumns: "20px minmax(0, 1fr) minmax(40px, 0.8fr) 44px",
-            minHeight: 60,
-          }}
-        >
-          <span style={{ color: "var(--muted)" }}>{i + 1}</span>
-          <span style={{ display: "grid", minWidth: 0 }}>
-            <span className="clip">{r.name}</span>
-            <span className="clip" style={{ color: "var(--muted)", fontSize: 13 }}>
-              {r.mode}
-            </span>
-          </span>
-          <span style={{ background: "#eee", height: 4 }}>
-            <span
-              style={{ background: top ? "var(--accent)" : "var(--ink)", display: "block", height: 4, width: `${r.score * 10}%` }}
-            />
-          </span>
-          <span style={{ color: top ? "var(--accent)" : undefined, textAlign: "right" }}>{r.score.toFixed(2)}</span>
-        </div>
-      );
-    })}
-  </div>
-);
-
-const priceRange = (presets: ReadonlyArray<Preset>) => {
-  const prices = [...new Set(presets.map((p) => perThousand(p.listPriceUsdPerPage)))];
-  return prices.length === 1 ? prices[0] : `${prices.at(-1)}–${prices[0]}`.replace("–$", "–");
+  );
 };
 
-const ProviderRow = (props: {
+const ProviderRow = ({
+  provider,
+  presets,
+  selected,
+  setSelected,
+  hasKey,
+  askKey,
+}: {
   readonly provider: string;
   readonly presets: ReadonlyArray<Preset>;
   readonly selected: ReadonlySet<string>;
-  readonly toggle: (id: string) => void;
-  readonly apiKey: string | undefined;
-  readonly setKey: (value: string) => void;
+  readonly setSelected: (ids: ReadonlyArray<string>, on: boolean) => void;
+  readonly hasKey: boolean;
+  readonly askKey: (provider: string, anchor: HTMLElement, then: () => void) => void;
 }) => {
-  const { provider, presets, selected, toggle, apiKey, setKey } = props;
-  const chosen = presets.filter((p) => selected.has(p.id));
-  const byok = !presets.some((p) => p.hosted);
-  const [open, setOpen] = useState(false);
-  const on = chosen.length > 0;
-  const needsKey = byok && on;
-  const first = presets[0];
-  if (first === undefined) return null;
-  const label = presets.length > 1 && on ? `${chosen.length} of ${presets.length} modes` : (chosen[0] ?? first).mode;
+  const side = useRef<HTMLDivElement>(null);
+  const hosted = presets.some((p) => p.hosted);
+  const on = presets.filter((p) => selected.has(p.id)).length;
+  const all = on === presets.length;
+  const state = on === 0 ? "" : all ? "is-on" : "is-part";
+  const locked = !hosted && !hasKey;
+  const pick = (ids: ReadonlyArray<string>, value: boolean) => {
+    if (value && locked && side.current) askKey(provider, side.current, () => setSelected(ids, true));
+    else setSelected(ids, value);
+  };
+  const toggleAll = () =>
+    pick(
+      presets.map((p) => p.id),
+      !all,
+    );
   return (
-    <div style={{ borderBottom: "1px solid var(--rule)", display: "flex", flexDirection: "column", gap: 12, padding: "16px 0" }}>
-      <div className="prow" style={{ alignItems: "center", display: "flex", gap: 16 }}>
-        <Check
-          on={on}
-          onClick={() => {
-            for (const p of on ? chosen : [first]) toggle(p.id);
-          }}
-        />
-        <div className="prow-name" style={{ flex: "0 1 240px", fontSize: 15, lineHeight: "18px", minWidth: 0 }}>
-          {providerName(provider)}
-        </div>
-        <div className="prow-mode" style={{ display: "flex", flexGrow: 1 }}>
+    <div className={`pv-row${locked ? " is-locked" : ""}`} data-p={provider}>
+      {/* biome-ignore lint/a11y/useSemanticElements: the design's tri-state row checkbox is a button. */}
+      <button
+        className={`pv-check ${state}`}
+        type="button"
+        role="checkbox"
+        aria-checked={all ? "true" : on ? "mixed" : "false"}
+        aria-label={providerName(provider)}
+        data-all={provider}
+        onClick={toggleAll}
+      >
+        <Icon name="check" />
+      </button>
+      {/* biome-ignore lint/a11y/useKeyWithClickEvents: the row checkbox is the keyboard control for the same action. */}
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: clicking the name toggles the provider, as in the design. */}
+      <span className="pv-name" data-all={provider} onClick={toggleAll}>
+        {providerName(provider)}
+      </span>
+      <div className="pv-modes">
+        {presets.map((p) => (
           <button
+            key={p.id}
+            className={`nx-ichip pv-chip${selected.has(p.id) ? " is-on" : ""}`}
             type="button"
-            onClick={() => setOpen(!open)}
-            style={{
-              alignItems: "center",
-              border: `1px solid ${open ? "var(--ink)" : "var(--line)"}`,
-              borderRadius: 4,
-              color: open ? "var(--ink)" : "var(--muted)",
-              display: "flex",
-              fontSize: 14,
-              gap: 8,
-              height: 30,
-              padding: "0 10px",
-              whiteSpace: "nowrap",
-            }}
+            aria-pressed={selected.has(p.id)}
+            data-m={p.id}
+            onClick={() => pick([p.id], !selected.has(p.id))}
           >
-            {label}
-            <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
-              <path d={open ? "M2 6l3-3 3 3" : "M2 4l3 3 3-3"} fill="none" stroke="currentColor" strokeWidth="1.3" />
-            </svg>
+            <Icon name="check" className="pv-tick" />
+            <span>{p.mode}</span>
+            <span className="pv-cost">{modeCost(p)}</span>
           </button>
-        </div>
-        <div
-          className="prow-price"
-          style={{
-            color: on || !byok ? "var(--muted)" : "var(--ink)",
-            flexShrink: 0,
-            fontSize: 14,
-            textAlign: "right",
-            width: 120,
-          }}
-        >
-          {byok && !on ? (
-            <button type="button" onClick={() => toggle(first.id)}>
-              Add key
-            </button>
-          ) : (
-            `${priceRange(on ? chosen : presets)} / 1k pp`
-          )}
-        </div>
+        ))}
       </div>
-      {open && (
-        <div className="enter" style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 8, paddingLeft: 24 }}>
-          {presets.map((p) => {
-            const active = selected.has(p.id);
-            return (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => toggle(p.id)}
-                style={{
-                  alignItems: "center",
-                  border: `1px solid ${active ? "var(--accent)" : "var(--line)"}`,
-                  borderRadius: 999,
-                  display: "flex",
-                  fontSize: 12,
-                  gap: 6,
-                  flexShrink: 0,
-                  height: 24,
-                  padding: "0 9px",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {active && (
-                  <svg width="9" height="7" viewBox="0 0 10 8" aria-hidden="true">
-                    <path d="M1 4l2.5 2.5L9 1" fill="none" stroke="var(--accent)" strokeWidth="1.6" />
-                  </svg>
-                )}
-                {p.mode}
-                <span style={{ color: "var(--muted)" }}>{perThousand(p.listPriceUsdPerPage)}</span>
-              </button>
-            );
-          })}
-          {presets.length > 1 && (
-            <span style={{ color: "var(--muted)", fontSize: 12, marginLeft: 4 }}>Each mode is scored as its own entry.</span>
-          )}
-        </div>
-      )}
-      {needsKey && (
-        <div className="enter" style={{ alignItems: "center", display: "flex", gap: 40, paddingLeft: 24 }}>
-          <input
-            type="password"
-            placeholder={`${providerName(provider)} API key`}
-            value={apiKey ?? ""}
-            onChange={(e) => setKey(e.target.value)}
-            style={{
-              border: "1px solid var(--accent)",
-              borderRadius: 3,
-              flexGrow: 1,
-              fontSize: 14,
-              height: 36,
-              padding: "0 12px",
-            }}
-          />
-          <span style={{ color: "var(--accent)", fontSize: 12, width: 72, textAlign: "right" }}>{apiKey ? "Key added" : ""}</span>
-        </div>
-      )}
+      <div className="pv-side" ref={side}>
+        {hosted ? (
+          perK(presets)
+        ) : hasKey ? (
+          <span className="pv-key-ok">
+            <Icon name="check" />
+            Key added
+          </span>
+        ) : (
+          <button
+            className="dl-act"
+            type="button"
+            data-key={provider}
+            onClick={() =>
+              side.current &&
+              askKey(provider, side.current, () => {
+                if (on === 0 && presets[0]) setSelected([presets[0].id], true);
+              })
+            }
+          >
+            Add key
+          </button>
+        )}
+      </div>
     </div>
+  );
+};
+
+/** One row per run, linking to its report; a running run shows its progress. */
+const PreviousRuns = ({ presets }: { readonly presets: ReadonlyArray<Preset> }) => {
+  const [runs, setRuns] = useState<ReadonlyArray<RunListItem> | null>(null);
+  const [version, setVersion] = useState(0);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new version reloads the list.
+  useEffect(() => {
+    api.runs().then(setRuns, () => setRuns([]));
+  }, [version]);
+  useEffect(() => {
+    if (!runs?.some((r) => r.status === "queued" || r.status === "running")) return;
+    const timer = setTimeout(() => setVersion((v) => v + 1), 5000);
+    return () => clearTimeout(timer);
+  }, [runs]);
+  const provider = (id: string) => {
+    const p = presets.find((x) => x.id === id);
+    return p ? shortName(p.provider) : id;
+  };
+  if (runs === null) return null;
+  return (
+    <section className="su-sec" aria-labelledby="runsTitle">
+      <div>
+        <div className="su-sec-title" id="runsTitle">
+          Previous runs
+        </div>
+        <div className="su-sec-meta">{runs.length ? plural(runs.length, "run") : ""}</div>
+      </div>
+      <div className="su-fields">
+        {runs.length === 0 ? (
+          <div className="empty-state">
+            <div className="es-title">No runs yet</div>
+          </div>
+        ) : (
+          // biome-ignore lint/a11y/useSemanticElements: the design's data list is a grid of link rows.
+          <div className="wf-table runs" role="list">
+            <div className="thead" aria-hidden="true">
+              <div>Run</div>
+              <div>Providers</div>
+              <div>Top score</div>
+              <div>Date</div>
+              <div />
+            </div>
+            {runs.map((r) => {
+              const live = r.status === "queued" || r.status === "running";
+              const title = r.title ?? "Untitled run";
+              const providers = [...new Set(r.presetIds.map(provider))];
+              const percent = r.pages === 0 ? 0 : Math.round((r.judged / r.pages) * 100);
+              return (
+                <Go
+                  key={r.id}
+                  className="trow"
+                  role="listitem"
+                  to={`/r/${r.shareId}`}
+                  aria-label={`${title}, ${live ? "running" : r.top ? `top score ${provider(r.top.presetId)} ${r.top.meanScore.toFixed(1)}` : r.status}, ${runDate(r.createdAt)}`}
+                >
+                  <div className="run-n">
+                    <span className="run-t">{title}</span>
+                    <span className="run-m">
+                      {plural(r.documents, "document")} · {plural(r.pages, "page")}
+                    </span>
+                  </div>
+                  <div className="run-p">{providers.join(", ")}</div>
+                  <div className="run-s">
+                    {live ? (
+                      <span className="run-live">
+                        <span className="spin" />
+                        {percent}%
+                      </span>
+                    ) : r.top ? (
+                      <>
+                        <span className="run-lead">{provider(r.top.presetId)}</span> {r.top.meanScore.toFixed(1)}
+                      </>
+                    ) : (
+                      <span className="run-lead">{r.status === "failed" ? "Failed" : "–"}</span>
+                    )}
+                  </div>
+                  <div className="run-d">{runDate(r.createdAt)}</div>
+                  <div className="run-go">
+                    <Icon name="chevron-right" />
+                  </div>
+                </Go>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </section>
   );
 };
 
@@ -255,13 +286,18 @@ export const Landing = () => {
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [keys, setKeys] = useState<Record<string, string>>({});
   const [uploads, setUploads] = useState<ReadonlyArray<Upload>>([]);
+  const [filesOpen, setFilesOpen] = useState(false);
+  const [name, setName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [pending, setPending] = useState<ReadonlyArray<File> | null>(null);
+  const [keyMenu, setKeyMenu] = useState<{ provider: string; anchor: HTMLElement; then: () => void } | null>(null);
+  const [over, setOver] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const uploadedPending = useRef(false);
   // Set by the sign-in link page: the files uploaded and presets chosen before sign-in.
   const [draft] = useState(() => JSON.parse(sessionStorage.getItem(DRAFT_KEY) ?? "null") as Draft | null);
+  const user = currentUser();
 
   useEffect(() => {
     sessionStorage.removeItem(DRAFT_KEY);
@@ -298,11 +334,13 @@ export const Landing = () => {
     };
   }, [presets]);
 
-  const toggle = (id: string) =>
+  const choose = (ids: ReadonlyArray<string>, on: boolean) =>
     setSelected((current) => {
       const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      for (const id of ids) {
+        if (on) next.add(id);
+        else next.delete(id);
+      }
       return next;
     });
 
@@ -328,10 +366,13 @@ export const Landing = () => {
   };
 
   const ready = uploads.filter((u) => u.documentId !== undefined);
+  const reading = uploads.filter((u) => u.documentId === undefined && u.error === undefined).length;
+  const failed = uploads.filter((u) => u.error !== undefined).length;
   const pages = ready.reduce((n, u) => n + (u.pageCount ?? 0), 0);
   const chosen = presets.filter((p) => selected.has(p.id));
   const missingKey = chosen.some((p) => !p.hosted && !keys[p.provider]);
   const overLimit = pages > MAX_PAGES_PER_RUN;
+  const cost = chosen.reduce((n, p) => n + p.listPriceUsdPerPage * pages, 0);
   const namesKey = uploads
     .filter((u) => u.error === undefined)
     .map((u) => u.name)
@@ -348,7 +389,15 @@ export const Landing = () => {
       live = false;
     };
   }, [namesKey]);
-  const title = titleFor?.key === ready.map((u) => u.name).join("\n") ? (titleFor.title ?? undefined) : undefined;
+  const suggested = titleFor?.key === ready.map((u) => u.name).join("\n") ? (titleFor.title ?? undefined) : undefined;
+  const title = name?.trim() || suggested;
+
+  const [bump, setBump] = useState(0);
+  const lastCost = useRef(cost);
+  useEffect(() => {
+    if (lastCost.current !== cost) setBump((b) => b + 1);
+    lastCost.current = cost;
+  }, [cost]);
 
   const start = async () => {
     if (currentUser() === null) {
@@ -377,9 +426,24 @@ export const Landing = () => {
     }
   };
 
+  const askKey = (provider: string, anchor: HTMLElement, then: () => void) => setKeyMenu({ provider, anchor, then });
+  const row = ([provider, ps]: [string, Preset[]]) => (
+    <ProviderRow
+      key={provider}
+      provider={provider}
+      presets={ps}
+      selected={selected}
+      setSelected={choose}
+      hasKey={Boolean(keys[provider])}
+      askKey={askKey}
+    />
+  );
+  const problem = overLimit
+    ? `${pages.toLocaleString("en-US")} pages selected. The limit is ${MAX_PAGES_PER_RUN.toLocaleString("en-US")} per run.`
+    : error;
+
   return (
-    <div>
-      <Nav user={currentUser()} />
+    <Shell topbar={<SiteBar user={user} />} label="Home">
       {pending && (
         <SignIn
           onEmail={async (email, turnstile) => {
@@ -392,172 +456,201 @@ export const Landing = () => {
           onCancel={() => setPending(null)}
         />
       )}
-      <section className="hero-split" style={{ padding: "112px var(--gutter) 72px" }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-          <h1
-            style={{ fontSize: "clamp(40px, 5vw, 56px)", fontWeight: 300, letterSpacing: "-0.035em", lineHeight: 1.1, margin: 0 }}
-          >
-            Compare document parsers on your own documents.
-          </h1>
-          <p style={{ color: "var(--muted)", fontSize: 17, lineHeight: "27px", margin: 0, maxWidth: 560 }}>
+      <div className="page su-page">
+        <div className="su-head">
+          <h1 className="su-hero">Compare document parsers on your own documents.</h1>
+          <p className="su-lede">
             Every page is rendered to the same image and sent to each provider. A blind judge scores the outputs. The method and
             code are open source.
           </p>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 12, paddingTop: 12 }}>
-            <button type="button" className="btn primary" style={{ height: 44 }} onClick={() => fileInput.current?.click()}>
-              Upload documents
-            </button>
-            <a
-              className="btn"
-              style={{ height: 44 }}
-              href="/methodology"
-              onClick={(e) => {
-                e.preventDefault();
-                navigate("/methodology");
-              }}
-            >
-              Read the methodology
-            </a>
-          </div>
-        </div>
-        <Scoreboard />
-      </section>
-
-      <section className="split" style={section}>
-        <div style={aside}>
-          <div style={h2}>Documents</div>
-          <div style={note}>PDF, DOCX or PPTX. Up to {MAX_PAGES_PER_RUN.toLocaleString("en-US")} pages per run.</div>
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", flexGrow: 1 }}>
-          <button
-            type="button"
-            onClick={() => fileInput.current?.click()}
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={(e) => {
-              e.preventDefault();
-              add(e.dataTransfer.files);
-            }}
-            style={{
-              alignItems: "center",
-              border: "1px dashed #c9c9c9",
-              borderRadius: 4,
-              display: "flex",
-              fontSize: 15,
-              gap: 10,
-              height: 120,
-              justifyContent: "center",
-            }}
-          >
-            Drop files here <span style={{ color: "var(--muted)" }}>or browse</span>
-          </button>
-          <input ref={fileInput} type="file" multiple hidden accept=".pdf,.docx,.pptx" onChange={(e) => add(e.target.files)} />
-          <div style={{ display: "flex", flexDirection: "column", paddingTop: 12 }}>
-            {uploads.map((u) => (
-              <div key={u.id} className="row enter" style={{ padding: "16px 0", fontSize: 14 }}>
-                <div className="clip" style={{ flexGrow: 1, fontSize: 15 }}>
-                  {u.name}
-                </div>
-                <div style={{ color: "var(--muted)", width: 100 }}>{u.format}</div>
-                <div style={{ color: u.error ? "var(--bad)" : "var(--muted)", textAlign: "right", width: 100 }}>
-                  {u.error ? "Failed" : u.pageCount === undefined ? "Reading…" : `${u.pageCount} pages`}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setUploads(uploads.filter((x) => x.id !== u.id))}
-                  style={{ color: "var(--faint)", textAlign: "right", width: 80 }}
-                >
-                  Remove
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="split" style={section}>
-        <div style={aside}>
-          <div style={h2}>Providers</div>
-          <div style={note}>
-            {numberWord(groups.included.length)} run free. The rest use your own API key, which is encrypted and deleted when the
-            run ends. Pick one or more modes per provider to compare them.
-          </div>
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", flexGrow: 1 }}>
-          <div className="eyebrow" style={{ paddingBottom: 8 }}>
-            Included
-          </div>
-          {groups.included.map(([provider, ps]) => (
-            <ProviderRow
-              key={provider}
-              provider={provider}
-              presets={ps}
-              selected={selected}
-              toggle={toggle}
-              apiKey={keys[provider]}
-              setKey={() => {}}
-            />
-          ))}
-          <div className="eyebrow" style={{ padding: "36px 0 8px" }}>
-            Bring your own key
-          </div>
-          {groups.byok.map(([provider, ps]) => (
-            <ProviderRow
-              key={provider}
-              provider={provider}
-              presets={ps}
-              selected={selected}
-              toggle={toggle}
-              apiKey={keys[provider]}
-              setKey={(value) => setKeys((k) => ({ ...k, [provider]: value }))}
-            />
-          ))}
-        </div>
-      </section>
-
-      <footer
-        style={{
-          alignItems: "center",
-          borderTop: "1px solid var(--line)",
-          display: "flex",
-          flexWrap: "wrap",
-          gap: 24,
-          justifyContent: "space-between",
-          padding: "20px var(--gutter)",
-          position: "sticky",
-          bottom: 0,
-          background: "#fff",
-          zIndex: 5,
-        }}
-      >
-        <div className="totals" style={{ display: "flex", gap: 44 }}>
-          {[
-            [pages, "pages"],
-            [chosen.length, "provider modes"],
-            [pages * chosen.length, "parses, judged blind"],
-          ].map(([value, label]) => (
-            <div key={String(label)} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <span style={{ fontSize: 28, fontWeight: 300, letterSpacing: "-0.02em", lineHeight: "32px" }}>{value}</span>
-              <span style={{ color: "var(--muted)", fontSize: 12 }}>{label}</span>
-            </div>
-          ))}
-        </div>
-        <div style={{ alignItems: "center", display: "flex", gap: 16 }}>
-          {(overLimit || error) && (
-            <span className="enter" style={{ color: "var(--bad)", fontSize: 13 }}>
-              {overLimit ? `${pages} pages selected. The limit is ${MAX_PAGES_PER_RUN.toLocaleString("en-US")} per run.` : error}
+          <div className="su-proof">
+            <span>
+              <Icon name="check" />
+              Blind judging, provider names hidden
             </span>
-          )}
-          <button
-            type="button"
-            className="btn primary"
-            style={{ height: 44, padding: "0 18px" }}
-            disabled={starting || ready.length === 0 || chosen.length === 0 || missingKey || overLimit}
-            onClick={start}
-          >
-            Start evaluation <span aria-hidden="true">→</span>
-          </button>
+            <span>
+              <Icon name="check" />
+              Judge prompt and scoring code are public
+            </span>
+            <span>
+              <Icon name="check" />
+              Every run is reproducible on your own hardware
+            </span>
+            <Go className="su-proof-link" to="/methodology">
+              Read the methodology
+            </Go>
+          </div>
         </div>
-      </footer>
-    </div>
+
+        <section className="su-sec">
+          <div>
+            <div className="su-sec-title">Documents</div>
+            <div className="su-sec-meta">PDF, DOCX or PPTX. Up to {MAX_PAGES_PER_RUN.toLocaleString("en-US")} pages.</div>
+          </div>
+          <div className="su-fields">
+            <div>
+              <label className="field-label" htmlFor="setName">
+                Name
+              </label>
+              <input
+                className="set-name-input"
+                id="setName"
+                type="text"
+                autoComplete="off"
+                maxLength={80}
+                placeholder="Untitled run"
+                value={name ?? suggested ?? ""}
+                onChange={(e) => setName(e.target.value)}
+              />
+            </div>
+            <div>
+              {
+                // biome-ignore lint/a11y/useSemanticElements: the design's dropzone is a div with the button role.
+                <div
+                  className={`dropzone${over ? " over" : ""}`}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => fileInput.current?.click()}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      fileInput.current?.click();
+                    }
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setOver(true);
+                  }}
+                  onDragLeave={() => setOver(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setOver(false);
+                    add(e.dataTransfer.files);
+                  }}
+                >
+                  Drop files here<span className="dz-hint">or click to browse</span>
+                </div>
+              }
+              <input
+                ref={fileInput}
+                type="file"
+                multiple
+                hidden
+                accept=".pdf,.docx,.pptx"
+                onChange={(e) => add(e.target.files)}
+              />
+              {uploads.length > 0 && (
+                // biome-ignore lint/a11y/noStaticElementInteractions: more files can be dropped onto the list.
+                <div
+                  className="set-files"
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    add(e.dataTransfer.files);
+                  }}
+                >
+                  <div className="sf-head">
+                    <button className="sf-group" type="button" aria-expanded={filesOpen} onClick={() => setFilesOpen(!filesOpen)}>
+                      <Icon name="files" />
+                      <span className="sf-name">{plural(uploads.length, "document")}</span>
+                      <span className="sf-meta">
+                        {plural(pages, "page")}
+                        {reading > 0 && ` · ${reading} reading`}
+                        {failed > 0 && ` · ${failed} failed`}
+                      </span>
+                      <Icon name="chevron-down" className="sf-chev" />
+                    </button>
+                    <button
+                      className="dl-act sf-clear"
+                      type="button"
+                      onClick={() => {
+                        setUploads([]);
+                        setFilesOpen(false);
+                      }}
+                    >
+                      Clear all
+                    </button>
+                  </div>
+                  {filesOpen && (
+                    <div className="sf-chips">
+                      {uploads.map((u) => (
+                        <span key={u.id} className="sf-chip" title={u.error}>
+                          <span className="sf-chip-n" style={u.error ? { color: "var(--carmine-600)" } : undefined}>
+                            {u.name}
+                            {u.error ? " · failed" : u.pageCount === undefined ? " · reading" : ""}
+                          </span>
+                          <button
+                            className="sf-x"
+                            type="button"
+                            aria-label={`Remove ${u.name}`}
+                            onClick={() => setUploads((list) => list.filter((x) => x.id !== u.id))}
+                          >
+                            <Icon name="x" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+
+        <section className="su-sec">
+          <div>
+            <div className="su-sec-title">Providers</div>
+            <div className="su-sec-meta">Each mode is scored on its own.</div>
+          </div>
+          <div className="su-fields" id="providers">
+            <div className="pv-group">
+              <div className="mg-label">Included</div>
+              <div className="pv-list">{groups.included.map(row)}</div>
+            </div>
+            <div className="pv-group">
+              <div className="mg-label">Your API key</div>
+              <div className="pv-list">{groups.byok.map(row)}</div>
+            </div>
+          </div>
+        </section>
+
+        <section className="su-sec su-run" aria-label="Run summary">
+          <div />
+          <div className="su-run-in">
+            <div className="su-stat">
+              <span key={bump} className={`n${bump ? " bump" : ""}`}>
+                ${cost.toFixed(2)}
+              </span>
+              <span className="l">Estimated cost</span>
+            </div>
+            <span className="sp" />
+            {problem && <span className="su-run-err">{problem}</span>}
+            <button
+              className="btn primary"
+              type="button"
+              disabled={starting || ready.length === 0 || reading > 0 || chosen.length === 0 || missingKey || overLimit}
+              onClick={start}
+            >
+              <span className="btn-label">Start evaluation</span>
+              <Icon name="arrow-right" />
+            </button>
+          </div>
+        </section>
+
+        {user && <PreviousRuns presets={presets} />}
+      </div>
+      {keyMenu && (
+        <KeyMenu
+          provider={keyMenu.provider}
+          anchor={keyMenu.anchor}
+          onClose={() => setKeyMenu(null)}
+          onSave={(key) => {
+            setKeys((k) => ({ ...k, [keyMenu.provider]: key }));
+            keyMenu.then();
+            setKeyMenu(null);
+          }}
+        />
+      )}
+    </Shell>
   );
 };

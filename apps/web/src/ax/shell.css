@@ -1,0 +1,47 @@
+/* The prototype's page frame sized to a React root: .pjx stands in for html/body. */
+.pjx {
+  height: 100vh;
+}
+.pjx a.btn {
+  text-decoration: none;
+}
+.pjx a.btn.primary,
+.pjx a.btn.primary:hover {
+  color: white;
+}
+.pjx.pjx-nav {
+  height: auto;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+.pjx.pjx-nav .app {
+  height: auto;
+}
+.pjx .site-user {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pjx .su-run-err {
+  font-size: 12.5px;
+  color: var(--carmine-600);
+  text-align: right;
+  text-wrap: pretty;
+}
+/* the run's load state carries live counts and Continue, so it takes clicks */
+.pjx .load-state.has-acts {
+  pointer-events: auto;
+}
+.pjx .load-state .ls-meta {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--text-tertiary);
+}
+.pjx .load-state .ls-acts {
+  margin-top: 10px;
+}
+.pjx .content-pane > .empty-state {
+  height: 100%;
+}
