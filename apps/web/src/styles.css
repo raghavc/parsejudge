@@ -9,7 +9,7 @@
   --bad: #d93b26;
   --bad-bg: #fdecea;
   --panel: #f6f6f6;
-  --mono: "JetBrains Mono", ui-monospace, monospace;
+  --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
   font-family: "Inter", system-ui, sans-serif;
   color: var(--ink);
   -webkit-font-smoothing: antialiased;
@@ -94,13 +94,6 @@ input {
 .tag.low {
   border-color: #d0d0d0;
   color: var(--muted);
-}
-
-/* Parser output and the judge's notes on it: IBM Plex Sans tells apart look-alike glyphs (I l 1, 0 O) that Inter draws the same. */
-.markdown,
-.flag-card p,
-.table-flag {
-  font-family: "IBM Plex Sans", "Inter", system-ui, sans-serif;
 }
 
 .markdown table {
@@ -1633,4 +1626,159 @@ svg.caret {
     0 1px 2px rgb(16 17 23 / 0.05),
     0 12px 28px -8px rgb(16 17 23 / 0.18),
     0 4px 10px -2px rgb(16 17 23 / 0.08);
+}
+
+/* Compare view panels on the design's type: Geist, 13px body. */
+.pc-col-body,
+.pc-table {
+  font-size: 13px;
+  line-height: 20px;
+}
+.markdown {
+  font-size: 13px;
+  line-height: 20px;
+}
+.markdown p,
+.markdown ul,
+.markdown ol {
+  margin: 0 0 12px;
+}
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+  margin: 20px 0 8px;
+}
+.markdown h1 {
+  font-size: 18px;
+}
+.markdown h2 {
+  font-size: 16px;
+}
+.markdown h3 {
+  font-size: 14px;
+}
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  font-size: 13px;
+}
+.markdown table {
+  font-size: 12px;
+  line-height: 17px;
+}
+.markdown th,
+.markdown td {
+  border: 0.5px solid var(--line);
+  padding: 5px 8px;
+}
+.markdown th {
+  font-weight: 500;
+  background: #fafafa;
+}
+.markdown code,
+.markdown pre {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.reasoning,
+.flag-card p {
+  font-size: 13px;
+  line-height: 20px;
+}
+.flag-card {
+  border-radius: 8px;
+  border-left-width: 2px;
+}
+.issues-line,
+.issues-trigger {
+  font-size: 12px;
+}
+.issues-line {
+  gap: 4px;
+  height: 22px;
+}
+.pc-col-head {
+  gap: 10px;
+  height: 104px;
+  padding: 0 20px;
+}
+.pc-col-body {
+  padding: 16px 44px 40px 20px;
+}
+.pc-table {
+  gap: 20px;
+  padding: 24px 28px;
+}
+.pc-table h2 {
+  font-size: 16px;
+}
+.pc-table td {
+  padding: 14px 16px 14px 0;
+}
+.pc-table th {
+  border-bottom: 0.5px solid var(--line);
+}
+.menu-row {
+  font-size: 13px;
+}
+.sev {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 5px;
+  background: #f5f5f5;
+  color: #525252;
+  font:
+    500 11px / 1 "Geist",
+    ui-sans-serif,
+    system-ui,
+    sans-serif;
+  text-transform: lowercase;
+  white-space: nowrap;
+}
+.sev.high {
+  background: #b33c41;
+  color: #fff;
+}
+.sev.medium {
+  background: #fbeced;
+  color: #91252b;
+}
+.table-flag > .sev {
+  justify-content: center;
+  line-height: 1;
+}
+.flag-num {
+  border: 1px solid #d4d4d4;
+  color: #737373;
+  font:
+    500 11px / 1 "Geist",
+    ui-sans-serif,
+    system-ui,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+.flag-num.high {
+  background: #b33c41;
+  border-color: #b33c41;
+}
+.tag {
+  font-family: "Geist", ui-sans-serif, system-ui, sans-serif;
+  font-weight: 500;
+  border: 0.5px solid #d4d4d4;
+  border-radius: 5px;
+  text-transform: lowercase;
+}
+.table-flag .mono,
+.flag-card .mono {
+  font-family: inherit;
+  font-weight: 500;
 }
