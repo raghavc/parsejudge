@@ -1,0 +1,47 @@
+{
+  // Local stress config: the real Worker behind stress/worker.ts, providers and judge pointed at the fake server.
+  // No containers (DOCX conversion), assets, cron or Analytics Engine. Never deploy this config.
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "parsejudge-stress",
+  "main": "worker.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "send_email": [{ "name": "EMAIL" }],
+  "vars": {
+    "PUBLIC_URL": "http://localhost:8787",
+    "JUDGE_MODEL": "stress/judge",
+    "SMALL_MODEL": "stress/small",
+    "JUDGE_REASONING_EFFORT": "medium",
+    "JUDGE_BASE_URL": "http://127.0.0.1:8790/openrouter",
+    "FAKE_URL": "http://127.0.0.1:8790",
+    "MAX_PAGES_PER_RUN": "1000",
+    "MAX_CONCURRENCY": "{\"reducto\": 25, \"mistral_ocr\": 25, \"judge\": 25}",
+    "STRESS_BATCH_DROP": "0",
+    "STRESS_BATCH_MODE": "once",
+    "STRESS_STEP_FAIL": "",
+    "AWS_REGION": "us-west-2",
+    "AUTH_MODE": "dev",
+    "EMAIL_FROM": "noreply@example.com",
+    "REDUCTO_API_KEY": "fake-reducto-key",
+    "JUDGE_API_KEY": "fake-judge-key",
+    "BLOB_SIGNING_KEY": "stress-blob-signing-key",
+    "CREDENTIALS_KEY": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    "AUTH_KEY": "stress-auth-key-at-least-32-characters-long"
+  },
+  "kv_namespaces": [{ "binding": "OAUTH_KV", "id": "local" }],
+  "d1_databases": [{ "binding": "DB", "database_name": "parsejudge", "database_id": "local", "migrations_dir": "../migrations" }],
+  "r2_buckets": [{ "binding": "BLOBS", "bucket_name": "parsejudge-blobs" }],
+  "durable_objects": {
+    "bindings": [
+      { "name": "RUN_EVENTS", "class_name": "RunEvents" },
+      { "name": "PROVIDER_SLOTS", "class_name": "ProviderSlots" },
+      { "name": "CONVERTER", "class_name": "Converter" }
+    ]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RunEvents", "ProviderSlots", "Converter"] }],
+  "workflows": [
+    { "name": "parsejudge-run", "binding": "RUN_WORKFLOW", "class_name": "RunWorkflow" },
+    { "name": "parsejudge-page", "binding": "PAGE_WORKFLOW", "class_name": "PageWorkflow" },
+    { "name": "parsejudge-document", "binding": "DOCUMENT_WORKFLOW", "class_name": "DocumentWorkflow" }
+  ]
+}
