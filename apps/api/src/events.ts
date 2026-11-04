@@ -23,15 +23,23 @@ export interface CellDone {
   readonly latencyMs: number | null;
 }
 
+/** Durable Object storage reads and writes take at most 128 keys. */
+const chunks = <A>(items: ReadonlyArray<A>): Array<Array<A>> =>
+  Array.from({ length: Math.ceil(items.length / 128) }, (_, i) => items.slice(i * 128, (i + 1) * 128));
+
 /** One instance per run. Counts finished pages, wakes the run workflow, and pushes progress over WebSocket. */
 export class RunEvents extends DurableObject<Env> {
   async start(runId: string, total: number): Promise<void> {
     await this.ctx.storage.put({ runId, total });
   }
 
-  /** Re-opens finished pages for a retry; `pages-done` then goes to the retry's workflow instance. */
+  /**
+   * Re-opens finished pages for a retry; `pages-done` then goes to the retry's workflow instance. Idempotent per
+   * workflow: a retried call must not re-open pages that already finished again, or they would never report.
+   */
   async reopen(workflowId: string, pageIds: ReadonlyArray<string>): Promise<void> {
-    await this.ctx.storage.delete(pageIds.map((id) => `page:${id}`));
+    if ((await this.ctx.storage.get<string>("workflow")) === workflowId) return;
+    for (const keys of chunks(pageIds.map((id) => `page:${id}`))) await this.ctx.storage.delete(keys);
     await this.ctx.storage.put("workflow", workflowId);
   }
 
@@ -44,9 +52,31 @@ export class RunEvents extends DurableObject<Env> {
     const done = (await this.ctx.storage.list({ prefix: "page:" })).size;
     if (!known) this.broadcast({ type: "page_done", pageId, done, total });
     if (runId !== undefined && done === total) {
-      const workflow = (await this.ctx.storage.get<string>("workflow")) ?? runId;
-      await (await this.env.RUN_WORKFLOW.get(workflow)).sendEvent({ type: "pages-done", payload: { done } });
+      await (await this.env.RUN_WORKFLOW.get(await this.workflow(runId))).sendEvent({ type: "pages-done", payload: { done } });
     }
+  }
+
+  /** Pages done and pages started; `total` is null before the run fans out. */
+  async counts(): Promise<{ readonly done: number; readonly total: number | null }> {
+    const done = (await this.ctx.storage.list({ prefix: "page:" })).size;
+    return { done, total: (await this.ctx.storage.get<number>("total")) ?? null };
+  }
+
+  /** The given pages that have not reported done, and the workflow waiting on them. Null before the run fans out. */
+  async pending(pageIds: ReadonlyArray<string>): Promise<{ readonly workflow: string; readonly pending: Array<string> } | null> {
+    const runId = await this.ctx.storage.get<string>("runId");
+    if (runId === undefined) return null;
+    const done = await this.ctx.storage.list({ prefix: "page:" });
+    return { workflow: await this.workflow(runId), pending: pageIds.filter((id) => !done.has(`page:${id}`)) };
+  }
+
+  /** Marks skipped pages done without sending `pages-done`; Continue decides how the run finishes. Idempotent. */
+  async skip(pageIds: ReadonlyArray<string>): Promise<void> {
+    const done = await this.ctx.storage.list({ prefix: "page:" });
+    const fresh = pageIds.filter((id) => !done.has(`page:${id}`));
+    for (const ids of chunks(fresh)) await this.ctx.storage.put(Object.fromEntries(ids.map((id) => [`page:${id}`, true])));
+    const total = (await this.ctx.storage.get<number>("total")) ?? 0;
+    for (const [i, pageId] of fresh.entries()) this.broadcast({ type: "page_done", pageId, done: done.size + i + 1, total });
   }
 
   /** Marks the preset as sending requests. Only the first call per preset broadcasts. */
@@ -85,6 +115,10 @@ export class RunEvents extends DurableObject<Env> {
     const cells = [...(await this.ctx.storage.list<CellDone>({ prefix: "cell:" })).values()];
     const started = [...(await this.ctx.storage.list({ prefix: "started:" })).keys()].map((k) => k.slice("started:".length));
     return { type: "progress", done, total, status: (await this.ctx.storage.get<string>("status")) ?? null, cells, started };
+  }
+
+  private async workflow(runId: string): Promise<string> {
+    return (await this.ctx.storage.get<string>("workflow")) ?? runId;
   }
 
   private broadcast(event: RunEvent): void {

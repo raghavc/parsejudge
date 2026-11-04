@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type CellDone, currentUser, type Preset, type Run } from "./api.ts";
+import { ContinueRun } from "./ContinueRun.tsx";
 import { CopyButton } from "./CopyButton.tsx";
 import { Nav } from "./Nav.tsx";
 import { providerName, seconds } from "./names.ts";
@@ -177,6 +178,7 @@ const Progress = ({
           <div style={{ alignItems: "center", display: "flex", gap: 16, fontSize: 14 }}>
             {share}
             <CopyButton text={`${location.protocol}//${share}`} label="Copy link" />
+            {run.owned && pages > 0 && <ContinueRun runId={run.id} skip={pages - judged} onDone={onDone} />}
           </div>
         </div>
       </section>

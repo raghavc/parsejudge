@@ -232,6 +232,7 @@ export const api = {
   setNotify: (notifyOnDone: boolean) => patch("/v1/account", { notifyOnDone }).then(json<AccountInfo>),
   setVisibility: (runId: string, visibility: Visibility) => patch(`/v1/runs/${runId}`, { visibility }).then(ok),
   setShareContent: (runId: string, shareContent: boolean) => patch(`/v1/runs/${runId}`, { shareContent }).then(ok),
+  continueRun: (runId: string) => fetch(`/v1/runs/${runId}/continue`, { method: "POST" }).then(json<{ skipped: number }>),
   rotateLink: (runId: string) => fetch(`/v1/runs/${runId}/share-link`, { method: "POST" }).then(json<{ shareId: string }>),
   runs: () => fetch("/v1/runs").then(json<ReadonlyArray<RunListItem>>),
   rename: (runId: string, title: string) =>
