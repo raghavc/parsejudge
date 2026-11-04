@@ -52,7 +52,7 @@ describe("workloadToken", () => {
     const { subject_token, ...rest } = bodies[0] as { subject_token: string };
     expect(rest).toEqual({
       grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
-      subject_token_type: "urn:openai:params:oauth:token-type:jwt",
+      subject_token_type: "urn:ietf:params:oauth:token-type:jwt",
       identity_provider_id: "idp_1",
       service_account_id: "user-1",
     });

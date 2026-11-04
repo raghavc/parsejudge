@@ -80,7 +80,7 @@ export const workloadToken = Effect.fn("openai.token")(function* (identity: Work
     HttpClientRequest.bodyJsonUnsafe({
       grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
       subject_token: yield* subjectToken(identity),
-      subject_token_type: "urn:openai:params:oauth:token-type:jwt",
+      subject_token_type: "urn:ietf:params:oauth:token-type:jwt",
       identity_provider_id: identity.identityProviderId,
       service_account_id: identity.serviceAccountId,
     }),
