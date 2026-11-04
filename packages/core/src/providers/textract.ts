@@ -1,9 +1,11 @@
 import { AwsClient } from "aws4fetch";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { HttpClientRequest } from "effect/http";
-import { sendJson } from "../http.ts";
+import { decodeBody, sendJson } from "../http.ts";
 import { array, bytesToBase64, joinNonEmpty, number, record, string } from "../json.ts";
-import { credential, done, type ProviderAdapter } from "../provider.ts";
+import { credential, done, failure, type ProviderAdapter } from "../provider.ts";
+
+const Analyzed = Schema.Struct({ Blocks: Schema.Array(Schema.Unknown) });
 
 type Block = Record<string, unknown>;
 
@@ -108,13 +110,15 @@ export const textract: ProviderAdapter = {
     const bytes = yield* page.image;
     const url = `https://textract.${region}.amazonaws.com/`;
     const body = JSON.stringify({ Document: { Bytes: bytesToBase64(bytes) }, FeatureTypes: config.featureTypes });
-    const signed = yield* Effect.promise(() =>
-      new AwsClient({ accessKeyId, secretAccessKey, region, service: "textract" }).sign(url, {
-        method: "POST",
-        headers: { "content-type": "application/x-amz-json-1.1", "x-amz-target": "Textract.AnalyzeDocument" },
-        body,
-      }),
-    );
+    const signed = yield* Effect.tryPromise({
+      try: () =>
+        new AwsClient({ accessKeyId, secretAccessKey, region, service: "textract" }).sign(url, {
+          method: "POST",
+          headers: { "content-type": "application/x-amz-json-1.1", "x-amz-target": "Textract.AnalyzeDocument" },
+          body,
+        }),
+      catch: (error) => failure("aws_textract", `Could not sign the request: ${String(error)}`),
+    });
     const response = yield* sendJson(
       "aws_textract",
       HttpClientRequest.post(url).pipe(
@@ -122,6 +126,7 @@ export const textract: ProviderAdapter = {
         HttpClientRequest.bodyText(body, "application/x-amz-json-1.1"),
       ),
     );
+    yield* decodeBody("aws_textract", Analyzed, response.body);
     return done({ markdown: textractMarkdown(response.body), raw: response.body });
   }),
 };

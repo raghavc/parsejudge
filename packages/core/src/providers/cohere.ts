@@ -1,8 +1,10 @@
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { HttpClientRequest } from "effect/http";
-import { sendJson } from "../http.ts";
+import { decodeBody, sendJson } from "../http.ts";
 import { array, joinNonEmpty, record, string } from "../json.ts";
 import { credential, done, type ProviderAdapter } from "../provider.ts";
+
+const Parsed = Schema.Struct({ pages: Schema.Array(Schema.Unknown) });
 
 const blockMarkdown = (block: Record<string, unknown>): string => {
   const kind = string(block.type) ?? "";
@@ -29,7 +31,7 @@ export const cohere: ProviderAdapter = {
         HttpClientRequest.bodyJsonUnsafe({ ...config, document: { type: "image_url", image_url: page.imageUrl } }),
       ),
     );
-    const pages = array(record(response.body).pages);
+    const { pages } = yield* decodeBody("cohere", Parsed, response.body);
     return done({ markdown: joinNonEmpty(pages.map((p) => pageMarkdown(record(p)))), raw: response.body });
   }),
 };

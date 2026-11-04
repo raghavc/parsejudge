@@ -1,10 +1,22 @@
-import { Effect, Option } from "effect";
+import { Effect, Option, Schema } from "effect";
 import { HttpClientRequest } from "effect/http";
-import { sendJson } from "../http.ts";
-import { array, joinNonEmpty, record, string } from "../json.ts";
-import { credential, failure, type ProviderAdapter, pending } from "../provider.ts";
+import { decodeBody, sendJson, snippet } from "../http.ts";
+import { array, joinNonEmpty, record } from "../json.ts";
+import { credential, failure, jobFailure, type ProviderAdapter, pending } from "../provider.ts";
 
 const BASE_URL = "https://api.cloud.llamaindex.ai/api/v2/parse";
+const RUNNING = new Set(["PENDING", "RUNNING"]);
+
+const Created = Schema.Struct({ id: Schema.String });
+const Job = Schema.Struct({
+  job: Schema.Struct({ status: Schema.String, error_message: Schema.optional(Schema.NullOr(Schema.String)) }),
+});
+/** A page that failed has `success: false` and no markdown. */
+const Completed = Schema.Struct({
+  markdown: Schema.Struct({
+    pages: Schema.Array(Schema.Struct({ markdown: Schema.optional(Schema.String), success: Schema.optional(Schema.Boolean) })),
+  }),
+});
 
 export const llamaparse: ProviderAdapter = {
   id: "llamaparse",
@@ -18,9 +30,7 @@ export const llamaparse: ProviderAdapter = {
         HttpClientRequest.bodyJsonUnsafe({ ...config, source_url: page.imageUrl }),
       ),
     );
-    const id = string(record(response.body).id);
-    if (id === undefined) return yield* failure("llamaparse", "parse response has no id", true);
-    return pending(id);
+    return pending((yield* decodeBody("llamaparse", Created, response.body)).id);
   }),
   poll: Effect.fn("llamaparse.poll")(function* (job, credentials) {
     const key = yield* credential("llamaparse", credentials, "LLAMA_CLOUD_API_KEY");
@@ -31,13 +41,14 @@ export const llamaparse: ProviderAdapter = {
         HttpClientRequest.setUrlParam("expand", "markdown"),
       ),
     );
-    const body = record(response.body);
-    const status = record(body.job).status;
-    if (status === "FAILED" || status === "CANCELLED") {
-      return yield* failure("llamaparse", `job ${String(status)}: ${string(record(body.job).error_message) ?? ""}`);
+    const { status, error_message } = (yield* decodeBody("llamaparse", Job, response.body)).job;
+    if (RUNNING.has(status)) return Option.none();
+    if (status !== "COMPLETED") return yield* jobFailure("llamaparse", status, error_message, response.body);
+    const { pages } = (yield* decodeBody("llamaparse", Completed, response.body)).markdown;
+    const failed = pages.findIndex((page) => page.success === false || page.markdown === undefined);
+    if (failed !== -1) {
+      return yield* failure("llamaparse", `page failed: ${snippet(array(record(record(response.body).markdown).pages)[failed])}`);
     }
-    if (status !== "COMPLETED") return Option.none();
-    const pages = array(record(body.markdown).pages);
-    return Option.some({ markdown: joinNonEmpty(pages.map((p) => string(record(p).markdown) ?? "")), raw: body });
+    return Option.some({ markdown: joinNonEmpty(pages.map((p) => p.markdown ?? "")), raw: response.body });
   }),
 };

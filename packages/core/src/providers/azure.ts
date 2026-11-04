@@ -1,10 +1,17 @@
-import { Effect, Option } from "effect";
+import { Effect, Option, Schema } from "effect";
 import { HttpClientRequest } from "effect/http";
-import { sendJson } from "../http.ts";
-import { record, string } from "../json.ts";
-import { credential, failure, type ProviderAdapter, pending } from "../provider.ts";
+import { decodeBody, sendJson } from "../http.ts";
+import { string } from "../json.ts";
+import { credential, failure, jobFailure, type ProviderAdapter, pending } from "../provider.ts";
 
 const API_VERSION = "2024-11-30";
+const RUNNING = new Set(["notStarted", "running"]);
+
+const Operation = Schema.Struct({
+  status: Schema.String,
+  error: Schema.optional(Schema.Struct({ code: Schema.optional(Schema.String), message: Schema.optional(Schema.String) })),
+});
+const Succeeded = Schema.Struct({ analyzeResult: Schema.Struct({ content: Schema.String }) });
 
 export const azure: ProviderAdapter = {
   id: "azure_document_intelligence",
@@ -37,11 +44,13 @@ export const azure: ProviderAdapter = {
       "azure_document_intelligence",
       HttpClientRequest.get(job).pipe(HttpClientRequest.setHeader("Ocp-Apim-Subscription-Key", key)),
     );
-    const body = record(response.body);
-    if (body.status === "failed" || body.status === "canceled") {
-      return yield* failure("azure_document_intelligence", `analysis ${String(body.status)}`);
+    const operation = yield* decodeBody("azure_document_intelligence", Operation, response.body);
+    if (RUNNING.has(operation.status)) return Option.none();
+    if (operation.status !== "succeeded") {
+      const error = operation.error && `${operation.error.code ?? ""} ${operation.error.message ?? ""}`.trim();
+      return yield* jobFailure("azure_document_intelligence", operation.status, error || undefined, response.body);
     }
-    if (body.status !== "succeeded") return Option.none();
-    return Option.some({ markdown: string(record(body.analyzeResult).content) ?? "", raw: body });
+    const result = yield* decodeBody("azure_document_intelligence", Succeeded, response.body);
+    return Option.some({ markdown: result.analyzeResult.content, raw: response.body });
   }),
 };

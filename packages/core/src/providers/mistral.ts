@@ -1,8 +1,10 @@
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { HttpClientRequest } from "effect/http";
-import { sendJson } from "../http.ts";
-import { array, joinNonEmpty, record, string } from "../json.ts";
+import { decodeBody, sendJson } from "../http.ts";
+import { joinNonEmpty } from "../json.ts";
 import { credential, done, type ProviderAdapter } from "../provider.ts";
+
+const Ocr = Schema.Struct({ pages: Schema.Array(Schema.Struct({ markdown: Schema.String })) });
 
 export const mistral: ProviderAdapter = {
   id: "mistral_ocr",
@@ -16,7 +18,7 @@ export const mistral: ProviderAdapter = {
         HttpClientRequest.bodyJsonUnsafe({ ...config, document: { type: "image_url", image_url: page.imageUrl } }),
       ),
     );
-    const pages = array(record(response.body).pages);
-    return done({ markdown: joinNonEmpty(pages.map((p) => string(record(p).markdown) ?? "")), raw: response.body });
+    const { pages } = yield* decodeBody("mistral_ocr", Ocr, response.body);
+    return done({ markdown: joinNonEmpty(pages.map((p) => p.markdown)), raw: response.body });
   }),
 };

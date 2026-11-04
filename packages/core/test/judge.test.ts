@@ -74,6 +74,23 @@ describe("judgePage", () => {
     );
     expect(String(exit)).toContain("Judge error 429: Rate limit exceeded");
   });
+
+  it("keeps the body when a 200 response has an error on the choice or is not JSON", async () => {
+    const respond = async (body: string) => {
+      const fetch = (async () => new Response(body, { status: 200 })) as unknown as typeof globalThis.fetch;
+      return String(
+        await Effect.runPromiseExit(
+          judgePage(config, input).pipe(
+            Effect.provide(FetchHttpClient.layer),
+            Effect.provide(Layer.succeed(FetchHttpClient.Fetch, fetch)),
+          ),
+        ),
+      );
+    };
+    const choiceError = { choices: [{ finish_reason: "error", error: { code: 502, message: "upstream reset" } }] };
+    expect(await respond(JSON.stringify(choiceError))).toContain("Judge error 502: upstream reset");
+    expect(await respond('{"choices": [')).toContain('body: {"choices": [');
+  });
 });
 
 describe("unblind", () => {

@@ -1,11 +1,19 @@
-import { Effect, Option } from "effect";
+import { Effect, Option, Schema } from "effect";
 import { HttpClientRequest } from "effect/http";
-import { sendJson } from "../http.ts";
-import { number, record, string } from "../json.ts";
-import { credential, failure, type ProviderAdapter, pending } from "../provider.ts";
+import { decodeBody, sendJson } from "../http.ts";
+import { number, record } from "../json.ts";
+import { credential, jobFailure, type ProviderAdapter, pending } from "../provider.ts";
 
 const BASE_URL = "https://api.runpulse.com";
 const CREDIT_USD = 0.015;
+const RUNNING = new Set(["pending", "processing"]);
+
+const Created = Schema.Struct({ job_id: Schema.String });
+const Job = Schema.Struct({ status: Schema.String, error: Schema.optional(Schema.NullOr(Schema.String)) });
+const Extraction = Schema.Struct({ markdown: Schema.String });
+const Completed = Schema.Struct({
+  result: Schema.Union([Schema.Struct({ is_url: Schema.Literal(true), url: Schema.String }), Extraction]),
+});
 
 export const pulse: ProviderAdapter = {
   id: "pulse",
@@ -19,9 +27,7 @@ export const pulse: ProviderAdapter = {
         HttpClientRequest.bodyJsonUnsafe({ ...config, file_url: page.imageUrl }),
       ),
     );
-    const id = string(record(response.body).job_id);
-    if (id === undefined) return yield* failure("pulse", "extract_async response has no job_id", true);
-    return pending(id);
+    return pending((yield* decodeBody("pulse", Created, response.body)).job_id);
   }),
   poll: Effect.fn("pulse.poll")(function* (job, credentials) {
     const key = yield* credential("pulse", credentials, "PULSE_API_KEY");
@@ -29,17 +35,17 @@ export const pulse: ProviderAdapter = {
       "pulse",
       HttpClientRequest.get(`${BASE_URL}/job/${job}`).pipe(HttpClientRequest.setHeader("x-api-key", key)),
     );
-    const body = record(response.body);
-    if (body.status === "failed" || body.status === "cancelled") return yield* failure("pulse", `job ${String(body.status)}`);
-    if (body.status !== "completed") return Option.none();
-    let result = record(body.result);
-    if (result.is_url === true && typeof result.url === "string") {
-      result = record((yield* sendJson("pulse", HttpClientRequest.get(result.url))).body);
-    }
-    const credits = number(result.credits_used);
+    const { status, error } = yield* decodeBody("pulse", Job, response.body);
+    if (RUNNING.has(status)) return Option.none();
+    if (status !== "completed") return yield* jobFailure("pulse", status, error, response.body);
+    const { result } = yield* decodeBody("pulse", Completed, response.body);
+    let extraction: unknown = record(response.body).result;
+    if ("url" in result) extraction = (yield* sendJson("pulse", HttpClientRequest.get(result.url))).body;
+    const { markdown } = yield* decodeBody("pulse", Extraction, extraction);
+    const credits = number(record(extraction).credits_used);
     return Option.some({
-      markdown: string(result.markdown) ?? "",
-      raw: body,
+      markdown,
+      raw: response.body,
       ...(credits === undefined ? {} : { reportedCost: { usd: credits * CREDIT_USD, source: "provider" as const } }),
     });
   }),
