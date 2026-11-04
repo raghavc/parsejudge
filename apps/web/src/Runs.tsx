@@ -187,10 +187,10 @@ export const Runs = () => {
                         Open report
                       </button>
                       <button type="button" onClick={() => navigator.clipboard.writeText(shareUrl(run))}>
-                        Copy share link
+                        Copy link
                       </button>
                       <button type="button" onClick={() => setSharing(run)}>
-                        Sharing settings
+                        Share…
                       </button>
                       <button type="button" onClick={() => setRenaming(run)}>
                         Rename

@@ -106,11 +106,6 @@
   align-items: center;
   gap: 8px;
 }
-.pjx .lp-link {
-  font-size: 12px;
-  color: var(--text-secondary);
-  margin-right: 4px;
-}
 
 /* Methodology article in the design's type and spacing. */
 .pjx .page.md-page {

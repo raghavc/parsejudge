@@ -20,6 +20,7 @@ export const ShareDialog = ({
   visibility: initialVisibility,
   shareContent: initialShareContent,
   owned,
+  path = "",
   onClose,
   onChange,
 }: {
@@ -28,6 +29,8 @@ export const ShareDialog = ({
   readonly visibility: Visibility;
   readonly shareContent: boolean;
   readonly owned: boolean;
+  /** What the copied link opens, after `/r/<shareId>`; the run's report when empty. */
+  readonly path?: string;
   readonly onClose: () => void;
   readonly onChange?: (change: Sharing) => void;
 }) => {
@@ -35,7 +38,7 @@ export const ShareDialog = ({
   const [shareContent, setShareContent] = useState(initialShareContent);
   const [shareId, setShareId] = useState(initialShareId);
   const [error, setError] = useState<string | null>(null);
-  const url = `${location.origin}/r/${shareId}`;
+  const url = `${location.origin}/r/${shareId}${path}`;
   const choose = (next: Visibility) => {
     setError(null);
     api.setVisibility(runId, next).then(
@@ -127,7 +130,7 @@ export const ShareDialog = ({
         >
           {url}
         </span>
-        <CopyButton text={url} label="Copy" />
+        <CopyButton text={url} label="Copy link" />
       </div>
       {owned && (
         <div style={{ color: "var(--muted)", fontSize: 13 }}>

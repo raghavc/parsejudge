@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type CellDone, currentUser, type Preset, type Run } from "./api.ts";
 import { Icon } from "./ax/Icon.tsx";
 import { ContinueRun } from "./ContinueRun.tsx";
-import { CopyButton } from "./CopyButton.tsx";
 import { DeleteRun } from "./DeleteRun.tsx";
 import { Go, Shell } from "./Nav.tsx";
 import { providerName, seconds } from "./names.ts";
@@ -72,7 +71,6 @@ const Progress = ({
   const total = pages * run.presetIds.length;
   const judgeDone = pages > 0 && judged === pages;
   const progress = total === 0 ? 0 : (all.length + judged) / (total + pages);
-  const share = `${location.host}/r/${run.shareId}`;
   const user = currentUser();
   const started = new Date(run.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
@@ -151,8 +149,6 @@ const Progress = ({
           {user ? ` We'll email ${user} when the report is ready.` : " The link below opens the report when it is ready."}
         </div>
         <div className="lp-acts">
-          <span className="lp-link mono">{share}</span>
-          <CopyButton text={`${location.protocol}//${share}`} label="Copy link" />
           {run.owned && pages > 0 && <ContinueRun runId={run.id} skip={pages - judged} onDone={onDone} />}
         </div>
       </div>

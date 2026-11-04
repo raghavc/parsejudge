@@ -2,9 +2,10 @@ import DOMPurify from "dompurify";
 import { marked } from "marked";
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api, type JudgedError, type PageDetail, type PageParse, type Preset, type Run } from "./api.ts";
-import { CopyButton } from "./CopyButton.tsx";
+import { Icon } from "./ax/Icon.tsx";
 import { providerName, SHORT_NAMES } from "./names.ts";
 import { navigate } from "./router.ts";
+import { ShareDialog } from "./Share.tsx";
 
 type View = "side" | "all";
 type Severity = JudgedError["severity"];
@@ -622,6 +623,7 @@ export const PageCompare = ({
   readonly view: View;
 }) => {
   const [run, setRun] = useState<Run | null>(null);
+  const [sharing, setSharing] = useState(false);
   const [presets, setPresets] = useState<ReadonlyArray<Preset>>([]);
   const [detail, setDetail] = useState<PageDetail | null>(null);
   const [pair, setPair] = useState<ReadonlyArray<string>>(() => loadPair(shareId));
@@ -749,9 +751,27 @@ export const PageCompare = ({
               </button>
             ))}
           </div>
-          <CopyButton text={location.href} label="Copy link" />
+          <button className="btn" type="button" onClick={() => setSharing(true)}>
+            <Icon name="link" />
+            <span className="btn-label">Share</span>
+          </button>
         </div>
       </header>
+      {sharing && (
+        <ShareDialog
+          runId={run.id}
+          shareId={run.shareId}
+          visibility={run.visibility}
+          shareContent={run.shareContent}
+          owned={run.owned}
+          path={pageUrl(run.shareId, pageId, view).slice(`/r/${run.shareId}`.length)}
+          onClose={() => setSharing(false)}
+          onChange={(c) => {
+            setRun({ ...run, ...c });
+            if (c.shareId !== run.shareId) navigate(pageUrl(c.shareId, pageId, view));
+          }}
+        />
+      )}
       <div className="split pc-body">
         <aside className={`pc-original${view === "all" ? " narrow" : ""}`}>
           <div className="eyebrow">Original</div>
