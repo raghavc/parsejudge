@@ -27,6 +27,12 @@ const COLUMNS: ReadonlyArray<{ readonly key: SortKey; readonly label: string; re
   { key: "failed", label: "Failed", num: true },
 ];
 
+/** Mean score at the precision the table shows, so rows that read the same count as a tie. */
+const shown = (score: number | null) => (score === null ? -1 : Math.round(score * 10));
+/** Tie-break: lower p50 latency first, unknown latency last. */
+const fastest = (a: PresetSummary, b: PresetSummary) =>
+  (a.latencyMsP50 ?? Number.POSITIVE_INFINITY) - (b.latencyMsP50 ?? Number.POSITIVE_INFINITY);
+
 export const Report = ({
   run,
   presets,
@@ -42,7 +48,7 @@ export const Report = ({
   const summary = run.summary;
   const byId = useMemo(() => new Map(presets.map((p) => [p.id, p])), [presets]);
   const ranked = useMemo(
-    () => [...(summary?.presets ?? [])].sort((a, b) => (b.meanScore ?? -1) - (a.meanScore ?? -1)),
+    () => [...(summary?.presets ?? [])].sort((a, b) => shown(b.meanScore) - shown(a.meanScore) || fastest(a, b)),
     [summary],
   );
   const name = (id: string) => {
@@ -118,7 +124,8 @@ export const Report = ({
       if (x === y) return 0;
       if (x === null) return 1;
       if (y === null) return -1;
-      const order = typeof x === "string" ? x.localeCompare(String(y)) : x - Number(y);
+      const order =
+        typeof x === "string" ? x.localeCompare(String(y)) : sort.key === "mean" ? shown(x) - shown(Number(y)) : x - Number(y);
       return sort.desc ? -order : order;
     });
   }, [ranked, byId, sort]);
