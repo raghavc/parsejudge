@@ -40,7 +40,7 @@ export const PRESETS: ReadonlyArray<Preset> = [
     provider: "reducto",
     label: "Reducto r-1 mini",
     mode: "r-1 mini",
-    config: { formatting: { merge_tables: false }, settings: { model: "r-1" }, alpha: { r1_model: "r1mini" } },
+    config: { formatting: { merge_tables: false }, settings: { model: "r-1-mini" } },
     listPriceUsdPerPage: 0.001,
     hosted: true,
   },

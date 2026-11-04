@@ -50,7 +50,7 @@ All presets ran on all 14 pages. Rendered pages: `s3://reducto-shared-ml-workspa
 
 ### 5.1 Reducto
 
-- Preset: `{ formatting: { merge_tables: false }, settings: { model: "r-1" } }`; r-1 mini adds `alpha: { r1_model: "r1mini" }`.
+- Preset: `{ formatting: { merge_tables: false }, settings: { model: "r-1" } }`; r-1 mini uses `settings: { model: "r-1-mini" }`. (A top-level `alpha` is ignored by the API, so an earlier `alpha: { r1_model: "r1mini" }` ran r-1.)
 - Docs: r-1 is the current model.
 - competitors.reducto.ai: passes the caller config to `POST /parse` and joins `result.chunks[].content`, with URL results fetched. Same as ours.
 - Evidence: 182 raw blocks (r-1) and 179 (r-1 mini) checked; 0 missing from the markdown. URL-backed results are handled.
