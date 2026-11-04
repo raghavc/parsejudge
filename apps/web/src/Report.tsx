@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, type Preset, type Run } from "./api.ts";
+import { api, type Preset, type PresetSummary, type Run } from "./api.ts";
 import { Icon } from "./ax/Icon.tsx";
 import { type HeadToHead, mountReport, type PageRow } from "./ax/report-charts.ts";
 import { providerName, shortName } from "./names.ts";
@@ -14,6 +14,18 @@ const perK = (usdPerPage: number) => {
   const k = usdPerPage * 1000;
   return `$${k < 10 ? Math.round(k * 100) / 100 : Math.round(k)}`;
 };
+
+type SortKey = "provider" | "mean" | "high" | "price" | "latency" | "failed";
+type Sort = { readonly key: SortKey; readonly desc: boolean };
+
+const COLUMNS: ReadonlyArray<{ readonly key: SortKey; readonly label: string; readonly num?: boolean }> = [
+  { key: "provider", label: "Provider" },
+  { key: "mean", label: "Mean score" },
+  { key: "high", label: "High severity", num: true },
+  { key: "price", label: "$ / 1k pages", num: true },
+  { key: "latency", label: "p50 · p95", num: true },
+  { key: "failed", label: "Failed", num: true },
+];
 
 export const Report = ({
   run,
@@ -81,6 +93,36 @@ export const Report = ({
 
   const root = useRef<HTMLDivElement>(null);
   const [grown, setGrown] = useState(false);
+  const [sort, setSort] = useState<Sort>({ key: "mean", desc: true });
+  const rank = useMemo(() => new Map(ranked.map((p, i) => [p.presetId, i + 1])), [ranked]);
+  const rows = useMemo(() => {
+    const label = (p: PresetSummary) => {
+      const preset = byId.get(p.presetId);
+      return preset ? `${providerName(preset.provider)} ${preset.mode}` : p.label;
+    };
+    const value = (p: PresetSummary): number | string | null =>
+      sort.key === "provider"
+        ? label(p)
+        : sort.key === "mean"
+          ? p.meanScore
+          : sort.key === "high"
+            ? p.highSeverityRate
+            : sort.key === "price"
+              ? p.listPriceUsdPerPage
+              : sort.key === "latency"
+                ? p.latencyMsP50
+                : p.failedPages;
+    return [...ranked].sort((a, b) => {
+      const x = value(a);
+      const y = value(b);
+      if (x === y) return 0;
+      if (x === null) return 1;
+      if (y === null) return -1;
+      const order = typeof x === "string" ? x.localeCompare(String(y)) : x - Number(y);
+      return sort.desc ? -order : order;
+    });
+  }, [ranked, byId, sort]);
+  const sortBy = (key: SortKey) => setSort((s) => (s.key === key ? { key, desc: !s.desc } : { key, desc: key !== "provider" }));
   // biome-ignore lint/correctness/useExhaustiveDependencies: the charts mount once per run and presets list.
   useEffect(() => {
     const el = root.current;
@@ -178,18 +220,27 @@ export const Report = ({
         <div className="wf-table lb">
           <div className="thead">
             <div>#</div>
-            <div>Provider</div>
-            <div>Mean score</div>
-            <div className="num">High severity</div>
-            <div className="num">$ / 1k pages</div>
-            <div className="num">p50 · p95</div>
-            <div className="num">Failed</div>
+            {COLUMNS.map((c) => {
+              const on = sort.key === c.key;
+              return (
+                <button
+                  key={c.key}
+                  type="button"
+                  data-sk={c.key}
+                  className={`col-h${c.num ? " num" : ""}${on ? ` sorted${sort.desc ? " desc" : ""}` : ""}`}
+                  onClick={() => sortBy(c.key)}
+                >
+                  <span className="col-h-label">{c.label}</span>
+                  <Icon name="chevron-down" className="sort-chev" />
+                </button>
+              );
+            })}
           </div>
-          {ranked.map((p, i) => {
+          {rows.map((p) => {
             const preset = byId.get(p.presetId);
             return (
               <div key={p.presetId} className={`trow s-${tones.get(p.presetId)}`}>
-                <div className="rank">{i + 1}</div>
+                <div className="rank">{rank.get(p.presetId)}</div>
                 <div className="who">
                   <div className="who-t">
                     <div className="who-n">{preset ? providerName(preset.provider) : p.label}</div>

@@ -5684,3 +5684,18 @@
 .pjx .m-sub {
   display: none !important;
 }
+.pjx .lb .thead button.col-h {
+  justify-self: start;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+}
+.pjx .lb .thead button.col-h.num {
+  justify-self: end;
+}
+.pjx .lb .thead button.col-h.sorted {
+  color: var(--grey-900);
+}
