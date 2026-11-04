@@ -1,4 +1,5 @@
 import { init, type WrappedPdfiumModule } from "@embedpdf/pdfium";
+import { Data, Effect } from "effect";
 import pdfiumWasm from "../node_modules/@embedpdf/pdfium/dist/pdfium.wasm";
 import { encodePng } from "./png.ts";
 
@@ -7,54 +8,68 @@ const MAX_DIMENSION = 2400;
 const BITMAP_BGRA = 4;
 const RENDER_ANNOTATIONS = 0x01;
 
-let pdfium: Promise<WrappedPdfiumModule> | undefined;
+/** PDFium could not render the page. A workflow step retries it. */
+export class RenderError extends Data.TaggedError("RenderError")<{ readonly message: string }> {
+  readonly retryable = true;
+}
 
-const module = () => {
-  pdfium ??= init({
-    instantiateWasm: (imports: WebAssembly.Imports, receive: (instance: WebAssembly.Instance) => void) => {
-      WebAssembly.instantiate(pdfiumWasm, imports).then((instance) => receive(instance));
-      return {};
-    },
-  }).then((loaded) => {
-    loaded.FPDF_InitLibrary();
-    return loaded;
-  });
-  return pdfium;
-};
+let loading: Promise<WrappedPdfiumModule> | undefined;
+let initialized = false;
 
-/** Renders the first page of a PDF to PNG bytes. */
-export const renderFirstPagePng = async (pdf: Uint8Array): Promise<Uint8Array> => {
-  const m = await module();
-  const pdfPtr = m.pdfium.wasmExports.malloc(pdf.length);
-  m.pdfium.HEAPU8.set(pdf, pdfPtr);
-  const doc = m.FPDF_LoadMemDocument(pdfPtr, pdf.length, "");
-  // Every allocation is freed on every path, or failed renders would leak wasm memory until renders fail.
-  try {
-    if (doc === 0) throw new Error("PDFium could not open the page.");
-    const page = m.FPDF_LoadPage(doc, 0);
-    if (page === 0) throw new Error("PDFium could not load the page.");
-    try {
-      const widthPt = m.FPDF_GetPageWidthF(page);
-      const heightPt = m.FPDF_GetPageHeightF(page);
-      const scale = Math.min(DPI / 72, MAX_DIMENSION / Math.max(widthPt, heightPt));
-      const width = Math.max(1, Math.round(widthPt * scale));
-      const height = Math.max(1, Math.round(heightPt * scale));
-      const bitmap = m.FPDFBitmap_CreateEx(width, height, BITMAP_BGRA, 0, 0);
-      if (bitmap === 0) throw new Error(`PDFium could not allocate a ${width}x${height} bitmap.`);
-      try {
-        m.FPDFBitmap_FillRect(bitmap, 0, 0, width, height, 0xffffffff);
-        m.FPDF_RenderPageBitmap(bitmap, page, 0, 0, width, height, 0, RENDER_ANNOTATIONS);
-        const stride = m.FPDFBitmap_GetStride(bitmap);
-        const buffer = m.FPDFBitmap_GetBuffer(bitmap);
-        return encodePng(m.pdfium.HEAPU8.slice(buffer, buffer + stride * height), width, height, stride);
-      } finally {
-        m.FPDFBitmap_Destroy(bitmap);
-      }
-    } finally {
-      m.FPDF_ClosePage(page);
-    }
-  } finally {
-    if (doc !== 0) m.FPDF_CloseDocument(doc);
-    m.pdfium.wasmExports.free(pdfPtr);
-  }
-};
+/** PDFium, loaded once per isolate. The wasm module is precompiled, so it instantiates synchronously. */
+const pdfium = Effect.promise(
+  () =>
+    (loading ??= init({
+      instantiateWasm: (imports: WebAssembly.Imports, receive: (instance: WebAssembly.Instance) => void) => {
+        const instance = new WebAssembly.Instance(pdfiumWasm, imports);
+        receive(instance);
+        return instance.exports;
+      },
+    })),
+).pipe(
+  Effect.tap((m) =>
+    Effect.sync(() => {
+      if (initialized) return;
+      m.FPDF_InitLibrary();
+      initialized = true;
+    }),
+  ),
+);
+
+/** Renders the first page of a PDF to PNG bytes. Every allocation is freed on every path, or renders would leak wasm memory. */
+export const renderFirstPagePng = Effect.fn("renderFirstPagePng")(function* (pdf: Uint8Array) {
+  const m = yield* pdfium;
+  const pdfPtr = yield* Effect.acquireRelease(
+    Effect.sync(() => {
+      const pointer = m.pdfium.wasmExports.malloc(pdf.length);
+      m.pdfium.HEAPU8.set(pdf, pointer);
+      return pointer;
+    }),
+    (pointer) => Effect.sync(() => m.pdfium.wasmExports.free(pointer)),
+  );
+  const doc = yield* Effect.acquireRelease(
+    Effect.sync(() => m.FPDF_LoadMemDocument(pdfPtr, pdf.length, "")),
+    (doc) => Effect.sync(() => doc !== 0 && m.FPDF_CloseDocument(doc)),
+  );
+  if (doc === 0) return yield* new RenderError({ message: "PDFium could not open the page." });
+  const page = yield* Effect.acquireRelease(
+    Effect.sync(() => m.FPDF_LoadPage(doc, 0)),
+    (page) => Effect.sync(() => page !== 0 && m.FPDF_ClosePage(page)),
+  );
+  if (page === 0) return yield* new RenderError({ message: "PDFium could not load the page." });
+  const widthPt = m.FPDF_GetPageWidthF(page);
+  const heightPt = m.FPDF_GetPageHeightF(page);
+  const scale = Math.min(DPI / 72, MAX_DIMENSION / Math.max(widthPt, heightPt));
+  const width = Math.max(1, Math.round(widthPt * scale));
+  const height = Math.max(1, Math.round(heightPt * scale));
+  const bitmap = yield* Effect.acquireRelease(
+    Effect.sync(() => m.FPDFBitmap_CreateEx(width, height, BITMAP_BGRA, 0, 0)),
+    (bitmap) => Effect.sync(() => bitmap !== 0 && m.FPDFBitmap_Destroy(bitmap)),
+  );
+  if (bitmap === 0) return yield* new RenderError({ message: `PDFium could not allocate a ${width}x${height} bitmap.` });
+  m.FPDFBitmap_FillRect(bitmap, 0, 0, width, height, 0xffffffff);
+  m.FPDF_RenderPageBitmap(bitmap, page, 0, 0, width, height, 0, RENDER_ANNOTATIONS);
+  const stride = m.FPDFBitmap_GetStride(bitmap);
+  const buffer = m.FPDFBitmap_GetBuffer(bitmap);
+  return yield* encodePng(m.pdfium.HEAPU8.slice(buffer, buffer + stride * height), width, height, stride);
+}, Effect.scoped);

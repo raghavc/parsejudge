@@ -1,36 +1,43 @@
+import { Effect } from "effect";
 import type { Env } from "./env.ts";
+import { storage } from "./errors.ts";
 import { documentKey, pagePdfKey, pagePngKey, sourceKey } from "./keys.ts";
 
 type Scope = "data" | "report";
 
-const removeKeys = async (blobs: R2Bucket, keys: ReadonlyArray<string>) => {
-  for (let i = 0; i < keys.length; i += 1000) await blobs.delete(keys.slice(i, i + 1000));
-};
+const removeKeys = Effect.fn("removeKeys")(function* (blobs: R2Bucket, keys: ReadonlyArray<string>) {
+  for (let i = 0; i < keys.length; i += 1000) yield* storage(() => blobs.delete(keys.slice(i, i + 1000)));
+});
 
-const removePrefix = async (blobs: R2Bucket, prefix: string) => {
+const removePrefix = Effect.fn("removePrefix")(function* (blobs: R2Bucket, prefix: string) {
   let cursor: string | undefined;
   do {
-    const listed = await blobs.list({ prefix, ...(cursor === undefined ? {} : { cursor }) });
-    await removeKeys(
+    const after = cursor;
+    const listed = yield* storage(() => blobs.list({ prefix, ...(after === undefined ? {} : { cursor: after }) }));
+    yield* removeKeys(
       blobs,
       listed.objects.map((o) => o.key),
     );
     cursor = listed.truncated ? listed.cursor : undefined;
   } while (cursor !== undefined);
-};
+});
 
-const documentBlobs = async (env: Env, documentsSql: string, bind: string) => {
-  const docs = await env.DB.prepare(`SELECT id, format FROM documents WHERE id IN (${documentsSql})`)
-    .bind(bind)
-    .all<{ id: string; format: string }>();
-  const pages = await env.DB.prepare(`SELECT id FROM pages WHERE document_id IN (${documentsSql})`)
-    .bind(bind)
-    .all<{ id: string }>();
+const documentBlobs = Effect.fn("documentBlobs")(function* (env: Env, documentsSql: string, bind: string) {
+  const docs = yield* storage(() =>
+    env.DB.prepare(`SELECT id, format FROM documents WHERE id IN (${documentsSql})`)
+      .bind(bind)
+      .all<{ id: string; format: string }>(),
+  );
+  const pages = yield* storage(() =>
+    env.DB.prepare(`SELECT id FROM pages WHERE document_id IN (${documentsSql})`)
+      .bind(bind)
+      .all<{ id: string }>(),
+  );
   return [
     ...docs.results.flatMap((d) => [sourceKey(d.id, d.format), documentKey(d.id)]),
     ...pages.results.flatMap((p) => [pagePdfKey(p.id), pagePngKey(p.id)]),
   ];
-};
+});
 
 /**
  * Statements that remove documents (selected by `documentsSql`, one `?1` parameter) with their pages and every
@@ -51,44 +58,54 @@ const documentStatements = (env: Env, documentsSql: string, bind: string) => {
   ].map((sql) => (sql.startsWith("PRAGMA") ? env.DB.prepare(sql) : env.DB.prepare(sql).bind(bind)));
 };
 
+/** Terminates a workflow instance unless it already ended. An instance that was never created or is gone is fine. */
+const terminate = (binding: { get(id: string): Promise<WorkflowInstance> }, id: string) =>
+  storage(() => binding.get(id)).pipe(
+    Effect.flatMap((instance) =>
+      storage(() => instance.status()).pipe(
+        Effect.flatMap(({ status }) =>
+          status !== "complete" && status !== "errored" && status !== "terminated" ? storage(() => instance.terminate()) : Effect.void,
+        ),
+      ),
+    ),
+    // Anything else fails the stop, so a run is never deleted while it still runs.
+    Effect.catchIf(
+      (error) => error.message.includes("instance.not_found"),
+      () => Effect.void,
+    ),
+  );
+
 /** Stops a queued or running run: terminates its workflow and every page workflow it started. */
-export const stopRun = async (env: Env, runId: string) => {
-  const terminate = async (binding: { get(id: string): Promise<WorkflowInstance> }, id: string) => {
-    try {
-      const instance = await binding.get(id);
-      const { status } = await instance.status();
-      if (status !== "complete" && status !== "errored" && status !== "terminated") await instance.terminate();
-    } catch (error) {
-      // Not created yet, or already gone. Anything else fails the stop, so a run is never deleted while it still runs.
-      if (!String(error).includes("instance.not_found")) throw error;
-    }
-  };
-  await terminate(env.RUN_WORKFLOW, runId);
-  const pages = await env.DB.prepare(
-    "SELECT p.id FROM run_documents rd JOIN pages p ON p.document_id = rd.document_id WHERE rd.run_id = ?",
-  )
-    .bind(runId)
-    .all<{ id: string }>();
+export const stopRun = Effect.fn("stopRun")(function* (env: Env, runId: string) {
+  yield* terminate(env.RUN_WORKFLOW, runId);
+  const pages = yield* storage(() =>
+    env.DB.prepare("SELECT p.id FROM run_documents rd JOIN pages p ON p.document_id = rd.document_id WHERE rd.run_id = ?")
+      .bind(runId)
+      .all<{ id: string }>(),
+  );
   for (let i = 0; i < pages.results.length; i += 50) {
-    await Promise.all(pages.results.slice(i, i + 50).map((p) => terminate(env.PAGE_WORKFLOW, `${runId}-${p.id}`)));
+    yield* Effect.forEach(pages.results.slice(i, i + 50), (p) => terminate(env.PAGE_WORKFLOW, `${runId}-${p.id}`), {
+      concurrency: "unbounded",
+      discard: true,
+    });
   }
-  await env.DB.prepare(
-    "UPDATE runs SET status = 'failed', error = 'Stopped', completed_at = ? WHERE id = ? AND status IN ('queued', 'running')",
-  )
-    .bind(Date.now(), runId)
-    .run();
-};
+  yield* storage(() =>
+    env.DB.prepare("UPDATE runs SET status = 'failed', error = 'Stopped', completed_at = ? WHERE id = ? AND status IN ('queued', 'running')")
+      .bind(Date.now(), runId)
+      .run(),
+  );
+});
 
 /**
  * Deletes a run's documents, page images and parse outputs. With scope "report" the run row and its summary go too;
  * with "data" the summary stays and the run is marked `data_deleted_at`. R2 goes first so a failed call can be retried.
  */
-export const deleteRun = async (env: Env, runId: string, scope: Scope) => {
-  const row = await env.DB.prepare("SELECT status FROM runs WHERE id = ?").bind(runId).first<{ status: string }>();
-  if (row?.status === "queued" || row?.status === "running") await stopRun(env, runId);
+export const deleteRun = Effect.fn("deleteRun")(function* (env: Env, runId: string, scope: Scope) {
+  const row = yield* storage(() => env.DB.prepare("SELECT status FROM runs WHERE id = ?").bind(runId).first<{ status: string }>());
+  if (row?.status === "queued" || row?.status === "running") yield* stopRun(env, runId);
   const docs = "SELECT document_id FROM run_documents WHERE run_id = ?1";
-  await removeKeys(env.BLOBS, await documentBlobs(env, docs, runId));
-  await removePrefix(env.BLOBS, `runs/${runId}/`);
+  yield* removeKeys(env.BLOBS, yield* documentBlobs(env, docs, runId));
+  yield* removePrefix(env.BLOBS, `runs/${runId}/`);
   const run =
     scope === "report"
       ? [
@@ -102,26 +119,29 @@ export const deleteRun = async (env: Env, runId: string, scope: Scope) => {
           "DELETE FROM runs WHERE id = ?1",
         ]
       : ["UPDATE runs SET data_deleted_at = unixepoch() * 1000 WHERE id = ?1"];
-  await env.DB.batch([...documentStatements(env, docs, runId), ...run.map((sql) => env.DB.prepare(sql).bind(runId))]);
-};
+  yield* storage(() => env.DB.batch([...documentStatements(env, docs, runId), ...run.map((sql) => env.DB.prepare(sql).bind(runId))]));
+});
 
 /** Stops the user's runs in progress, then deletes every run, report and document they own, then the user. */
-export const deleteUser = async (env: Env, userId: string) => {
-  const runs = await env.DB.prepare("SELECT id FROM runs WHERE user_id = ?").bind(userId).all<{ id: string }>();
-  for (const run of runs.results) await deleteRun(env, run.id, "report");
+export const deleteUser = Effect.fn("deleteUser")(function* (env: Env, userId: string) {
+  const runs = yield* storage(() => env.DB.prepare("SELECT id FROM runs WHERE user_id = ?").bind(userId).all<{ id: string }>());
+  for (const run of runs.results) yield* deleteRun(env, run.id, "report");
   const docs = "SELECT id FROM documents WHERE user_id = ?1";
-  await removeKeys(env.BLOBS, await documentBlobs(env, docs, userId));
-  await env.DB.batch([
-    ...documentStatements(env, docs, userId),
-    env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(userId),
-    env.DB.prepare("DELETE FROM logins WHERE user_id = ?").bind(userId),
-    env.DB.prepare("DELETE FROM users WHERE id = ?").bind(userId),
-  ]);
-};
+  yield* removeKeys(env.BLOBS, yield* documentBlobs(env, docs, userId));
+  yield* storage(() =>
+    env.DB.batch([
+      ...documentStatements(env, docs, userId),
+      env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(userId),
+      env.DB.prepare("DELETE FROM logins WHERE user_id = ?").bind(userId),
+      env.DB.prepare("DELETE FROM users WHERE id = ?").bind(userId),
+    ]),
+  );
+});
 
 /** Deletes uploads of sign-ins that never completed (still owned by the pending user) made before `before`. */
-export const deleteExpiredUploads = async (env: Env, before: number) => {
+export const deleteExpiredUploads = Effect.fn("deleteExpiredUploads")(function* (env: Env, before: number) {
   const docs = "SELECT id FROM documents WHERE user_id = 'pending' AND created_at < ?1";
-  await removeKeys(env.BLOBS, await documentBlobs(env, docs, String(before)));
-  await env.DB.batch(documentStatements(env, docs, String(before)));
-};
+  yield* removeKeys(env.BLOBS, yield* documentBlobs(env, docs, String(before)));
+  yield* storage(() => env.DB.batch(documentStatements(env, docs, String(before))));
+});
+
