@@ -1,4 +1,4 @@
-import { decodeJson, PRESETS } from "@parsejudge/core";
+import { decodeJson, PRESETS, withoutMedium } from "@parsejudge/core";
 import { Effect } from "effect";
 import type { Env } from "./env.ts";
 import { CompletionFailed, complete, modelUsage, recordUsage } from "./usage.ts";
@@ -57,7 +57,9 @@ export const writePageNote = Effect.fn("writePageNote")(function* (env: Env, run
     if (r.status !== "succeeded") return Effect.succeed(`${label(r.preset_id)}: parse failed (${r.error ?? "no error message"})`);
     return decodeJson(r.errors ?? "[]").pipe(
       Effect.map((decoded) => {
-        const found = (decoded as Array<Flag>).map((e) => `${e.severity} ${e.category}: ${e.description}`).join("; ");
+        const found = (withoutMedium(decoded) as Array<Flag>)
+          .map((e) => `${e.severity} ${e.category}: ${e.description}`)
+          .join("; ");
         const place = r.score === null ? "not judged" : r.score === top ? "best" : r.score === bottom ? "worst" : "middle";
         return `${label(r.preset_id)}: ${place}. Errors: ${found || "none"}`;
       }),
