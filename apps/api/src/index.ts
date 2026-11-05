@@ -4,6 +4,7 @@ import { FetchHttpClient } from "effect/http";
 import { handler } from "./api.ts";
 import { cleanUpAuth, handleAuth, sessionUser } from "./auth.ts";
 import { verifyBlobUrl } from "./blobs.ts";
+import { purgeZdr } from "./deletion.ts";
 import type { Env } from "./env.ts";
 import { INTERNAL_HEADER, internalHeader } from "./internal.ts";
 import { mcpHandler } from "./mcp.ts";
@@ -146,5 +147,8 @@ export default {
     ),
   scheduled(_controller, env, ctx) {
     ctx.waitUntil(Effect.runPromise(cleanUpAuth(env)));
+    ctx.waitUntil(
+      Effect.runPromise(purgeZdr(env).pipe(Effect.catch((error) => Effect.logError("ZDR purge failed", error.message)))),
+    );
   },
 } satisfies ExportedHandler<Env>;

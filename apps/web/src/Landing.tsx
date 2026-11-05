@@ -51,9 +51,11 @@ const KeyMenu = ({
   anchor,
   onSave,
   onClose,
+  zdr,
 }: {
   readonly provider: string;
   readonly anchor: HTMLElement;
+  readonly zdr: boolean;
   readonly onSave: (key: string) => void;
   readonly onClose: () => void;
 }) => {
@@ -103,6 +105,7 @@ const KeyMenu = ({
         onKeyDown={(e) => e.key === "Enter" && save()}
       />
       <div className="pv-key-note">Encrypted. Deleted when the run ends.</div>
+      {zdr && <div className="pv-key-note">ZDR may not apply depending on your terms with this competitor.</div>}
       <div className="pv-key-acts">
         <button className="btn" type="button" onClick={onClose}>
           <span className="btn-label">Cancel</span>
@@ -297,7 +300,7 @@ const PreviousRuns = ({ presets }: { readonly presets: ReadonlyArray<Preset> }) 
   );
 };
 
-export const Landing = () => {
+export const Landing = ({ zdr }: { readonly zdr: boolean }) => {
   const [presets, setPresets] = useState<ReadonlyArray<Preset>>([]);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [keys, setKeys] = useState<Record<string, string>>({});
@@ -375,7 +378,7 @@ export const Landing = () => {
         }
         patch(localPages === undefined ? { sent: 0 } : { localPages, sent: 0 });
         await api
-          .upload(file, (sent) => patch({ sent }))
+          .upload(file, (sent) => patch({ sent }), zdr)
           .then(
             (r) => patch(r),
             (e: unknown) => patch({ error: e instanceof Error ? e.message : String(e) }),
@@ -438,6 +441,7 @@ export const Landing = () => {
         title,
         presetIds: chosen.map((p) => p.id),
         credentials,
+        zdr,
       });
       navigate(`/r/${shareId}`);
     } catch (e) {
@@ -518,7 +522,10 @@ export const Landing = () => {
         <section className="su-sec">
           <div>
             <div className="su-sec-title">Documents</div>
-            <div className="su-sec-meta">PDF, DOCX or PPTX. Up to {MAX_PAGES_PER_RUN.toLocaleString("en-US")} pages per run.</div>
+            <div className="su-sec-meta">
+              PDF, DOCX or PPTX. Up to {MAX_PAGES_PER_RUN.toLocaleString("en-US")} pages per run.
+              {zdr && " Deleted 24 hours after the run. Results stay."}
+            </div>
           </div>
           <div className="su-fields">
             <div>
@@ -668,6 +675,7 @@ export const Landing = () => {
         <KeyMenu
           provider={keyMenu.provider}
           anchor={keyMenu.anchor}
+          zdr={zdr}
           onClose={() => setKeyMenu(null)}
           onSave={(key) => {
             setKeys((k) => ({ ...k, [keyMenu.provider]: key }));

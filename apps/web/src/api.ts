@@ -247,10 +247,10 @@ export const api = {
     }).then(ok),
   presets: () => fetch("/v1/presets").then(json<ReadonlyArray<Preset>>),
   /** XHR, not fetch, for upload progress. `onProgress` gets the share of bytes sent, 0 to 1. */
-  upload: (file: File, onProgress: (sent: number) => void) =>
+  upload: (file: File, onProgress: (sent: number) => void, zdr: boolean) =>
     new Promise<{ documentId: string; pageCount: number }>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
-      xhr.open("POST", `/v1/documents?filename=${encodeURIComponent(file.name)}`);
+      xhr.open("POST", `/v1/documents?filename=${encodeURIComponent(file.name)}${zdr ? "&zdr=1" : ""}`);
       xhr.setRequestHeader("content-type", file.type || "application/octet-stream");
       xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
       xhr.onerror = () => reject(new Error("Upload failed. Check your connection and retry."));
@@ -275,6 +275,7 @@ export const api = {
     presetIds: ReadonlyArray<string>;
     title?: string | undefined;
     credentials: Record<string, Record<string, string>>;
+    zdr?: boolean;
   }) =>
     fetch("/v1/runs", {
       method: "POST",

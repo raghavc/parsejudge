@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 export type Route =
-  | { readonly name: "landing" }
+  | { readonly name: "landing"; readonly zdr: boolean }
   | { readonly name: "account" }
   | { readonly name: "runs" }
   | { readonly name: "methodology" }
@@ -30,7 +30,7 @@ export const parse = (path: string, search: string): Route => {
   if (path === "/auth") return { name: "auth", token: new URLSearchParams(search).get("token") ?? "" };
   const run = /^\/r\/([^/]+)$/.exec(path);
   if (run?.[1]) return { name: "run", shareId: run[1] };
-  return { name: "landing" };
+  return { name: "landing", zdr: path === "/zdr" };
 };
 
 export const navigate = (to: string) => {

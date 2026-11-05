@@ -103,7 +103,7 @@ export const mountReport = (root: HTMLElement, R: ReportData): (() => void) => {
     target.addEventListener(type, fn as EventListener, opts);
     cleanups.push(() => target.removeEventListener(type, fn as EventListener, opts));
   };
-  const score = (pg: PageRow, id: string) => pg.by[id] ?? null;
+  const score = (pg: PageRow | undefined, id: string) => pg?.by[id] ?? null;
 
   function axisTitles(
     svg: Element,
@@ -454,6 +454,7 @@ export const mountReport = (root: HTMLElement, R: ReportData): (() => void) => {
     return { mean, hi: ms.length ? Math.max(...ms) : 10, lo: ms.length ? Math.min(...ms) : 10, rep };
   }
   function build(animate: boolean) {
+    if (P.length === 0) return; // documents deleted: no pages to chart
     if (st.view === "area") {
       buildArea(animate);
       return;
@@ -896,6 +897,7 @@ export const mountReport = (root: HTMLElement, R: ReportData): (() => void) => {
   const share = (pages: ReadonlyArray<PageRow>, id: string, s: number) =>
     pages.length ? pages.filter((p) => (score(p, id) ?? -1) >= s).length / pages.length : 0;
   function buildArea(animate: boolean) {
+    if (P.length === 0) return; // documents deleted: no pages to chart
     const host = $("dgWrap");
     host.style.minHeight = `${host.offsetHeight}px`;
     host.innerHTML = "";

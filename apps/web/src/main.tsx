@@ -23,7 +23,7 @@ const App = () => {
   if (route.name === "auth") return <SignInLink token={route.token} />;
   if (route.name === "run") return <RunPage shareId={route.shareId} />;
   if (route.name === "page") return <PageCompare shareId={route.shareId} pageId={route.pageId} view={route.view} />;
-  return <Landing />;
+  return <Landing zdr={route.name === "landing" && route.zdr} />;
 };
 
 const root = document.getElementById("root");

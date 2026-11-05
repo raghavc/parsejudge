@@ -42,6 +42,8 @@ const CreateRun = Schema.Struct({
   title: Schema.optional(Schema.String),
   /** Retrying with the same key returns the run the first request created. */
   idempotencyKey: Schema.optional(Schema.String),
+  /** Started from /zdr: the documents are deleted 24 hours after the run starts. Also set when any document is ZDR. */
+  zdr: Schema.optional(Schema.Boolean),
   /** BYOK keys by provider id, e.g. `{ "llamaparse": { "LLAMA_CLOUD_API_KEY": "..." } }`. */
   credentials: Schema.optional(Schema.Record(Schema.String, Schema.Record(Schema.String, Schema.String))),
 });
@@ -250,7 +252,11 @@ export const Api = HttpApi.make("parsejudge")
     HttpApiGroup.make("documents")
       .add(
         HttpApiEndpoint.post("upload", "/v1/documents", {
-          query: { filename: Schema.optional(Schema.String), upload: Schema.optional(Schema.String) },
+          query: {
+            filename: Schema.optional(Schema.String),
+            upload: Schema.optional(Schema.String),
+            zdr: Schema.optional(Schema.String),
+          },
           success: Schema.Struct({ documentId: Schema.String, pageCount: Schema.Number }),
           error: [BadRequest, Unauthorized, TooManyRequests, ServiceUnavailable],
         }),
@@ -597,7 +603,7 @@ const overCap = new BadRequest({
 
 const DocumentsLive = HttpApiBuilder.group(Api, "documents", (handlers) =>
   handlers
-    .handle("upload", ({ query: { filename, upload } }) =>
+    .handle("upload", ({ query: { filename, upload, zdr } }) =>
       Effect.gen(function* () {
         const { userId, loginId } = yield* uploader;
         if (loginId !== null) {
@@ -672,8 +678,8 @@ const DocumentsLive = HttpApiBuilder.group(Api, "documents", (handlers) =>
             query(() =>
               cf.DB.prepare(
                 // A sign-in that completes while this upload runs has already set logins.user_id; the upload goes to that user.
-                `INSERT INTO documents (id, user_id, login_id, filename, format, sha256, page_count, created_at, upload_id)
-             SELECT ?1, COALESCE((SELECT user_id FROM logins WHERE id = ?2), ?3), ?2, ?4, ?5, ?6, ?7, ?8, ?11
+                `INSERT INTO documents (id, user_id, login_id, filename, format, sha256, page_count, created_at, upload_id, zdr)
+             SELECT ?1, COALESCE((SELECT user_id FROM logins WHERE id = ?2), ?3), ?2, ?4, ?5, ?6, ?7, ?8, ?11, ?12
              WHERE ?2 IS NULL OR (
                (SELECT COALESCE(SUM(page_count), 0) FROM documents WHERE login_id = ?2) + ?7 <= ?9 AND
                (SELECT COALESCE(SUM(page_count), 0) FROM documents WHERE user_id = ?10 AND login_id IN
@@ -692,6 +698,7 @@ const DocumentsLive = HttpApiBuilder.group(Api, "documents", (handlers) =>
                   max,
                   PENDING_USER,
                   loginId === null ? (upload ?? null) : null,
+                  zdr === "1" ? 1 : 0,
                 )
                 .run(),
             ),
@@ -849,9 +856,22 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
         const inserted = yield* Effect.tryPromise(() =>
           cf.DB.batch([
             cf.DB.prepare(
-              `INSERT INTO runs (id, user_id, share_id, title, status, preset_ids, judge_version, judge_model, created_at, idempotency_key)
-               VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?)`,
-            ).bind(runId, userId, shareId, title, JSON.stringify(presetIds), JUDGE_VERSION, cf.JUDGE_MODEL, Date.now(), key),
+              `INSERT INTO runs (id, user_id, share_id, title, status, preset_ids, judge_version, judge_model, created_at, idempotency_key, zdr)
+               VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?,
+                 ? OR EXISTS (SELECT 1 FROM documents WHERE zdr = 1 AND id IN (SELECT value FROM json_each(?))))`,
+            ).bind(
+              runId,
+              userId,
+              shareId,
+              title,
+              JSON.stringify(presetIds),
+              JUDGE_VERSION,
+              cf.JUDGE_MODEL,
+              Date.now(),
+              key,
+              payload.zdr === true ? 1 : 0,
+              JSON.stringify(documentIds),
+            ),
             ...documentIds.map((documentId) =>
               cf.DB.prepare("INSERT INTO run_documents (run_id, document_id) VALUES (?, ?)").bind(runId, documentId),
             ),

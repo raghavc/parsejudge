@@ -51,8 +51,9 @@ const documentStatements = (env: Env, documentsSql: string, bind: string) => {
     `DELETE FROM page_notes WHERE page_id IN (${pages})`,
     `DELETE FROM page_locations WHERE page_id IN (${pages})`,
     `DELETE FROM pages WHERE document_id IN (${documentsSql})`,
-    `DELETE FROM run_documents WHERE document_id IN (${documentsSql})`,
+    // Documents before run links: `documentsSql` may select through run_documents.
     `DELETE FROM documents WHERE id IN (${documentsSql})`,
+    `DELETE FROM run_documents WHERE document_id IN (${documentsSql})`,
   ].map((sql) => (sql.startsWith("PRAGMA") ? env.DB.prepare(sql) : env.DB.prepare(sql).bind(bind)));
 };
 
@@ -149,4 +150,33 @@ export const deleteExpiredUploads = Effect.fn("deleteExpiredUploads")(function* 
   const docs = "SELECT id FROM documents WHERE user_id = 'pending' AND created_at < ?1";
   yield* removeKeys(env.BLOBS, yield* documentBlobs(env, docs, String(before)));
   yield* storage(() => env.DB.batch(documentStatements(env, docs, String(before))));
+});
+
+/** How long ZDR documents are kept: runs from their start, uploads that never ran from upload. */
+export const ZDR_TTL_MS = 24 * 3_600_000;
+
+/** Hourly: deletes the documents of finished ZDR runs older than a day (results stay), and ZDR uploads never run. */
+export const purgeZdr = Effect.fn("purgeZdr")(function* (env: Env, now = Date.now()) {
+  const cutoff = now - ZDR_TTL_MS;
+  const runs = yield* storage(() =>
+    env.DB.prepare(
+      `SELECT id FROM runs WHERE zdr = 1 AND data_deleted_at IS NULL AND created_at <= ? AND status IN ('succeeded', 'failed')`,
+    )
+      .bind(cutoff)
+      .all<{ id: string }>(),
+  );
+  for (const run of runs.results) yield* deleteRun(env, run.id, "data");
+  const docs = yield* storage(() =>
+    env.DB.prepare(
+      "SELECT id FROM documents WHERE zdr = 1 AND created_at <= ? AND id NOT IN (SELECT document_id FROM run_documents)",
+    )
+      .bind(cutoff)
+      .all<{ id: string }>(),
+  );
+  for (const doc of docs.results) {
+    const one = "SELECT ?1";
+    yield* removeKeys(env.BLOBS, yield* documentBlobs(env, one, doc.id));
+    yield* storage(() => env.DB.batch(documentStatements(env, one, doc.id)));
+  }
+  return { runs: runs.results.length, documents: docs.results.length };
 });
