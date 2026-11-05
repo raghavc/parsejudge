@@ -2,7 +2,7 @@
 export const comparePrompt = (
   parseSections: string,
   labels: string,
-): string => `You are evaluating multiple text extractions of one PDF page.
+): string => `You are evaluating multiple text extractions of one PDF page. For each extraction you give a 1-10 score and list the specific parse errors it made.
 The original page image is provided for reference.
 
 The parses are blinded and shuffled. Evaluate each parse independently against the page image.
@@ -52,8 +52,64 @@ Here is what you should take into account:
 
 Ignore differences in whitespace and formatting. Treat curly and straight apostrophes as equivalent.
 
-Return JSON with exactly one evaluation per label listed here:
+## Errors to report
+After reading the page image, list every concrete visible parse error in each parse, relative to the page image. Evaluate each parse on its own; do not use another parse as the reference. Do not invent errors if the parse is good: a perfect parse has an empty errors list. Report each distinct error once, even if it repeats across the page.
+
+Classify each error with:
+- severity: one of high, medium, or low.
+  - high (materially wrong): dropped or invented content, broken table structure, a value under the wrong label, a wrong checkbox state, merged columns, broken reading order or runaway repetition. Would corrupt a downstream extraction or mislead a reader.
+  - medium (real but recoverable): a real error that degrades quality but is usually recoverable in context.
+  - low (minor noise): small formatting or whitespace noise that does not change the meaning or recoverability of the content.
+- category: choose exactly one category from the taxonomy below. Pick the category that best describes the visible symptom, not the suspected root cause. Do not emit multiple categories for one error.
+- visual_region_type: short human-readable region type, for example: table, form field, checkbox group, heading, paragraph, chart, signature block.
+- location_hint: concise visual location on the page, naming the section, field label, table row and column, or nearby printed text, for example: Section B, "Police report filed?" field.
+- description: one specific sentence naming what is wrong. Quote the exact page text involved and what the parse wrote instead, for example: The total reads '1,204' but the page shows '1,284'.
+
+Use exactly one of these category values:
+- \`content_omission\`: Visible content is missing from the parse.
+- \`content_hallucination\`: The parse adds unsupported content, values, labels, or claims not present on
+the page.
+- \`text_corruption\`: Visible text is present but garbled, mistranscribed, autocorrected incorrectly, or
+materially altered.
+- \`text_duplication\`: Real page text is duplicated incorrectly.
+- \`generation_repetition_loop\`: Output contains runaway repeated phrases, lines, sections, or markdown
+blocks.
+- \`reading_order\`: Content is extracted in the wrong visual or logical order.
+- \`table_structure\`: Table rows, columns, headers, spans, boundaries, or grouping are structurally wrong.
+- \`table_content\`: Table structure is mostly recoverable, but cell values or cell-to-row/column
+assignments are wrong or missing.
+- \`field_association_error\`: Visible labels, values, fields, signatures, or stamps are associated
+incorrectly, such as a value under the wrong label or a signature tied to the wrong field.
+- \`checkbox_state_error\`: Checkbox, radio button, selection mark, yes/no control, or similar field has
+the wrong selected or checked state.
+- \`header_footer\`: Header, footer, page number, repeated boilerplate, or repeated marginal content is
+missing, duplicated, or incorrectly included.
+- \`watermark\`: Watermark text, stamp-like background text, or diagonal/low-contrast repeated page marking
+is missing, duplicated, incorrectly included, or materially misread.
+- \`formatting_noise\`: Extra markup, escaping, bullets, whitespace, placeholder clutter, or formatting
+artifacts materially hurt readability or recoverability.
+- \`bad_figure_summary\`: Generated summary, caption, or description of a non-chart visual object is
+materially wrong, unsupported, misleading, or replaces important recoverable visible content. Valid
+concise faithful summaries are not errors.
+- \`bad_chart_summary\`: Generated chart or graph summary, inferred table, trend statement, axis or legend
+reading, or data-value reconstruction is materially wrong, unsupported, misleading, or invents precision
+not visible on the page. Valid concise faithful chart summaries are not errors.
+- \`visual_structure_loss\`: Diagram, map, flowchart, floorplan, visual layout, or other spatial content is
+flattened so relationships, arrows, placement, grouping, or hierarchy are lost.
+- \`other\`: Concrete visible parse error that does not fit the above. Use sparingly.
+
+Use generation_repetition_loop for runaway repeated phrases, sentences, sections,
+or markdown blocks caused by generation loops. Use text_duplication only for
+localized duplicate extraction of real page text.
+
+## Scoring
+Decide the errors first, then score. The score must be consistent with the errors you listed: any high-severity error should keep a parse well below 10, several high-severity errors or a catastrophic one (such as merged columns or a missing section) should push it toward the bottom of the scale, and a parse with only low-severity errors can still score 9 or 10. Parses with similar errors should get similar scores.
+
+## Output
+Return JSON with:
+- page_features: short tags describing the page itself, independent of any parse, for example: table, form, checkboxes, handwriting, multi-column, chart, scan, low quality.
+- evaluations: exactly one evaluation per label listed here:
 ${labels}
 
-For each evaluation, include the label, a list of specific errors found, concise reasoning, and the 1-10 score.
+For each evaluation, include the label, the list of errors as described above, concise reasoning, and the 1-10 score.
 `;

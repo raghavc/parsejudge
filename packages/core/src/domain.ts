@@ -46,6 +46,8 @@ export type ErrorCategory = typeof ErrorCategory.Type;
 export const JudgedError = Schema.Struct({
   category: ErrorCategory,
   severity: Severity,
+  visual_region_type: Schema.optional(Schema.String),
+  location_hint: Schema.optional(Schema.String),
   description: Schema.String,
 });
 export type JudgedError = typeof JudgedError.Type;
