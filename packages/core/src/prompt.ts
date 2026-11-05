@@ -63,7 +63,6 @@ Classify each error with:
 - description: one concise sentence explaining the error, the category choice, and, for non-figure errors, why the severity is high or low. Quote the exact page text involved and what the parse wrote instead, for example: The total reads '1,204' but the page shows '1,284'.
 
 ### Severity:
-- List only real parse errors. A faithful or semantically equivalent parse is not an error and is not listed.
 - Use \`high\` when the error changes or obscures meaning, exact values, identities, states, associations, reading order, or structural relationships; adds plausible unsupported semantic content; or makes a meaningful region difficult to recover from the parse. High severity errors are expected to materially impact downstream use cases. Exact-sensitive content includes numbers, dates, amounts, identifiers, names, addresses, measurements, formula terms, and similar values whose exact form matters.
 - Use \`low\` only when the error is localized and superficial, the intended reading remains unambiguous from the parse, and no exact-sensitive value, state, identity, association, instruction, or structural relationship changes. Examples include isolated punctuation, capitalization, spacing, styling, or obvious spelling or typographic artifacts that do not alter meaning.
 - Severity reflects the consequence of the error, not its visual size. A small wrong digit may be high; a visually large but harmless artifact may be low.
