@@ -4,6 +4,7 @@ import "./styles.css";
 import { Account } from "./Account.tsx";
 import { loadUser } from "./api.ts";
 import { Landing } from "./Landing.tsx";
+import { Legal } from "./Legal.tsx";
 import { Methodology } from "./Methodology.tsx";
 import { PageCompare } from "./PageCompare.tsx";
 import { RunPage } from "./RunPage.tsx";
@@ -17,6 +18,7 @@ const App = () => {
   if (route.name === "account") return <Account />;
   if (route.name === "runs") return <Runs />;
   if (route.name === "methodology") return <Methodology />;
+  if (route.name === "terms" || route.name === "privacy") return <Legal doc={route.name} />;
   if (route.name === "signin") return <SignInPage next={route.next} />;
   if (route.name === "auth") return <SignInLink token={route.token} />;
   if (route.name === "run") return <RunPage shareId={route.shareId} />;

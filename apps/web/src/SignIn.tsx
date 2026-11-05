@@ -212,8 +212,15 @@ export const SignIn = ({
           </button>
         )}
         <div style={{ color: "var(--faint)", fontSize: 12, lineHeight: "18px" }}>
-          By continuing you agree that ParseJudge keeps the documents you upload and the results, and may publish them by share
-          link.
+          By continuing you agree to the{" "}
+          <a href="/terms" target="_blank" rel="noopener" style={{ color: "inherit" }}>
+            Terms of Service
+          </a>{" "}
+          and{" "}
+          <a href="/privacy" target="_blank" rel="noopener" style={{ color: "inherit" }}>
+            Privacy Policy
+          </a>
+          .
         </div>
       </form>
     </div>

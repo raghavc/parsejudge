@@ -212,3 +212,51 @@
   font-size: 15px;
   line-height: 1.7;
 }
+
+/* Terms and Privacy: the Methodology article, one column, plus the policy table. */
+.pjx .legal-page .article {
+  padding-top: 8px;
+}
+.pjx .legal-page .article-head p {
+  font-size: 13px;
+}
+.pjx .legal-page .article h2 {
+  font-size: 17px;
+}
+.pjx .legal-page .overflow-x-auto {
+  overflow-x: auto;
+  margin: 0 0 16px;
+}
+.pjx .legal-page table {
+  border-collapse: collapse;
+  min-width: 760px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.pjx .legal-page th,
+.pjx .legal-page td {
+  text-align: left;
+  vertical-align: top;
+  padding: 8px 12px 8px 0;
+  border-bottom: 0.5px solid var(--grey-200);
+}
+.pjx .legal-page th {
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.pjx .site-foot {
+  display: flex;
+  gap: 16px;
+  padding: 24px 0 40px;
+  border-top: 0.5px solid var(--grey-200);
+  font-size: 13px;
+}
+.pjx .site-foot a {
+  color: var(--grey-400);
+  text-decoration: none;
+  transition: color var(--dur-quick) var(--ease-standard);
+}
+.pjx .site-foot a:hover {
+  color: var(--text-primary);
+}

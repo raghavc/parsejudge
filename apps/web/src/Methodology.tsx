@@ -2,7 +2,7 @@ import { comparePrompt } from "@parsejudge/core/prompt";
 import { type ReactNode, useEffect, useState } from "react";
 import { currentUser } from "./api.ts";
 import { BlindRequestFigure, SampleSizeFigure, SubsetFigure } from "./figures.tsx";
-import { Shell, SiteBar } from "./Nav.tsx";
+import { Shell, SiteBar, SiteFoot } from "./Nav.tsx";
 
 const SECTIONS = [
   ["why", "The trouble with vendor benchmarks"],
@@ -337,6 +337,7 @@ export const Methodology = () => {
             </Section>
           </article>
         </div>
+        <SiteFoot />
       </div>
     </Shell>
   );

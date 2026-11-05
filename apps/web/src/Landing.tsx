@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, auth, currentUser, DRAFT_KEY, type Draft, type Preset, type RunListItem } from "./api.ts";
 import { Icon } from "./ax/Icon.tsx";
-import { Go, Shell, SiteBar } from "./Nav.tsx";
+import { Go, Shell, SiteBar, SiteFoot } from "./Nav.tsx";
 import { BYOK_KEY, PROVIDER_ORDER, providerName, shortName } from "./names.ts";
 import { navigate } from "./router.ts";
 import { SignIn } from "./SignIn.tsx";
@@ -625,6 +625,7 @@ export const Landing = () => {
         </section>
 
         {user && <PreviousRuns presets={presets} />}
+        <SiteFoot />
       </div>
       {keyMenu && (
         <KeyMenu

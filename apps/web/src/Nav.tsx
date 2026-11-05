@@ -83,6 +83,13 @@ export const SiteBar = ({ user, active }: { readonly user?: string | null; reado
   </div>
 );
 
+export const SiteFoot = () => (
+  <footer className="site-foot">
+    <Go to="/terms">Terms</Go>
+    <Go to="/privacy">Privacy</Go>
+  </footer>
+);
+
 /** The site bar on pages that are not yet in the design's frame. */
 export const Nav = (props: { readonly user?: string | null; readonly active?: "runs" | "methodology" }) => (
   <div className="pjx pjx-nav" data-topbar-rule="always">
