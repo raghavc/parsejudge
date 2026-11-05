@@ -170,7 +170,7 @@ export const Methodology = () => {
 
             <Section id="output">
               <p>
-                For each output, the judge first lists errors, then gives a score. Each error has a severity, one of 17
+                For each output, the judge first lists errors, then gives a score. Each error has a severity, one of 13
                 categories, the type of region, where it is on the page, and one sentence that quotes the page and what the parse
                 wrote instead.
               </p>
@@ -183,13 +183,15 @@ export const Methodology = () => {
                   reading order.
                 </dd>
                 <dt>
-                  <span className="tag">medium</span>
-                </dt>
-                <dd>A real error, but the right reading can usually be worked out from context.</dd>
-                <dt>
                   <span className="tag low">low</span>
                 </dt>
-                <dd>Formatting only. Nothing is lost.</dd>
+                <dd>Local and superficial, such as punctuation, spacing or an obvious typo. The right reading is still clear.</dd>
+                <dt>
+                  <span className="tag">figure_error</span>
+                </dt>
+                <dd>
+                  A figure summary states something the figure does not show, or leaves out what is needed to understand it.
+                </dd>
               </dl>
               <p>
                 Scores run from 1 (empty or mostly wrong) to 10 (no errors found) and must match the error list. One high-severity
