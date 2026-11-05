@@ -21,6 +21,7 @@ import type { Env } from "./env.ts";
 import { INTERNAL_HEADER, internalUser } from "./internal.ts";
 import { documentKey, markdownKey, pageId as pageIdOf, pagePdfKey, pagePngKey, sourceKey } from "./keys.ts";
 import { continueRun, reconcileRun } from "./run.ts";
+import { SPLIT_IN_WORKER_MAX_BYTES, splitInContainer } from "./splitter.ts";
 import { generateTitle } from "./title.ts";
 
 const cf = env as unknown as Env;
@@ -582,6 +583,11 @@ const PresetsLive = HttpApiBuilder.group(Api, "presets", (handlers) =>
   ),
 );
 
+const splitFailed = (documentId: string, message: string) =>
+  Effect.logError("PDF split in container failed", documentId, message).pipe(
+    Effect.andThen(Effect.fail(new ServiceUnavailable({ error: "Could not split this PDF. Retry in a minute." }))),
+  );
+
 const overCap = new BadRequest({
   error: "Uploads before sign-in are limited to one run's pages. Sign in to upload more.",
 });
@@ -617,13 +623,37 @@ const DocumentsLive = HttpApiBuilder.group(Api, "documents", (handlers) =>
             ),
           ),
         );
-        const pages = yield* splitPages(pdf, Number(cf.MAX_PAGES_PER_RUN));
         const documentId = crypto.randomUUID();
         const max = Number(cf.MAX_PAGES_PER_RUN);
+        // Large PDFs are split in a container, which stores each page as it arrives; small ones split here.
+        let stored = 0;
+        const pages =
+          pdf.byteLength <= SPLIT_IN_WORKER_MAX_BYTES
+            ? yield* splitPages(pdf, max)
+            : yield* splitInContainer(cf, pdf, max, (index, page) =>
+                query(() => cf.BLOBS.put(pagePdfKey(pageIdOf(documentId, index)), page)).pipe(
+                  Effect.tap(() =>
+                    Effect.sync(() => {
+                      stored = index + 1;
+                    }),
+                  ),
+                ),
+              ).pipe(
+                Effect.map((count) => ({ length: count, inContainer: true as const })),
+                Effect.onError(() =>
+                  query(() =>
+                    cf.BLOBS.delete(Array.from({ length: stored }, (_, index) => pagePdfKey(pageIdOf(documentId, index)))),
+                  ).pipe(Effect.catch(() => Effect.logError("Split cleanup failed", documentId))),
+                ),
+                Effect.catchTags({
+                  SplitterUnavailable: (error) => splitFailed(documentId, error.message),
+                  FramesBroken: (error) => splitFailed(documentId, error.message),
+                }),
+              );
         const blobKeys = [
           sourceKey(documentId, format),
           documentKey(documentId),
-          ...pages.map((_, index) => pagePdfKey(pageIdOf(documentId, index))),
+          ...Array.from({ length: pages.length }, (_, index) => pagePdfKey(pageIdOf(documentId, index))),
         ];
         const hash = yield* sha256(bytes);
         const store = query(() => cf.BLOBS.put(sourceKey(documentId, format), bytes)).pipe(
@@ -660,12 +690,14 @@ const DocumentsLive = HttpApiBuilder.group(Api, "documents", (handlers) =>
           ),
           Effect.flatMap((inserted) => (inserted.meta.changes === 1 ? Effect.void : Effect.fail(overCap))),
           Effect.andThen(
-            query(() => Promise.all(pages.map((page, index) => cf.BLOBS.put(pagePdfKey(pageIdOf(documentId, index)), page)))),
+            "inContainer" in pages
+              ? Effect.void
+              : query(() => Promise.all(pages.map((page, index) => cf.BLOBS.put(pagePdfKey(pageIdOf(documentId, index)), page)))),
           ),
           Effect.andThen(
             query(() =>
               cf.DB.batch(
-                pages.map((_, index) =>
+                Array.from({ length: pages.length }, (_, index) =>
                   cf.DB.prepare("INSERT OR IGNORE INTO pages (id, document_id, page_index, rendered) VALUES (?, ?, ?, 0)").bind(
                     pageIdOf(documentId, index),
                     documentId,

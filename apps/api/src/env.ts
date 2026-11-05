@@ -1,5 +1,6 @@
 import { Data, Effect, Schema } from "effect";
 import type { Converter } from "./converter.ts";
+import type { Splitter } from "./splitter.ts";
 import type { DocumentWorkflowParams, PageWorkflowParams, RunWorkflowParams } from "./workflows.ts";
 
 export interface Env {
@@ -8,6 +9,7 @@ export interface Env {
   readonly RUN_EVENTS: DurableObjectNamespace;
   readonly PROVIDER_SLOTS: DurableObjectNamespace;
   readonly CONVERTER: DurableObjectNamespace<Converter>;
+  readonly SPLITTER: DurableObjectNamespace<Splitter>;
   readonly RUN_WORKFLOW: Workflow<RunWorkflowParams>;
   readonly PAGE_WORKFLOW: Workflow<PageWorkflowParams>;
   readonly DOCUMENT_WORKFLOW: Workflow<DocumentWorkflowParams>;

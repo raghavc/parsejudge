@@ -46,15 +46,26 @@
     "bindings": [
       { "name": "RUN_EVENTS", "class_name": "RunEvents" },
       { "name": "PROVIDER_SLOTS", "class_name": "ProviderSlots" },
-      { "name": "CONVERTER", "class_name": "Converter" }
+      { "name": "CONVERTER", "class_name": "Converter" },
+      { "name": "SPLITTER", "class_name": "Splitter" }
     ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RunEvents", "ProviderSlots", "Converter"] }],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["RunEvents", "ProviderSlots", "Converter"] },
+    { "tag": "v2", "new_sqlite_classes": ["Splitter"] }
+  ],
   // DOCX/PPTX -> PDF. parsejudge.com points `image` at its private Reducto-engine image instead.
   "containers": [
     {
       "class_name": "Converter",
       "image": "../../containers/libreoffice/Dockerfile",
+      "instance_type": "standard-1",
+      "max_instances": 4
+    },
+    // Splits PDFs too large for the Worker's memory.
+    {
+      "class_name": "Splitter",
+      "image": "../../containers/splitter/Dockerfile",
       "instance_type": "standard-1",
       "max_instances": 4
     }

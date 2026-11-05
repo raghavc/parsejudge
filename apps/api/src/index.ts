@@ -13,6 +13,7 @@ import { uploadUser } from "./uploads.ts";
 export { Converter } from "./converter.ts";
 export { RunEvents } from "./events.ts";
 export { ProviderSlots } from "./slots.ts";
+export { Splitter } from "./splitter.ts";
 export { DocumentWorkflow, PageWorkflow, RunWorkflow } from "./workflows.ts";
 
 const EVENTS_PATH = /^\/v1\/runs\/([^/]+)\/events$/;
