@@ -64,6 +64,7 @@ export class ProviderSlots extends DurableObject<Env> {
         );
         const failed = woken.filter((_, i) => sent[i] !== undefined && Exit.isFailure(sent[i]));
         if (failed.length === 0) return;
+        yield* Effect.forEach(failed, (w) => Effect.logWarning("Slot wake-up failed", w.instanceId, w.event));
         const gone = yield* Effect.forEach(failed, (w) => this.finished(w.instanceId), { concurrency: "unbounded" });
         // A waiter whose workflow ended gives its slot back; one still alive goes back to the head of the queue.
         const retry = failed.filter((_, i) => !gone[i]);
@@ -74,11 +75,14 @@ export class ProviderSlots extends DurableObject<Env> {
     });
   }
 
+  /** Whether the workflow has ended. A status that cannot be read counts as alive, so the waiter is retried, not dropped. */
   private finished(instanceId: string) {
     return storage(() => this.env.PAGE_WORKFLOW.get(instanceId)).pipe(
       Effect.flatMap((instance) => storage(() => instance.status())),
       Effect.map(({ status }) => status === "complete" || status === "errored" || status === "terminated"),
-      Effect.orElseSucceed(() => true),
+      Effect.catch((error) =>
+        Effect.logWarning("Slot waiter status unreadable", instanceId, error.message).pipe(Effect.as(false)),
+      ),
     );
   }
 

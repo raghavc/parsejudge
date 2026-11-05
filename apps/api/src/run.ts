@@ -282,6 +282,19 @@ export const summarizeRun = Effect.fn("summarizeRun")(function* (env: Env, runId
       .bind(runId, SKIPPED)
       .all<Record<string, string | number | null>>(),
   );
+  const skippedParses = yield* storage(() =>
+    env.DB.prepare("SELECT preset_id FROM parses WHERE run_id = ? AND error = ?")
+      .bind(runId, SKIPPED)
+      .all<{ preset_id: string }>(),
+  );
+  const skippedPages = yield* storage(() =>
+    env.DB.prepare(
+      `SELECT COUNT(*) AS pages FROM (SELECT page_id FROM parses WHERE run_id = ?1 AND error = ?2
+       UNION SELECT page_id FROM judge_failures WHERE run_id = ?1 AND error = ?2)`,
+    )
+      .bind(runId, SKIPPED)
+      .first<{ pages: number }>(),
+  );
   const results: Array<PageResult> = [];
   for (const row of parses.results) {
     const errors = typeof row.score === "number" ? yield* decodeJson(String(row.errors)) : undefined;
@@ -308,7 +321,12 @@ export const summarizeRun = Effect.fn("summarizeRun")(function* (env: Env, runId
   }
   yield* storage(() =>
     env.DB.prepare("UPDATE runs SET summary = ? WHERE id = ?")
-      .bind(JSON.stringify(summarize(results)), runId)
+      .bind(
+        JSON.stringify(
+          summarize(results, { parses: skippedParses.results.map((r) => r.preset_id), pages: skippedPages?.pages ?? 0 }),
+        ),
+        runId,
+      )
       .run(),
   );
   yield* finishRun(env, runId, "succeeded", null);

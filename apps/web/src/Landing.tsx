@@ -8,12 +8,28 @@ import { SignIn } from "./SignIn.tsx";
 
 const MAX_PAGES_PER_RUN = 1000;
 
+/** A PDF's page count, read in the browser so an oversized file is refused before it uploads. Undefined when unknown. */
+const countPages = async (file: File): Promise<number | undefined> => {
+  if (!file.name.toLowerCase().endsWith(".pdf")) return undefined;
+  try {
+    const { PDFDocument } = await import("pdf-lib");
+    const pdf = await PDFDocument.load(await file.arrayBuffer(), { ignoreEncryption: true, updateMetadata: false });
+    return pdf.getPageCount();
+  } catch {
+    return undefined;
+  }
+};
+
 interface Upload {
   readonly id: string;
   readonly name: string;
   readonly format: string;
   readonly documentId?: string;
   readonly pageCount?: number;
+  /** Counted in the browser before upload, for PDFs. */
+  readonly localPages?: number;
+  /** Share of bytes sent, 0 to 1. */
+  readonly sent?: number;
   readonly error?: string;
 }
 
@@ -347,11 +363,24 @@ export const Landing = () => {
     for (const file of files) {
       const format = (file.name.split(".").pop() ?? "").toUpperCase();
       const id = crypto.randomUUID();
+      const patch = (next: Partial<Upload>) => setUploads((u) => u.map((x) => (x.id === id ? { ...x, ...next } : x)));
       setUploads((u) => [...u, { id, name: file.name, format }]);
-      api.upload(file).then(
-        (r) => setUploads((u) => u.map((x) => (x.id === id ? { ...x, ...r } : x))),
-        (e: unknown) => setUploads((u) => u.map((x) => (x.id === id ? { ...x, error: String(e) } : x))),
-      );
+      countPages(file).then(async (localPages) => {
+        if (localPages !== undefined && localPages > MAX_PAGES_PER_RUN) {
+          patch({
+            localPages,
+            error: `${localPages.toLocaleString("en-US")} pages, over the ${MAX_PAGES_PER_RUN.toLocaleString("en-US")}-page limit`,
+          });
+          return;
+        }
+        patch(localPages === undefined ? { sent: 0 } : { localPages, sent: 0 });
+        await api
+          .upload(file, (sent) => patch({ sent }))
+          .then(
+            (r) => patch(r),
+            (e: unknown) => patch({ error: e instanceof Error ? e.message : String(e) }),
+          );
+      });
     }
   };
 
@@ -367,7 +396,7 @@ export const Landing = () => {
   const ready = uploads.filter((u) => u.documentId !== undefined);
   const reading = uploads.filter((u) => u.documentId === undefined && u.error === undefined).length;
   const failed = uploads.filter((u) => u.error !== undefined).length;
-  const pages = ready.reduce((n, u) => n + (u.pageCount ?? 0), 0);
+  const pages = uploads.reduce((n, u) => n + (u.error === undefined ? (u.pageCount ?? u.localPages ?? 0) : 0), 0);
   const chosen = presets.filter((p) => selected.has(p.id));
   const missingKey = chosen.some((p) => !p.hosted && !keys[p.provider]);
   const overLimit = pages > MAX_PAGES_PER_RUN;
@@ -489,7 +518,7 @@ export const Landing = () => {
         <section className="su-sec">
           <div>
             <div className="su-sec-title">Documents</div>
-            <div className="su-sec-meta">PDF, DOCX or PPTX. Up to {MAX_PAGES_PER_RUN.toLocaleString("en-US")} pages.</div>
+            <div className="su-sec-meta">PDF, DOCX or PPTX. Up to {MAX_PAGES_PER_RUN.toLocaleString("en-US")} pages per run.</div>
           </div>
           <div className="su-fields">
             <div>
@@ -566,7 +595,15 @@ export const Landing = () => {
                         <span key={u.id} className="sf-chip" title={u.error}>
                           <span className="sf-chip-n" style={u.error ? { color: "var(--carmine-600)" } : undefined}>
                             {u.name}
-                            {u.error ? " · failed" : u.pageCount === undefined ? " · reading" : ""}
+                            {u.error
+                              ? ` · ${u.error}`
+                              : u.documentId !== undefined
+                                ? ""
+                                : u.sent === undefined
+                                  ? " · counting pages"
+                                  : u.sent < 1
+                                    ? ` · uploading ${Math.round(u.sent * 100)}%`
+                                    : " · reading"}
                           </span>
                           <button
                             className="sf-x"

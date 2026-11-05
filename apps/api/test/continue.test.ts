@@ -114,9 +114,14 @@ describe("continueRun", () => {
 
     // The woken workflow summarizes; skipped parses are not failures of the parser.
     await Effect.runPromise(summarizeRun(env, "r1"));
-    const summary = JSON.parse(run().summary ?? "null") as { presets: Array<{ presetId: string; failedPages: number }> };
+    const summary = JSON.parse(run().summary ?? "null") as {
+      skippedPages: number;
+      presets: Array<{ presetId: string; failedPages: number; skippedPages: number }>;
+    };
     expect(run().status).toBe("succeeded");
-    expect(summary.presets.find((p) => p.presetId === "b")?.failedPages).toBe(0);
+    expect(summary.presets.find((p) => p.presetId === "b")).toMatchObject({ failedPages: 0, skippedPages: 1 });
+    // The report must say a page was skipped instead of looking complete.
+    expect(summary.skippedPages).toBe(1);
 
     // Idempotent.
     expect(await Effect.runPromise(continueRun(env, "r1"))).toEqual({ skipped: 0 });

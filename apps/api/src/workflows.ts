@@ -52,6 +52,9 @@ const JUDGE_RETRY: WorkflowStepConfig = {
 const MUST: WorkflowStepConfig = { retries: { limit: 10, delay: "5 seconds", backoff: "exponential" }, timeout: "5 minutes" };
 
 const PAGES_TIMEOUT = "6 hours";
+/** How long a page waits for a slot wake-up before it asks the pool again, and how many times (24 hours in all). */
+const SLOT_WAIT = "5 minutes";
+const SLOT_ROUNDS = 288;
 
 /** Instance already exists: a retried fan-out step created it on an earlier attempt. */
 const INSTANCE_EXISTS = 10405;
@@ -503,7 +506,25 @@ export class PageWorkflow extends WorkflowEntrypoint<Env, PageWorkflowParams> {
       );
       let grantedAt = requested.at;
       if (!requested.granted) {
-        yield* attempt(`slot ${label}`, () => step.waitForEvent(`slot ${label}`, { type: waiter.event, timeout: "24 hours" }));
+        // A lost wake-up must not strand the page: after each timeout, ask the pool again. It answers granted when
+        // the slot was given to this waiter, keeps the waiter's place when it is still queued, and re-queues it when
+        // it was dropped.
+        for (let round = 0; ; round++) {
+          const suffix = round === 0 ? "" : ` ${round}`;
+          const woken = yield* attempt(`slot ${label}${suffix}`, () =>
+            step.waitForEvent(`slot ${label}${suffix}`, { type: waiter.event, timeout: SLOT_WAIT }),
+          ).pipe(
+            Effect.as(true),
+            Effect.catchTag("StepFailed", (error) => (round + 1 < SLOT_ROUNDS ? Effect.succeed(false) : Effect.fail(error))),
+          );
+          if (woken) break;
+          const again = yield* attempt(`reacquire ${label} ${round + 1}`, () =>
+            step.do(`reacquire ${label} ${round + 1}`, RETRY, () =>
+              runStep(storage(() => slots(env, pool.name).acquire(pool.limit, waiter))),
+            ),
+          );
+          if (again) break;
+        }
         grantedAt = yield* attempt(`granted ${label}`, () => step.do(`granted ${label}`, () => Promise.resolve(Date.now())));
       }
       return yield* body(grantedAt - requested.at);

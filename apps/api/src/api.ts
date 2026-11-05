@@ -72,12 +72,14 @@ const Interval = Schema.Struct({ low: Schema.Number, high: Schema.Number });
 
 /** Mirrors `RunSummary` in @parsejudge/core. */
 const RunSummary = Schema.Struct({
+  skippedPages: Schema.optional(Schema.Number),
   presets: Schema.Array(
     Schema.Struct({
       presetId: Schema.String,
       label: Schema.String,
       pages: Schema.Number,
       failedPages: Schema.Number,
+      skippedPages: Schema.optional(Schema.Number),
       meanScore: Schema.NullOr(Schema.Number),
       medianScore: Schema.NullOr(Schema.Number),
       highSeverityRate: Schema.NullOr(Schema.Number),

@@ -24,6 +24,8 @@ export interface PresetSummary {
   readonly label: string;
   readonly pages: number;
   readonly failedPages: number;
+  /** Parses the owner skipped with Continue. They are not results, so no score or head-to-head counts them. */
+  readonly skippedPages: number;
   readonly meanScore: number | null;
   readonly medianScore: number | null;
   /** Share of judged pages with at least one high-severity error, with a Wilson 95% interval. */
@@ -55,6 +57,8 @@ export interface TradeoffPoint {
 
 export interface RunSummary {
   readonly presets: ReadonlyArray<PresetSummary>;
+  /** Pages with at least one parse or verdict skipped with Continue. */
+  readonly skippedPages: number;
   readonly headToHead: ReadonlyArray<HeadToHead>;
   readonly tradeoff: ReadonlyArray<TradeoffPoint>;
 }
@@ -87,7 +91,7 @@ const observedCost = (results: ReadonlyArray<PageResult>): number | null => {
   return succeeded.length > 0 && reported.length === succeeded.length ? mean(reported) : null;
 };
 
-const summarizePreset = (presetId: string, results: ReadonlyArray<PageResult>): PresetSummary => {
+const summarizePreset = (presetId: string, results: ReadonlyArray<PageResult>, skippedPages: number): PresetSummary => {
   const verdicts = results.flatMap((result) => (result.verdict === undefined ? [] : [result.verdict]));
   const scores = verdicts.map((verdict) => verdict.score);
   const withHigh = verdicts.filter((verdict) => verdict.errors.some((error) => error.severity === "high")).length;
@@ -101,6 +105,7 @@ const summarizePreset = (presetId: string, results: ReadonlyArray<PageResult>): 
     label: findPreset(presetId)?.label ?? presetId,
     pages: results.length,
     failedPages: results.filter((result) => result.status === "failed").length,
+    skippedPages,
     meanScore: mean(scores),
     medianScore: quantile(scores, 0.5),
     highSeverityRate: verdicts.length === 0 ? null : withHigh / verdicts.length,
@@ -161,13 +166,20 @@ const tradeoff = (presets: ReadonlyArray<PresetSummary>): Array<TradeoffPoint> =
     .sort((a, b) => a.listPriceUsdPerPage - b.listPriceUsdPerPage);
 };
 
-export const summarize = (results: ReadonlyArray<PageResult>): RunSummary => {
-  const presetIds = [...new Set(results.map((result) => result.presetId))];
+/** What Continue skipped: the preset of each skipped parse, and the number of pages with anything skipped. */
+export interface Skipped {
+  readonly parses: ReadonlyArray<string>;
+  readonly pages: number;
+}
+
+export const summarize = (results: ReadonlyArray<PageResult>, skipped: Skipped = { parses: [], pages: 0 }): RunSummary => {
+  const presetIds = [...new Set([...results.map((result) => result.presetId), ...skipped.parses])];
   const presets = presetIds.map((id) =>
     summarizePreset(
       id,
       results.filter((result) => result.presetId === id),
+      skipped.parses.filter((presetId) => presetId === id).length,
     ),
   );
-  return { presets, headToHead: headToHead(presetIds, results), tradeoff: tradeoff(presets) };
+  return { presets, skippedPages: skipped.pages, headToHead: headToHead(presetIds, results), tradeoff: tradeoff(presets) };
 };

@@ -30,6 +30,9 @@ const COLUMNS: ReadonlyArray<{ readonly key: SortKey; readonly label: string; re
 /** Mean score at the precision the table shows, so rows that read the same count as a tie. */
 const shown = (score: number | null) => (score === null ? -1 : Math.round(score * 10));
 /** Tie-break: lower p50 latency first, unknown latency last. */
+/** Failed parses plus parses skipped with Continue: neither produced a result. */
+const failedOf = (p: PresetSummary) => p.failedPages + (p.skippedPages ?? 0);
+
 const fastest = (a: PresetSummary, b: PresetSummary) =>
   (a.latencyMsP50 ?? Number.POSITIVE_INFINITY) - (b.latencyMsP50 ?? Number.POSITIVE_INFINITY);
 
@@ -69,6 +72,7 @@ export const Report = ({
 
   const contentHidden = !run.owned && !run.shareContent;
   const gone = run.dataDeletedAt !== null;
+  const skipped = run.summary?.skippedPages ?? 0;
   const pages = useMemo(() => {
     const cell = new Map(run.scores.map((s) => [`${s.pageId}:${s.presetId}`, s]));
     return run.documents.flatMap((d) =>
@@ -117,7 +121,7 @@ export const Report = ({
               ? p.listPriceUsdPerPage
               : sort.key === "latency"
                 ? p.latencyMsP50
-                : p.failedPages;
+                : failedOf(p);
     return [...ranked].sort((a, b) => {
       const x = value(a);
       const y = value(b);
@@ -208,6 +212,7 @@ export const Report = ({
           <div className="pg-meta">
             {date} · {run.documentCount} documents · {run.pageCount} pages · {run.presetIds.length} providers
             {gone && ` · documents deleted ${new Date(run.dataDeletedAt ?? 0).toLocaleDateString("en-US")}`}
+            {skipped > 0 && ` · ${skipped} ${skipped === 1 ? "page" : "pages"} skipped`}
             {contentHidden && " · scores only"}
           </div>
         </div>
@@ -265,7 +270,7 @@ export const Report = ({
                 <div className="num soft">
                   {secs(p.latencyMsP50)} · {secs(p.latencyMsP95)} s
                 </div>
-                <div className="num soft">{p.failedPages}</div>
+                <div className="num soft">{failedOf(p)}</div>
               </div>
             );
           })}

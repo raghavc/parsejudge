@@ -18,6 +18,7 @@ export interface PresetSummary {
   readonly label: string;
   readonly pages: number;
   readonly failedPages: number;
+  readonly skippedPages?: number;
   readonly meanScore: number | null;
   readonly medianScore: number | null;
   readonly highSeverityRate: number | null;
@@ -31,6 +32,7 @@ export interface PresetSummary {
 
 export interface RunSummary {
   readonly presets: ReadonlyArray<PresetSummary>;
+  readonly skippedPages?: number;
   readonly headToHead: ReadonlyArray<{ presetId: string; opponentId: string; wins: number; ties: number; losses: number }>;
   readonly tradeoff: ReadonlyArray<{ presetId: string; listPriceUsdPerPage: number; meanScore: number; pareto: boolean }>;
 }
@@ -244,12 +246,30 @@ export const api = {
       body: JSON.stringify({ title }),
     }).then(ok),
   presets: () => fetch("/v1/presets").then(json<ReadonlyArray<Preset>>),
-  upload: (file: File) =>
-    fetch(`/v1/documents?filename=${encodeURIComponent(file.name)}`, {
-      method: "POST",
-      headers: { "content-type": file.type || "application/octet-stream" },
-      body: file,
-    }).then(json<{ documentId: string; pageCount: number }>),
+  /** XHR, not fetch, for upload progress. `onProgress` gets the share of bytes sent, 0 to 1. */
+  upload: (file: File, onProgress: (sent: number) => void) =>
+    new Promise<{ documentId: string; pageCount: number }>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", `/v1/documents?filename=${encodeURIComponent(file.name)}`);
+      xhr.setRequestHeader("content-type", file.type || "application/octet-stream");
+      xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
+      xhr.onerror = () => reject(new Error("Upload failed. Check your connection and retry."));
+      xhr.onload = () => {
+        const body = (() => {
+          try {
+            return JSON.parse(xhr.responseText) as { documentId: string; pageCount: number; error?: string };
+          } catch {
+            return null;
+          }
+        })();
+        if (xhr.status >= 200 && xhr.status < 300 && body !== null) resolve(body);
+        else if (body?.error) reject(new Error(body.error));
+        // Cloudflare answers 413 (body too large) and 503 (Worker out of memory) without our JSON.
+        else if (xhr.status === 413 || xhr.status === 503) reject(new Error("File is too large to process."));
+        else reject(new Error(`Upload failed (${xhr.status}).`));
+      };
+      xhr.send(file);
+    }),
   createRun: (body: {
     documentIds: ReadonlyArray<string>;
     presetIds: ReadonlyArray<string>;
