@@ -1,0 +1,20 @@
+{
+  "pages": [
+    {
+      "index": 0,
+      "type": "markdown",
+      "markdown": {
+        "content": "# W-9\nForm\n(Rev. March 2024)\nDepartment of the Treasury\nInternal Revenue Service\n\n# Request for Taxpayer Identification Number and Certification\n\nGo to www.irs.gov/FormW9 for instructions and the latest information.\n\nGive form to the requester. Do not send to the IRS.\n\n**Before you begin.** For guidance related to the purpose of Form W-9, see *Purpose of Form*, below.\n\n1 Name of entity/individual. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . ."
+      }
+    }
+  ],
+  "meta": {
+    "api_version": {
+      "version": "2"
+    },
+    "billed_units": {
+      "pages": 1
+    }
+  },
+  "finish_reason": "MAX_TOKENS"
+}

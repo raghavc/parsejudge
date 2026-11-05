@@ -1,0 +1,33 @@
+{
+  "name": "@parsejudge/web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "check": "tsc -p ."
+  },
+  "dependencies": {
+    "@parsejudge/core": "workspace:*",
+    "d3-array": "^3.2.4",
+    "d3-random": "^3.0.1",
+    "d3-scale": "^4.0.2",
+    "d3-shape": "^3.2.0",
+    "dompurify": "^3.4.17",
+    "marked": "^18.1.2",
+    "pdf-lib": "^1.17.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@types/d3-array": "^3.2.2",
+    "@types/d3-random": "^3.0.4",
+    "@types/d3-scale": "^4.0.9",
+    "@types/d3-shape": "^3.2.0",
+    "@types/node": "^24.19.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "vite": "^8.3.5"
+  }
+}

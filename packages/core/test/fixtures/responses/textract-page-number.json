@@ -1,0 +1,50 @@
+{
+  "Blocks": [
+    {
+      "BlockType": "PAGE",
+      "Id": "54935276-2407-43df-a166-0e854fff8020",
+      "Relationships": [
+        { "Type": "CHILD", "Ids": ["05990136-11fa-4fc8-ab9b-ba2568935ebd", "0ada2658-d049-43b8-9f4c-62dd8a1c25b7"] }
+      ]
+    },
+    {
+      "BlockType": "LINE",
+      "Id": "34a7a869-d14a-488f-9e77-8037113b9841",
+      "Relationships": [
+        {
+          "Ids": [
+            "16587202-edc1-4928-b15c-eee005626ad3",
+            "391ed465-1028-4acd-8115-6f1d2a1655f1",
+            "d8a90c19-8c27-4cb7-a42a-66690cf69b24",
+            "07a40cf5-d693-4f61-aa78-6bca97ed052a",
+            "8ce945b9-abc8-45aa-8539-8c10c509e691"
+          ],
+          "Type": "CHILD"
+        }
+      ],
+      "Text": "MONETARY POLICY REPORT: JULY 2024"
+    },
+    {
+      "BlockType": "LINE",
+      "Id": "7e7645c8-096e-4810-a921-283f4c5cc262",
+      "Relationships": [{ "Ids": ["e5e622db-7b40-4aa9-b35f-5920bb9eadec"], "Type": "CHILD" }],
+      "Text": "47"
+    },
+    { "BlockType": "WORD", "Id": "16587202-edc1-4928-b15c-eee005626ad3", "Text": "MONETARY", "TextType": "PRINTED" },
+    { "BlockType": "WORD", "Id": "391ed465-1028-4acd-8115-6f1d2a1655f1", "Text": "POLICY", "TextType": "PRINTED" },
+    { "BlockType": "WORD", "Id": "d8a90c19-8c27-4cb7-a42a-66690cf69b24", "Text": "REPORT:", "TextType": "PRINTED" },
+    { "BlockType": "WORD", "Id": "07a40cf5-d693-4f61-aa78-6bca97ed052a", "Text": "JULY", "TextType": "PRINTED" },
+    { "BlockType": "WORD", "Id": "8ce945b9-abc8-45aa-8539-8c10c509e691", "Text": "2024", "TextType": "PRINTED" },
+    { "BlockType": "WORD", "Id": "e5e622db-7b40-4aa9-b35f-5920bb9eadec", "Text": "47", "TextType": "PRINTED" },
+    {
+      "BlockType": "LAYOUT_HEADER",
+      "Id": "05990136-11fa-4fc8-ab9b-ba2568935ebd",
+      "Relationships": [{ "Ids": ["34a7a869-d14a-488f-9e77-8037113b9841"], "Type": "CHILD" }]
+    },
+    {
+      "BlockType": "LAYOUT_PAGE_NUMBER",
+      "Id": "0ada2658-d049-43b8-9f4c-62dd8a1c25b7",
+      "Relationships": [{ "Ids": ["7e7645c8-096e-4810-a921-283f4c5cc262"], "Type": "CHILD" }]
+    }
+  ]
+}
