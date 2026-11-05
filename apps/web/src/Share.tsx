@@ -86,6 +86,7 @@ export const ShareDialog = ({
       {owned && (
         <div className="sh-field">
           <span className="field-label">Who can open</span>
+          {/* biome-ignore lint/a11y/useSemanticElements: a fieldset breaks the .mode-seg flex layout; the group role names the segment. */}
           <div className="mode-seg lg sh-seg" role="group" aria-label="Who can open">
             {OPTIONS.map((o) => (
               <button

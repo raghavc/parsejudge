@@ -371,7 +371,6 @@ export const Landing = () => {
   const chosen = presets.filter((p) => selected.has(p.id));
   const missingKey = chosen.some((p) => !p.hosted && !keys[p.provider]);
   const overLimit = pages > MAX_PAGES_PER_RUN;
-  const cost = chosen.reduce((n, p) => n + p.listPriceUsdPerPage * pages, 0);
   const namesKey = uploads
     .filter((u) => u.error === undefined)
     .map((u) => u.name)
@@ -390,13 +389,6 @@ export const Landing = () => {
   }, [namesKey]);
   const suggested = titleFor?.key === ready.map((u) => u.name).join("\n") ? (titleFor.title ?? undefined) : undefined;
   const title = suggested;
-
-  const [bump, setBump] = useState(0);
-  const lastCost = useRef(cost);
-  useEffect(() => {
-    if (lastCost.current !== cost) setBump((b) => b + 1);
-    lastCost.current = cost;
-  }, [cost]);
 
   const start = async () => {
     if (currentUser() === null) {
@@ -437,6 +429,19 @@ export const Landing = () => {
       askKey={askKey}
     />
   );
+  const plural = (n: number, one: string) => `${n.toLocaleString("en-US")} ${one}${n === 1 ? "" : "s"}`;
+  const keyless = chosen.find((p) => !p.hosted && !keys[p.provider]);
+  /* why Start is grey, or what the run holds once it can start */
+  const status =
+    reading > 0
+      ? `Uploading ${ready.length} of ${ready.length + reading} files…`
+      : ready.length === 0
+        ? "Add documents to start"
+        : chosen.length === 0
+          ? "Pick at least one provider"
+          : keyless
+            ? `Add your ${keyless.provider} API key`
+            : `${plural(ready.length, "document")} · ${plural(pages, "page")}`;
   const problem = overLimit
     ? `${pages.toLocaleString("en-US")} pages selected. The limit is ${MAX_PAGES_PER_RUN.toLocaleString("en-US")} per run.`
     : error;
@@ -601,12 +606,10 @@ export const Landing = () => {
         <section className="su-sec su-run" aria-label="Run summary">
           <div />
           <div className="su-run-in">
-            <div className="su-stat">
-              <span key={bump} className={`n${bump ? " bump" : ""}`}>
-                ${cost.toFixed(2)}
-              </span>
-              <span className="l">Estimated cost</span>
-            </div>
+            <span className="su-note">
+              {reading > 0 && <span className="spin" />}
+              {status}
+            </span>
             <span className="sp" />
             {problem && <span className="su-run-err">{problem}</span>}
             <button

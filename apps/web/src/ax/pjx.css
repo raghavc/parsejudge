@@ -297,6 +297,7 @@
   --dur-fade: 0.22s;
   --dur-move: 0.34s;
   --dur-glide: 0.42s;
+  --dur-zoom: 0.28s;
   --dur-hero: 0.58s;
 
   --rise-pop: 4px;
@@ -754,6 +755,7 @@
     --dur-fade: 0.01ms;
     --dur-move: 0.01ms;
     --dur-glide: 0.01ms;
+    --dur-zoom: 0.01ms;
     --dur-hero: 0.01ms;
     --rise-pop: 0px;
     --rise-in: 0px;
@@ -3339,35 +3341,18 @@
   height: 34px;
   padding: 0 14px;
 }
-.pjx .su-stat {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
+.pjx .su-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   min-width: 0;
-}
-.pjx .su-stat .n {
-  font-size: 15px;
-  color: var(--text-primary);
+  font-size: 13px;
+  color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
-}
-.pjx .su-stat .l {
-  font-size: 11.5px;
-  color: var(--text-tertiary);
-  white-space: nowrap;
 }
 .pjx .su-run .sp {
   flex: 1;
 }
-.pjx .su-run .n.bump {
-  animation: bump var(--dur-move) var(--ease-out);
-}
-@keyframes bump {
-  30% {
-    transform: translateY(-2px);
-    color: var(--grey-950);
-  }
-}
-
 /* ============================================================
    RUN REPORT (evaluate-results.html)
    ============================================================ */
@@ -5761,7 +5746,7 @@
   border: 0.5px solid var(--grey-300);
   border-radius: 7px;
   background: var(--grey-50);
-  font: 12px/30px var(--mono);
+  font: 12px / 30px var(--mono);
   color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -5787,4 +5772,148 @@
 }
 .pjx .modal .switch.on::after {
   transform: translateX(12px);
+}
+
+/* section heads are one line: heads, counts and chips truncate, controls keep their size */
+.pjx .rp-sec-h {
+  min-width: 0;
+}
+.pjx .rp-sec-h > * {
+  flex-shrink: 0;
+}
+.pjx .rp-sec-h h2,
+.pjx .rp-sec-h .rp-count {
+  flex-shrink: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pjx #dgFocus,
+.pjx #dgZoom {
+  flex-shrink: 100;
+  min-width: 0;
+  display: flex;
+}
+.pjx #dgFocus:empty,
+.pjx #dgZoom:empty,
+.pjx #dgCount:empty {
+  display: none;
+}
+.pjx .dg-focus {
+  min-width: 0;
+  max-width: 100%;
+}
+.pjx .dg-focus .t {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pjx .dg-focus .sf-x {
+  flex-shrink: 0;
+}
+/* binned (benchmark scale, .is-dense): a column is a run of pages, dots are bin means */
+.pjx .dg-svg .gs-l {
+  font-size: 10px;
+}
+.pjx .dg-svg.is-dense.has-focus .dg-bg .qb {
+  opacity: 0;
+}
+/* the gap track: stacked bars, 5+ darkest at the base; buckets under the gap filter step back */
+.pjx .dg-col .gt-s {
+  transition:
+    fill var(--dur-fade) var(--ease-standard),
+    opacity var(--dur-fade) var(--ease-standard);
+}
+.pjx .dg-col .gt-s[data-b="5"] {
+  fill: var(--grey-900);
+}
+.pjx .dg-col .gt-s[data-b="3"] {
+  fill: var(--grey-500);
+}
+.pjx .dg-col .gt-s[data-b="2"] {
+  fill: var(--grey-300);
+}
+.pjx .dg-col .gt-s[data-b="1"] {
+  fill: var(--grey-200);
+}
+.pjx .dg-svg[data-thr="3"] .gt-s[data-b="2"],
+.pjx .dg-svg[data-thr="5"] .gt-s[data-b="2"],
+.pjx .dg-svg[data-thr="5"] .gt-s[data-b="3"],
+.pjx .dg-svg[data-thr="2"] .gt-s[data-b="1"],
+.pjx .dg-svg[data-thr="3"] .gt-s[data-b="1"],
+.pjx .dg-svg[data-thr="5"] .gt-s[data-b="1"] {
+  fill: var(--grey-100);
+}
+.pjx .dg-col.is-out .gt {
+  opacity: 0.3;
+}
+.pjx .dg-svg.is-dense .dg-col .pt {
+  stroke-width: 0;
+}
+.pjx .dg-svg.is-dense:not(.is-line) .dg-col .rng {
+  fill: var(--grey-200);
+}
+.pjx .dg-svg.is-dense .dg-col:hover .pt,
+.pjx .dg-svg.is-dense .dg-col.is-sel .pt,
+.pjx .dg-svg.is-dense .dg-col.is-kb .pt {
+  transform: scale(1.25);
+}
+.pjx .dg-svg.is-dense.is-line .dg-col .pt {
+  opacity: 0;
+}
+.pjx .dg-svg.is-dense.is-line .dg-col:hover .pt,
+.pjx .dg-svg.is-dense.is-line .dg-col.is-sel .pt,
+.pjx .dg-svg.is-dense.is-line .dg-col.is-kb .pt {
+  opacity: 1;
+}
+.pjx .dg-svg.is-dense.is-line.has-focus .dg-col:not(.is-out) .pt {
+  opacity: 0.9;
+}
+.pjx .dg-svg.is-dense .dg-bg .hov {
+  rx: 1;
+}
+.pjx .dg-ax text {
+  pointer-events: none;
+}
+/* a bin expands into its pages on click; the set's chip: ‹ label › × */
+.pjx .dg-svg.is-dense .dg-col {
+  cursor: zoom-in;
+}
+.pjx .dg-zoom {
+  padding: 0 2px;
+  gap: 2px;
+}
+.pjx .dg-zoom .t {
+  padding: 0 4px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.pjx .dg-zoom .sf-x {
+  width: 20px;
+  height: 20px;
+}
+.pjx .dg-zoom .sf-x svg {
+  width: 12px;
+  height: 12px;
+}
+.pjx .dg-zoom .sf-x:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+/* the stretch between the run and a set: the previous chart rides on as a ghost clipped to the plot */
+.pjx .dg-wrap {
+  position: relative;
+}
+.pjx .dg-ghost {
+  position: absolute;
+  top: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 1;
+}
+.pjx .dg-ghost svg {
+  display: block;
+  will-change: transform, opacity;
 }

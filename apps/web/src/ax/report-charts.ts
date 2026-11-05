@@ -279,15 +279,37 @@ export const mountReport = (root: HTMLElement, R: ReportData): (() => void) => {
     kbMode: boolean;
     view: "range" | "line" | "area";
     sort: "page" | "gap";
-  } = { thr: 0, focus: null, emph: null, sel: -1, kb: -1, kbMode: false, view: "line", sort: "gap" };
+    zoom: { a: number; b: number } | null;
+  } = { thr: 0, focus: null, emph: null, sel: -1, kb: -1, kbMode: false, view: "line", sort: "gap", zoom: null };
   const VIEWS: ReadonlyArray<[typeof st.view, string, string]> = [
     ["range", "chart-candlestick", "Range"],
     ["line", "chart-line", "Lines"],
     ["area", "chart-area", "Distribution"],
   ];
   let lines: SVGElement[] = [];
-  type Col = { g: SVGElement; bg: SVGElement; pg: PageRow; pts: SVGElement[]; cx: number };
-  let geo: { W: number; H: number; slot: number } | null = null;
+  type BinStats = { mean: Record<string, number | null>; hi: number; lo: number; rep: PageRow };
+  type Col = {
+    g: SVGElement;
+    bg: SVGElement;
+    pg: PageRow;
+    pages: ReadonlyArray<PageRow>;
+    stats: BinStats;
+    pts: SVGElement[];
+    cx: number;
+    rng: SVGElement | null;
+  };
+  let geo: {
+    W: number;
+    H: number;
+    m: { l: number; r: number; t: number; b: number };
+    slot: number;
+    sy: (v: number) => number;
+    dense: boolean;
+    CAP: number;
+    plotW: number;
+    view: ReadonlyArray<PageRow>;
+  } | null = null;
+  let binOf = new Map<PageRow, number>();
   let cols: Col[] = [];
   let band: SVGElement | null = null;
 
@@ -353,10 +375,16 @@ export const mountReport = (root: HTMLElement, R: ReportData): (() => void) => {
         sortSeg();
         close();
         hideTip();
+        ORDER = st.sort === "gap" ? BY_GAP.slice() : P.slice();
+        /* binned, the bins regroup: rebuild instead of sliding columns */
+        if (st.zoom || geo?.dense) {
+          st.zoom = null;
+          build(true);
+          return;
+        }
         /* FLIP: remember each page's x, rebuild in the new order, slide every column home */
         const was: Record<string, number> = {};
         for (const c of cols) was[c.pg.id] = c.cx;
-        ORDER = st.sort === "gap" ? BY_GAP.slice() : P.slice();
         build(false);
         const svg = $("dgWrap").querySelector("svg") as SVGSVGElement;
         for (const c of cols)
@@ -398,10 +426,33 @@ export const mountReport = (root: HTMLElement, R: ReportData): (() => void) => {
       ? `<span class="dg-focus">${esc(f.label)} · ${f.ids.size}<button class="sf-x" type="button" aria-label="Clear">${icon("x")}</button></span>`
       : "";
     if (f) ($("dgFocus").querySelector(".sf-x") as HTMLButtonElement).onclick = () => setFocus(null);
-    apply();
+    /* binned, a focus recomputes each bin over its focused pages */
+    if (geo?.dense && st.view !== "area") {
+      close();
+      build(false);
+    } else apply();
   }
 
   const scored = (pg: PageRow) => E.filter((e) => score(pg, e.id) !== null);
+  /* ---------- the range / line chart, at any page count ----------
+     While a page gets at least 6px every page is its own column. Past that (benchmarks
+     run 500-2k pages; Ammar 2026-11-04) consecutive pages in the current order share a
+     column, a BIN of a round size: each provider's dot is its mean over the bin, the rod
+     spans the provider means, and the gap track under the plot shows how many of the
+     bin's pages disagree. Clicking a bin expands it into its own pages. */
+  const BIN_PX = { range: 14, line: 12 } as const;
+  function binStats(pages: ReadonlyArray<PageRow>): BinStats {
+    const use = st.focus ? pages.filter(inFocus) : pages;
+    const src = use.length ? use : pages;
+    const mean: Record<string, number | null> = {};
+    for (const e of E) {
+      const ss = src.map((p) => score(p, e.id)).filter((s): s is number => s !== null);
+      mean[e.id] = ss.length ? ss.reduce((a, s) => a + s, 0) / ss.length : null;
+    }
+    const ms = Object.values(mean).filter((v): v is number => v !== null);
+    const rep = src.slice().sort((a, b) => b.gap - a.gap || a.mean - b.mean)[0] as PageRow;
+    return { mean, hi: ms.length ? Math.max(...ms) : 10, lo: ms.length ? Math.min(...ms) : 10, rep };
+  }
   function build(animate: boolean) {
     if (st.view === "area") {
       buildArea(animate);
@@ -417,17 +468,36 @@ export const mountReport = (root: HTMLElement, R: ReportData): (() => void) => {
     area = null;
     const isLine = st.view === "line";
     const W = Math.max(480, host.clientWidth);
-    const H = 296;
-    const m = { l: 42, r: 4, t: 10, b: 38 };
-    const n = ORDER.length;
-    const slot = (W - m.l - m.r) / Math.max(1, n);
-    const lo = Math.max(0, Math.min(10, ...P.map((p) => p.min)) - 1);
+    const H = 330;
+    const m = { l: 42, r: 4, t: 10, b: 72 };
+    const plotW = W - m.l - m.r;
+    const view = st.zoom ? ORDER.slice(st.zoom.a, st.zoom.b) : ORDER;
+    const N = view.length;
+    const dense = N * 6 > plotW;
+    /* bins hold a round number of pages (5, 10, 20…), the smallest that fits the width */
+    const maxBins = Math.max(1, Math.floor(plotW / BIN_PX[isLine ? "line" : "range"]));
+    const size = dense
+      ? ([2, 5, 10, 20, 50, 100, 200, 500, 1000].find((z) => Math.ceil(N / z) <= maxBins) ?? Math.ceil(N / maxBins))
+      : 1;
+    const nb = Math.max(1, Math.ceil(N / size));
+    const CAP = nb * size;
+    const slot = plotW / nb;
+    const groups = Array.from({ length: nb }, (_, b) => view.slice(b * size, (b + 1) * size));
+    binOf = new Map();
+    groups.forEach((g, b) => {
+      for (const pg of g) binOf.set(pg, b);
+    });
+    const stats = groups.map(binStats);
+    /* the axis fits what is drawn: single pages by their scores, bins by their means */
+    const lo = dense
+      ? Math.max(0, Math.floor(Math.min(10, ...stats.map((x) => x.lo))) - 1)
+      : Math.max(0, Math.min(10, ...P.map((p) => p.min)) - 1);
     const sy = (v: number) => m.t + ((10 - v) / (10 - lo)) * (H - m.t - m.b);
-    geo = { W, H, slot };
+    geo = { W, H, m, slot, sy, dense, CAP, plotW, view };
     const svg = svgEl(
       "svg",
       {
-        class: `chart dg-svg${isLine ? " is-line" : ""}${st.sort === "page" ? " by-page" : ""}${animate ? " is-pre" : ""}`,
+        class: `chart dg-svg${isLine ? " is-line" : ""}${dense ? " is-dense" : ""}${st.sort === "page" ? " by-page" : ""}${animate ? " is-pre" : ""}`,
         width: W,
         height: H,
         viewBox: `0 0 ${W} ${H}`,
@@ -442,69 +512,140 @@ export const mountReport = (root: HTMLElement, R: ReportData): (() => void) => {
       if ((v - lo) % (10 - lo > 6 ? 2 : 1) === 0 || v === 10)
         svgEl("text", { class: "ax", x: m.l - 8, y: sy(v) + 4, "text-anchor": "end" }, svg).textContent = String(v);
     }
+    const TH = 24;
+    const trackBase = H - m.b + 8 + TH;
+    const axY = trackBase + 15;
+    svgEl("text", { class: "ax gs-l", x: m.l - 8, y: H - m.b + 25, "text-anchor": "end" }, svg).textContent = "Gap";
+    /* everything that moves when a set stretches open sits in one layer clipped to the plot */
+    const cp = svgEl("clipPath", { id: "dgClip" }, svgEl("defs", {}, svg));
+    svgEl("rect", { x: m.l - 6, y: 0, width: plotW + 10 + m.r, height: H }, cp);
+    const plotLayer = svgEl("g", { "clip-path": "url(#dgClip)" }, svg);
     /* column washes live in their own layer UNDER the lines; each column's marks sit above */
-    const bgLayer = svgEl("g", {}, svg);
-    /* line view: one path per provider through its score on every page; a failed page breaks the line */
+    const bgLayer = svgEl("g", {}, plotLayer);
+    const yOf = (b: number, id: string) => (dense ? (stats[b]?.mean[id] ?? null) : score(groups[b]?.[0] as PageRow, id));
+    /* line view: one path per provider through its score (or bin mean); a gap breaks the line */
     lines = isLine
       ? E.map((e) => {
           let d = "";
           let pen = false;
-          ORDER.forEach((pg, i) => {
-            const s = score(pg, e.id);
+          groups.forEach((_, b) => {
+            const s = yOf(b, e.id);
             if (s === null) {
               pen = false;
               return;
             }
-            d += `${pen ? "L" : "M"}${(m.l + slot * (i + 0.5)).toFixed(1)},${sy(s).toFixed(1)}`;
+            d += `${pen ? "L" : "M"}${(m.l + slot * (b + 0.5)).toFixed(1)},${sy(s).toFixed(1)}`;
             pen = true;
           });
-          return svgEl("path", { class: `dg-line s-${e.tone}`, "data-e": e.id, d, pathLength: 1 }, svg);
+          return svgEl("path", { class: `dg-line s-${e.tone}`, "data-e": e.id, d, pathLength: 1 }, plotLayer);
         })
       : [];
+    const ptR = isLine ? (dense ? 2 : 2.6) : dense ? Math.max(2, Math.min(3, slot * 0.2)) : 3.6;
+    /* the gap track: binned, a stacked bar of the share of the bin's pages at gap 5+, 3-4
+       and 2, scaled so the most disagreeing bin fills the band; a page alone, one bar as
+       tall as its gap */
+    const bucket = (gp: number) => (gp >= 5 ? 5 : gp >= 3 ? 3 : gp >= 2 ? 2 : 1);
+    const poolOf = (pages: ReadonlyArray<PageRow>) => (st.focus ? pages.filter(inFocus) : pages);
+    const shareOf = (pages: ReadonlyArray<PageRow>) => {
+      const pl = poolOf(pages);
+      return pl.length ? pl.filter((pg) => pg.gap >= 2).length / pl.length : 0;
+    };
+    const maxShare = dense ? Math.max(0.01, ...groups.map(shareOf)) : 1;
+    const maxGapAll = Math.max(1, ...P.map((pg) => pg.gap));
     /* gap order: one label per run of equal gaps, centred under the run, dropped when it would crowd the last */
-    const gapLabels = new Map<number, { x: number; gap: number }>();
+    const gapLabels: Array<{ x: number; gap: number; k: number }> = [];
     if (st.sort === "gap") {
       let start = 0;
       let lastX = Number.NEGATIVE_INFINITY;
-      ORDER.forEach((pg, i) => {
-        if (ORDER[i + 1]?.gap === pg.gap) return;
-        const x = m.l + (slot * (start + i + 1)) / 2;
+      view.forEach((pg, k) => {
+        if (view[k + 1]?.gap === pg.gap) return;
+        const x = m.l + (((start + k + 1) / 2) * plotW) / CAP;
         if (x - lastX >= 20) {
-          gapLabels.set(Math.floor((start + i) / 2), { x, gap: pg.gap });
+          gapLabels.push({ x, gap: pg.gap, k: Math.floor((start + k) / 2) });
           lastX = x;
         }
-        start = i + 1;
+        start = k + 1;
       });
     }
-    cols = ORDER.map((pg, i) => {
-      const cx = m.l + slot * (i + 0.5);
-      const g = svgEl("g", { class: "dg-col", "data-i": i, style: `--d:${animate ? Math.min(i * 12, 520) : 0}ms` }, svg);
+    cols = groups.map((pages, b) => {
+      const cx = m.l + slot * (b + 0.5);
+      const S = stats[b] as BinStats;
+      const first = pages[0] as PageRow;
+      const g = svgEl(
+        "g",
+        { class: "dg-col", "data-i": b, style: `--d:${animate ? Math.min(b * (dense ? 3 : 12), 520) : 0}ms` },
+        plotLayer,
+      );
       const bg = svgEl("g", { class: "dg-bg" }, bgLayer);
       svgEl("rect", { class: "qb", x: cx - slot / 2, y: m.t - 4, width: slot, height: H - m.t - m.b + 4 }, bg);
       svgEl(
         "rect",
-        { class: "hov", x: cx - slot / 2 + 1, y: m.t - 4, width: Math.max(2, slot - 2), height: H - m.t - m.b + 4, rx: 3 },
+        {
+          class: "hov",
+          x: cx - slot / 2 + (dense ? 0 : 1),
+          y: m.t - 4,
+          width: Math.max(2, slot - (dense ? 0 : 2)),
+          height: H - m.t - m.b + 4,
+          rx: dense ? 1 : 3,
+        },
         bg,
       );
-      const y1 = sy(pg.max);
-      const y2 = sy(pg.min);
-      /* the rod runs dot centre to dot centre; every dot sits on its axis */
-      if (!isLine) svgEl("rect", { class: "rng", x: cx - 1, y: y1, width: 2, height: Math.max(0, y2 - y1), rx: 1 }, g);
-      const pts = scored(pg).map((e) =>
-        svgEl("circle", { class: `pt s-${e.tone}`, "data-e": e.id, cx, cy: sy(score(pg, e.id) ?? 0), r: isLine ? 2.6 : 3.6 }, g),
-      );
-      /* axis: the gap under each run of equal gaps when sorted by gap; page numbers at a stride in page order */
-      const pn = i + 1;
-      const stride = n > 120 ? 50 : n > 60 ? 20 : 10;
-      const gapLabel = gapLabels.get(i);
-      if (st.sort === "gap") {
-        if (gapLabel) svgEl("text", { class: "gap-l", x: gapLabel.x, y: H - m.b + 16 }, g).textContent = String(gapLabel.gap);
-      } else if (pn === 1 || pn % stride === 0 || pn === n)
-        svgEl("text", { class: "ax pg-l", x: cx, y: H - m.b + 16, "text-anchor": "middle" }, g).textContent = String(pn);
+      /* the rod runs dot centre to dot centre (in a bin: lowest to highest provider mean) */
+      const y1 = sy(dense ? S.hi : first.max);
+      const y2 = sy(dense ? S.lo : first.min);
+      const rng = isLine
+        ? null
+        : svgEl("rect", { class: "rng", x: cx - 1, y: y1, width: 2, height: Math.max(0, y2 - y1), rx: 1 }, g);
+      const pts = E.flatMap((e) => {
+        const v = yOf(b, e.id);
+        return v === null ? [] : [svgEl("circle", { class: `pt s-${e.tone}`, "data-e": e.id, cx, cy: sy(v), r: ptR }, g)];
+      });
+      const cell = svgEl("g", { class: "gt" }, g);
+      const bw = Math.max(1, Math.min(slot - (dense ? 1.5 : 6), 18));
+      if (dense) {
+        const pl = poolOf(pages);
+        let y = trackBase;
+        for (const k of [5, 3, 2]) {
+          const h = (pl.filter((pg) => bucket(pg.gap) === k).length / (pl.length || 1) / maxShare) * TH;
+          if (h <= 0) continue;
+          y -= h;
+          svgEl("rect", { class: "gt-s", "data-b": k, x: cx - bw / 2, y, width: bw, height: h }, cell);
+        }
+      } else {
+        const h = Math.max(1.5, (first.gap / maxGapAll) * TH);
+        svgEl(
+          "rect",
+          { class: "gt-s", "data-b": bucket(first.gap), x: cx - bw / 2, y: trackBase - h, width: bw, height: h, rx: 1 },
+          cell,
+        );
+        /* page numbers at a stride in page order (a zoomed set starts mid-run); gap labels under their run */
+        if (st.sort === "page") {
+          const no = pageNo(first);
+          const every = slot >= 22 ? 1 : N > 120 ? 50 : N > 60 ? 20 : 10;
+          if (b === 0 || b === N - 1 || no % every === 0)
+            svgEl("text", { class: "ax pg-l", x: cx, y: axY, "text-anchor": "middle" }, g).textContent = String(no);
+        } else {
+          const gl = gapLabels.find((l) => l.k === b);
+          if (gl) svgEl("text", { class: "gap-l", x: gl.x, y: axY }, g).textContent = String(gl.gap);
+        }
+      }
       /* hit area = the plot only, never the axes */
       svgEl("rect", { class: "hit", x: cx - slot / 2, y: m.t - 4, width: slot, height: H - m.t - m.b + 4 }, g);
-      return { g, bg, pg, pts, cx };
+      return { g, bg, pg: S.rep, pages, stats: S, pts, cx, rng };
     });
+    if (dense) {
+      const ax = svgEl("g", { class: "dg-ax" }, svg);
+      const lab = (x: number, t: number) => {
+        svgEl("text", { class: "ax pg-l", x, y: axY, "text-anchor": "middle" }, ax).textContent = String(t);
+      };
+      if (st.sort === "page") {
+        /* page numbers at a round stride that fits the width */
+        const stride = [10, 20, 50, 100, 200, 250, 500, 1000].find((t) => N / t <= plotW / 64) ?? 1000;
+        const xOf = (k: number) => m.l + ((k + 0.5) / CAP) * plotW;
+        lab(xOf(0), pageNo(view[0] as PageRow));
+        for (let k = stride - 1; k < N; k += stride) if (k > stride / 3) lab(xOf(k), pageNo(view[k] as PageRow));
+      } else for (const l of gapLabels) lab(l.x, l.gap);
+    }
     svg.addEventListener("mouseover", (e) => {
       const g = (e.target as Element).closest(".dg-col") as SVGElement | null;
       if (g) hover(Number(g.dataset.i));
@@ -517,10 +658,14 @@ export const mountReport = (root: HTMLElement, R: ReportData): (() => void) => {
       hideTip();
       for (const c of cols) c.bg.classList.remove("is-hov");
     });
+    /* a bin expands into its own pages; a single page opens its popover */
     svg.addEventListener("click", (e) => {
       const g = (e.target as Element).closest(".dg-col") as SVGElement | null;
-      if (g) openAt(Number(g.dataset.i));
+      if (!g) return;
+      if (dense) zoomTo(Number(g.dataset.i));
+      else openAt(Number(g.dataset.i));
     });
+    zoomChip();
     apply();
     if (animate)
       requestAnimationFrame(() =>
@@ -533,6 +678,7 @@ export const mountReport = (root: HTMLElement, R: ReportData): (() => void) => {
   }
   const inFocus = (pg: PageRow) => !st.focus || st.focus.ids.has(pg.id);
   const qualifies = (pg: PageRow) => (st.focus ? inFocus(pg) : pg.gap >= st.thr);
+  const colLit = (c: Col) => c.pages.some((pg) => qualifies(pg) && inFocus(pg));
   function apply() {
     if (st.view === "area") {
       applyArea();
@@ -543,22 +689,22 @@ export const mountReport = (root: HTMLElement, R: ReportData): (() => void) => {
       l.classList.toggle("is-mute", !!st.emph && l.dataset.e !== st.emph);
       l.classList.toggle("is-dim", !!st.focus);
     }
-    const q = ORDER.filter(qualifies).length;
-    band.style.width = st.sort === "gap" && !st.focus ? `${Math.max(0, q * geo.slot)}px` : "0px";
-    $("dgWrap").querySelector("svg")?.classList.toggle("has-focus", !!st.focus);
+    const q = geo.view.filter(qualifies).length;
+    band.style.width = st.sort === "gap" && !st.focus ? `${Math.max(0, (q / geo.CAP) * geo.plotW)}px` : "0px";
+    const svg = $("dgWrap").querySelector("svg");
+    svg?.classList.toggle("has-focus", !!st.focus);
+    /* the gap track steps back the buckets under the gap filter */
+    svg?.setAttribute("data-thr", String(st.focus ? 0 : st.thr));
     cols.forEach((c, i) => {
-      c.g.classList.toggle("is-off", !st.focus && !qualifies(c.pg));
-      c.g.classList.toggle("is-out", !inFocus(c.pg));
+      c.g.classList.toggle("is-off", !st.focus && !colLit(c));
+      c.g.classList.toggle("is-out", !c.pages.some(inFocus));
       c.g.classList.toggle("is-sel", i === st.sel);
       c.g.classList.toggle("is-kb", st.kbMode && i === st.kb && st.sel < 0);
       for (const k of ["is-off", "is-out", "is-sel", "is-kb"]) c.bg.classList.toggle(k, c.g.classList.contains(k));
       for (const p of c.pts) p.classList.toggle("is-mute", !!st.emph && p.dataset.e !== st.emph);
     });
-    $("dgCount").textContent = st.focus
-      ? `${st.focus.ids.size} of ${P.length} pages`
-      : st.thr === 0
-        ? `${P.length} pages`
-        : `${q} of ${P.length} pages`;
+    /* the chart head carries no page count: the lit columns say it */
+    $("dgCount").textContent = "";
   }
   function hover(i: number) {
     const c = cols[i];
@@ -567,11 +713,176 @@ export const mountReport = (root: HTMLElement, R: ReportData): (() => void) => {
       x.bg.classList.toggle("is-hov", j === i);
     });
     const r = (c.bg.querySelector(".hov") as SVGElement).getBoundingClientRect();
+    const ns = c.pages.map(pageNo);
     showTip(
-      `<span class="m">${pageNo(c.pg)} ·</span> ${esc(docShort(c.pg.doc))} <span class="m">· p. ${c.pg.page} · gap ${c.pg.gap}</span>`,
+      c.pages.length === 1
+        ? `<span class="m">${pageNo(c.pg)} ·</span> ${esc(docShort(c.pg.doc))} <span class="m">· p. ${c.pg.page} · gap ${c.pg.gap}</span>`
+        : st.sort === "page"
+          ? `Pages ${Math.min(...ns)}–${Math.max(...ns)}`
+          : `${c.pages.length} pages`,
       r.left + r.width / 2,
       r.bottom - 2,
     );
+  }
+
+  /* ---------- zoom: a bin expands into its own pages (Ammar 2026-11-04) ----------
+     The chart swaps to just that set, one column a page, with a chip naming the set:
+     ‹ › walk to the neighbouring set of the same size, × (or Escape) returns. The move
+     reads as stretching that stretch of the chart: the old chart rides on as a ghost
+     clipped to the plot while the new columns spread out from where they sat. */
+  function zoomTo(i: number) {
+    const c = cols[i];
+    if (!c) return;
+    const a = ORDER.indexOf(c.pages[0] as PageRow);
+    setZoom({ a, b: a + c.pages.length }, i);
+  }
+  function setZoom(z: typeof st.zoom, fromBin?: number) {
+    close();
+    hideTip();
+    const host = $("dgWrap");
+    const oldSvg = host.querySelector("svg");
+    const og = geo;
+    const prev = st.zoom;
+    const srcCol = fromBin === undefined ? undefined : cols[fromBin];
+    st.zoom = z;
+    st.kb = -1;
+    build(false);
+    if (!oldSvg || !og || !geo || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const L = geo.m.l;
+    const PW = geo.plotW;
+    let x0 = 0;
+    let w = PW;
+    let dir = 0;
+    const kind = srcCol ? "in" : !z && prev ? "out" : "step";
+    if (srcCol) {
+      x0 = srcCol.cx - og.slot / 2;
+      w = og.slot;
+    } else if (kind === "out" && prev) {
+      const c = cols[binOf.get(ORDER[prev.a] as PageRow) ?? -1];
+      if (!c) return;
+      x0 = c.cx - geo.slot / 2;
+      w = geo.slot * Math.max(1, Math.round((prev.b - prev.a) / Math.max(1, c.pages.length)));
+    } else dir = z && prev ? Math.sign(z.a - prev.a) : 1;
+    const ghost = document.createElement("div");
+    ghost.className = "dg-ghost";
+    ghost.style.left = `${L}px`;
+    ghost.style.width = `${PW}px`;
+    ghost.style.height = `${og.H}px`;
+    oldSvg.style.marginLeft = `${-L}px`;
+    oldSvg.style.transformOrigin = `${kind === "in" ? x0 : L}px 0`;
+    ghost.appendChild(oldSvg);
+    host.appendChild(ghost);
+    const ghostTo =
+      kind === "in"
+        ? `translateX(${L - x0}px) scaleX(${PW / w})`
+        : kind === "out"
+          ? `translateX(${x0 - L}px) scaleX(${w / PW})`
+          : `translateX(${-dir * PW}px)`;
+    const startX = (cx: number) =>
+      kind === "in" ? x0 + ((cx - L) / PW) * w : kind === "out" ? L + ((cx - x0) / w) * PW : cx + dir * PW;
+    const fromY = (id: string | null) => {
+      const v = id && srcCol ? srcCol.stats.mean[id] : null;
+      return v === null || v === undefined ? null : og.sy(v);
+    };
+    const moved: SVGElement[] = [];
+    for (const c of cols) {
+      const dx = startX(c.cx) - c.cx;
+      for (const el of [c.g, c.bg]) {
+        el.style.transition = "none";
+        el.style.transform = `translateX(${dx}px)`;
+        moved.push(el);
+      }
+      if (kind !== "in") continue;
+      for (const p of c.pts) {
+        const y = fromY(p.getAttribute("data-e"));
+        p.style.transition = "none";
+        if (y !== null) p.style.setProperty("cy", `${y}px`);
+      }
+      if (c.rng) {
+        c.rng.style.transition = "none";
+        c.rng.style.opacity = "0";
+      }
+    }
+    for (const l of lines) {
+      const d = l.getAttribute("d") ?? "";
+      const e = l.dataset.e ?? null;
+      const d0 = d.replace(/([ML])([\d.]+),([\d.]+)/g, (_m, c: string, x: string, y: string) => {
+        const yy = kind === "in" ? fromY(e) : null;
+        return `${c}${startX(Number(x)).toFixed(1)},${yy === null ? y : yy.toFixed(1)}`;
+      });
+      l.style.transition = "none";
+      l.style.setProperty("d", `path('${d0}')`);
+      l.dataset.d = d;
+    }
+    const ax = host.querySelector<SVGElement>(".dg-ax");
+    if (ax) {
+      ax.style.transition = "none";
+      ax.style.opacity = "0";
+    }
+    void host.offsetWidth;
+    const move = "var(--dur-zoom) var(--ease-out)";
+    requestAnimationFrame(() => {
+      oldSvg.style.transition = `transform ${move}, opacity var(--dur-fade) var(--ease-out)`;
+      oldSvg.style.transform = ghostTo;
+      oldSvg.style.opacity = "0";
+      for (const el of moved) {
+        el.style.transition = `transform ${move}`;
+        el.style.transform = "";
+      }
+      for (const c of cols) {
+        for (const p of c.pts) {
+          p.style.transition = `cy ${move}, opacity var(--dur-fade) var(--ease-standard)`;
+          p.style.removeProperty("cy");
+        }
+        if (c.rng) {
+          c.rng.style.transition = "opacity var(--dur-fade) var(--ease-standard) 120ms";
+          c.rng.style.opacity = "";
+        }
+      }
+      for (const l of lines) {
+        l.style.transition = `d ${move}`;
+        l.style.setProperty("d", `path('${l.dataset.d}')`);
+      }
+      if (ax) {
+        ax.style.transition = "opacity var(--dur-fade) var(--ease-standard) 120ms";
+        ax.style.opacity = "";
+      }
+    });
+    setTimeout(() => {
+      ghost.remove();
+      for (const l of lines) {
+        l.style.removeProperty("d");
+        l.style.transition = "";
+      }
+      for (const el of moved) el.style.transition = "";
+      for (const c of cols) for (const p of c.pts) p.style.transition = "";
+    }, 400);
+  }
+  function zoomChip() {
+    const host = $("dgZoom");
+    const z = st.zoom;
+    if (!z || st.view === "area") {
+      host.innerHTML = "";
+      return;
+    }
+    const set = ORDER.slice(z.a, z.b);
+    const ns = set.map(pageNo);
+    const gs = set.map((pg) => pg.gap);
+    const hi = Math.max(...gs);
+    const lo = Math.min(...gs);
+    const label =
+      st.sort === "page"
+        ? `Pages ${Math.min(...ns)}–${Math.max(...ns)}`
+        : `${set.length} pages · gap ${hi === lo ? hi : `${hi}–${lo}`}`;
+    host.innerHTML = `<span class="dg-focus dg-zoom"><button class="sf-x" type="button" data-z="-1" aria-label="Previous set"${z.a <= 0 ? " disabled" : ""}>${icon("chevron-left")}</button><span class="t">${label}</span><button class="sf-x" type="button" data-z="1" aria-label="Next set"${z.b >= ORDER.length ? " disabled" : ""}>${icon("chevron-right")}</button><button class="sf-x" type="button" data-z="0" aria-label="Show all pages">${icon("x")}</button></span>`;
+    for (const btn of host.querySelectorAll<HTMLButtonElement>("[data-z]"))
+      btn.onclick = () => {
+        const d = Number(btn.dataset.z);
+        const len = z.b - z.a;
+        if (d === 0) setZoom(null);
+        else if (d > 0) setZoom({ a: z.b, b: Math.min(ORDER.length, z.b + len) });
+        else setZoom({ a: Math.max(0, z.a - len), b: z.a });
+      };
   }
 
   /* ---------- area view: share of pages at or above each score ---------- */
@@ -702,7 +1013,7 @@ export const mountReport = (root: HTMLElement, R: ReportData): (() => void) => {
   cleanups.push(() => pop.remove());
   let popOpen = false;
   function navList() {
-    const l = cols.map((_, i) => i).filter((i) => qualifies((cols[i] as Col).pg) && inFocus((cols[i] as Col).pg));
+    const l = cols.map((_, i) => i).filter((i) => colLit(cols[i] as Col));
     return l.length ? l : cols.map((_, i) => i);
   }
   function body(pg: PageRow) {
@@ -918,6 +1229,10 @@ export const mountReport = (root: HTMLElement, R: ReportData): (() => void) => {
       }
       return;
     }
+    if (e.key === "Escape" && st.zoom && st.view !== "area") {
+      setZoom(null);
+      return;
+    }
     if (document.activeElement === $("dgWrap") && st.view !== "area") {
       const nl = navList();
       if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
@@ -930,7 +1245,8 @@ export const mountReport = (root: HTMLElement, R: ReportData): (() => void) => {
         hover(st.kb);
       } else if (e.key === "Enter" && st.kb >= 0) {
         e.preventDefault();
-        openAt(st.kb);
+        if (geo?.dense) zoomTo(st.kb);
+        else openAt(st.kb);
       }
     }
   });

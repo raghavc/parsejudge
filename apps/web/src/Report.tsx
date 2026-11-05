@@ -296,6 +296,7 @@ export const Report = ({
           <h2>Where providers disagree</h2>
           <span className="rp-count" id="dgCount" />
           <span id="dgFocus" />
+          <span id="dgZoom" />
           <span className="sp" />
           <div className="mode-seg lg" id="dgSeg" role="tablist" aria-label="Score gap" />
           <div className="mode-seg lg" id="dgView" role="tablist" aria-label="Chart view" />
