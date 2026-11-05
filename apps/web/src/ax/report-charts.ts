@@ -57,7 +57,7 @@ const svgEl = (tag: string, attrs: Record<string, string | number>, parent?: Ele
   return el;
 };
 const docShort = (d: string) => d.replace(/\.[^.]+$/i, "");
-const SEV_RANK: Record<string, number> = { high: 0, medium: 1, low: 2, not_error: 3 };
+const SEV_RANK: Record<string, number> = { high: 0, figure_error: 1, low: 2, not_error: 3 };
 const category = (c: string) => {
   const s = c.replace(/_/g, " ");
   return s.charAt(0).toUpperCase() + s.slice(1);
