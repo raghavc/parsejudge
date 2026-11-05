@@ -1,0 +1,448 @@
+{
+  "Blocks": [
+    {
+      "BlockType": "PAGE",
+      "Id": "3d22c739-3d6a-4b13-ba1c-f29d505657dd",
+      "Relationships": [{ "Type": "CHILD", "Ids": ["daa27cb6-3c3c-4e43-9fd9-1a58a261fd37"] }]
+    },
+    { "BlockType": "WORD", "Id": "69cc192a-fe76-4794-b5ed-47b62f1476ed", "Text": "Not", "TextType": "PRINTED" },
+    { "BlockType": "WORD", "Id": "db8849b6-0ba7-4bc6-873d-5a6fd6d07d66", "Text": "seasonally", "TextType": "PRINTED" },
+    { "BlockType": "WORD", "Id": "5148dfbb-5e75-40d0-a10a-98a5b7dad5fe", "Text": "adjusted", "TextType": "PRINTED" },
+    { "BlockType": "WORD", "Id": "7b2dfdd8-8334-4f6e-839f-33d7e648f562", "Text": "Seasonally", "TextType": "PRINTED" },
+    { "BlockType": "WORD", "Id": "596507a0-4c6a-4c73-8046-1d11067c4845", "Text": "adjusted", "TextType": "PRINTED" },
+    { "BlockType": "WORD", "Id": "bfeea62d-f723-43d6-a7fe-cb557c51e0da", "Text": "Employment", "TextType": "PRINTED" },
+    { "BlockType": "WORD", "Id": "f72ad608-f864-442f-a96b-f7c020ac02d6", "Text": "status,", "TextType": "PRINTED" },
+    { "BlockType": "WORD", "Id": "4f8e3733-7c18-41eb-9e94-80ddb79c74d9", "Text": "sex,", "TextType": "PRINTED" },
+    { "BlockType": "WORD", "Id": "3abb3d9a-3ccd-465f-a98c-af8b8eab9f4b", "Text": "and", "TextType": "PRINTED" },
+    { "BlockType": "WORD", "Id": "d70dffe8-e49e-4839-83d7-218c1cdd2bfd", "Text": "age", "TextType": "PRINTED" },
+    { "BlockType": "WORD", "Id": "c9fc46e4-81b0-4dd1-9922-69cc01088001", "Text": "Dec.", "TextType": "PRINTED" },
+    { "BlockType": "WORD", "Id": "5019f71b-a651-4936-9b1e-e995ffaa9536", "Text": "Nov.", "TextType": "PRINTED" },
+    { "BlockType": "WORD", "Id": "e67c40ff-bc37-4c6a-bdeb-0d0e646a7cf0", "Text": "Dec.", "TextType": "PRINTED" },
+    { "BlockType": "WORD", "Id": "a0b59267-702a-43de-b68c-3fadbc0e68ac", "Text": "Dec.", "TextType": "PRINTED" },
+    { "BlockType": "WORD", "Id": "6d800990-2e10-4d6b-a798-a0e09e9cc335", "Text": "Aug.", "TextType": "PRINTED" },
+    { "BlockType": "WORD", "Id": "be91f4bc-44aa-4ce1-b25d-e5a95d38e62e", "Text": "Sept.", "TextType": "PRINTED" },
+    { "BlockType": "WORD", "Id": "45583062-5a4a-4d6a-9fd4-43d6e4677894", "Text": "Oct.", "TextType": "PRINTED" },
+    { "BlockType": "WORD", "Id": "c1dc1a3b-a126-4372-9bab-b7ba8d95b7c4", "Text": "Nov.", "TextType": "PRINTED" },
+    { "BlockType": "WORD", "Id": "b1e698e9-da59-4b9b-9116-38d03c3f7174", "Text": "Dec.", "TextType": "PRINTED" },
+    { "BlockType": "WORD", "Id": "1a058f9e-4ebc-4f4f-ac6a-1c5940e81e0c", "Text": "2022", "TextType": "PRINTED" },
+    { "BlockType": "WORD", "Id": "4b7bc451-f99f-437e-8c4c-d3d32ae66163", "Text": "2023", "TextType": "PRINTED" },
+    { "BlockType": "WORD", "Id": "8134a13c-5274-4a8e-8c34-de4fe405bc22", "Text": "2023", "TextType": "PRINTED" },
+    { "BlockType": "WORD", "Id": "80b256d2-117d-49d4-9d5c-246ea6e41cd8", "Text": "2022", "TextType": "PRINTED" },
+    { "BlockType": "WORD", "Id": "de31579e-e1ca-4772-9c1d-3c045cc129a1", "Text": "2023", "TextType": "PRINTED" },
+    { "BlockType": "WORD", "Id": "8510bd5c-3f53-41b5-81cf-89ca06331b80", "Text": "2023", "TextType": "PRINTED" },
+    { "BlockType": "WORD", "Id": "2c012af6-93a3-4da1-aa42-1b9df962a80e", "Text": "2023", "TextType": "PRINTED" },
+    { "BlockType": "WORD", "Id": "1a3150dc-641c-453f-8b07-bb0cfde87642", "Text": "2023", "TextType": "PRINTED" },
+    { "BlockType": "WORD", "Id": "c24b9d61-1496-499a-81e2-49f4435c495e", "Text": "2023", "TextType": "PRINTED" },
+    { "BlockType": "WORD", "Id": "2badb4e7-4d80-4d2e-b141-45605c5e5ec4", "Text": "TOTAL", "TextType": "PRINTED" },
+    {
+      "BlockType": "TABLE",
+      "Id": "81b0ab4d-917c-4874-b903-234f49e4d8ed",
+      "Relationships": [
+        {
+          "Type": "CHILD",
+          "Ids": [
+            "dbf003de-06b3-4dec-907d-79473286bcc5",
+            "0a21e574-cae3-4689-81e0-8569b40c34fc",
+            "0146af8c-7c81-4334-953a-f0b7ec019bac",
+            "8697d17b-7a20-48d6-9780-c41d73271bec",
+            "75d2f798-cf9b-40d1-aedd-927d55cc36b2",
+            "46ce8132-1d53-46f5-a7d3-dd173851aa09",
+            "dc29af76-cf2b-4ca5-8e5e-0e4ddecedf2a",
+            "45b9e828-7c52-40ea-bef5-577a8ca66bbf",
+            "dae58cd6-0776-4035-bdac-df1c87a915ca",
+            "f7018d5c-9a2f-4e3d-8ce1-8c67415b026b",
+            "d36c3201-4b4a-40ff-b303-ac1e02aa62d6",
+            "fb0fcf9c-4d27-4e34-9fd9-d1971b404f65",
+            "31fbf28e-2cdc-45a9-b839-8bf6e3666d12",
+            "77047313-a118-4f5c-9570-e53bb36dc22f",
+            "b793a92e-8c01-4585-9449-bc09ff3a42a0",
+            "55a0c4ac-cace-47d6-ae1a-ac88c24bb2f9",
+            "0a4e0f04-3faf-4591-900f-c8b419ed5d8f",
+            "c5cc970f-0310-47e5-84c0-7c2d6e69c2bd",
+            "6260184b-503f-4fdb-bef3-7a8e62f82dd3",
+            "a84115bb-3e3c-4228-89c6-d4c2dbc97e23",
+            "e3d85870-649a-4ad8-b4a0-8d6e09a826c6",
+            "10292834-ee19-4611-85ed-d1486fe91d8a",
+            "9674f727-1fcd-4081-a7a0-c46f89e0d5a3",
+            "0abd73b1-6588-4033-85b1-8c06b71bff56",
+            "d1009ee2-f60c-43cd-b9eb-b69dee33e53c",
+            "bc9a49df-ea33-4671-9f52-f906789eede2",
+            "177c8db3-f594-4352-91a0-aa681a39ba43",
+            "1f2961f5-2c69-4fa9-a8dc-e31a771cae3d",
+            "23047dff-4a3d-4662-9e00-277d1b86cc12",
+            "a250c26c-da67-4287-8b5c-9997e83ee710"
+          ]
+        },
+        {
+          "Type": "MERGED_CELL",
+          "Ids": [
+            "93477600-ecd5-4716-ac59-097f43116e06",
+            "494d658b-05be-4845-a73a-14874614674f",
+            "c5a39550-e81e-4558-902d-63ca0d053f8e"
+          ]
+        }
+      ],
+      "EntityTypes": ["STRUCTURED_TABLE"]
+    },
+    {
+      "BlockType": "CELL",
+      "ColumnIndex": 1,
+      "ColumnSpan": 1,
+      "EntityTypes": ["COLUMN_HEADER"],
+      "Id": "dbf003de-06b3-4dec-907d-79473286bcc5",
+      "RowIndex": 1,
+      "RowSpan": 1
+    },
+    {
+      "BlockType": "CELL",
+      "ColumnIndex": 2,
+      "ColumnSpan": 1,
+      "EntityTypes": ["COLUMN_HEADER"],
+      "Id": "0a21e574-cae3-4689-81e0-8569b40c34fc",
+      "Relationships": [{ "Ids": ["69cc192a-fe76-4794-b5ed-47b62f1476ed"], "Type": "CHILD" }],
+      "RowIndex": 1,
+      "RowSpan": 1
+    },
+    {
+      "BlockType": "CELL",
+      "ColumnIndex": 3,
+      "ColumnSpan": 1,
+      "EntityTypes": ["COLUMN_HEADER"],
+      "Id": "0146af8c-7c81-4334-953a-f0b7ec019bac",
+      "Relationships": [{ "Ids": ["db8849b6-0ba7-4bc6-873d-5a6fd6d07d66"], "Type": "CHILD" }],
+      "RowIndex": 1,
+      "RowSpan": 1
+    },
+    {
+      "BlockType": "CELL",
+      "ColumnIndex": 4,
+      "ColumnSpan": 1,
+      "EntityTypes": ["COLUMN_HEADER"],
+      "Id": "8697d17b-7a20-48d6-9780-c41d73271bec",
+      "Relationships": [{ "Ids": ["5148dfbb-5e75-40d0-a10a-98a5b7dad5fe"], "Type": "CHILD" }],
+      "RowIndex": 1,
+      "RowSpan": 1
+    },
+    {
+      "BlockType": "CELL",
+      "ColumnIndex": 5,
+      "ColumnSpan": 1,
+      "EntityTypes": ["COLUMN_HEADER"],
+      "Id": "75d2f798-cf9b-40d1-aedd-927d55cc36b2",
+      "RowIndex": 1,
+      "RowSpan": 1
+    },
+    {
+      "BlockType": "CELL",
+      "ColumnIndex": 6,
+      "ColumnSpan": 1,
+      "EntityTypes": ["COLUMN_HEADER"],
+      "Id": "46ce8132-1d53-46f5-a7d3-dd173851aa09",
+      "RowIndex": 1,
+      "RowSpan": 1
+    },
+    {
+      "BlockType": "CELL",
+      "ColumnIndex": 7,
+      "ColumnSpan": 1,
+      "EntityTypes": ["COLUMN_HEADER"],
+      "Id": "dc29af76-cf2b-4ca5-8e5e-0e4ddecedf2a",
+      "Relationships": [{ "Ids": ["7b2dfdd8-8334-4f6e-839f-33d7e648f562"], "Type": "CHILD" }],
+      "RowIndex": 1,
+      "RowSpan": 1
+    },
+    {
+      "BlockType": "CELL",
+      "ColumnIndex": 8,
+      "ColumnSpan": 1,
+      "EntityTypes": ["COLUMN_HEADER"],
+      "Id": "45b9e828-7c52-40ea-bef5-577a8ca66bbf",
+      "Relationships": [{ "Ids": ["596507a0-4c6a-4c73-8046-1d11067c4845"], "Type": "CHILD" }],
+      "RowIndex": 1,
+      "RowSpan": 1
+    },
+    {
+      "BlockType": "CELL",
+      "ColumnIndex": 9,
+      "ColumnSpan": 1,
+      "EntityTypes": ["COLUMN_HEADER"],
+      "Id": "dae58cd6-0776-4035-bdac-df1c87a915ca",
+      "RowIndex": 1,
+      "RowSpan": 1
+    },
+    {
+      "BlockType": "CELL",
+      "ColumnIndex": 10,
+      "ColumnSpan": 1,
+      "EntityTypes": ["COLUMN_HEADER"],
+      "Id": "f7018d5c-9a2f-4e3d-8ce1-8c67415b026b",
+      "RowIndex": 1,
+      "RowSpan": 1
+    },
+    {
+      "BlockType": "CELL",
+      "ColumnIndex": 1,
+      "ColumnSpan": 1,
+      "EntityTypes": ["COLUMN_HEADER"],
+      "Id": "d36c3201-4b4a-40ff-b303-ac1e02aa62d6",
+      "Relationships": [
+        {
+          "Ids": [
+            "bfeea62d-f723-43d6-a7fe-cb557c51e0da",
+            "f72ad608-f864-442f-a96b-f7c020ac02d6",
+            "4f8e3733-7c18-41eb-9e94-80ddb79c74d9",
+            "3abb3d9a-3ccd-465f-a98c-af8b8eab9f4b",
+            "d70dffe8-e49e-4839-83d7-218c1cdd2bfd"
+          ],
+          "Type": "CHILD"
+        }
+      ],
+      "RowIndex": 2,
+      "RowSpan": 1
+    },
+    {
+      "BlockType": "CELL",
+      "ColumnIndex": 2,
+      "ColumnSpan": 1,
+      "EntityTypes": ["COLUMN_HEADER"],
+      "Id": "fb0fcf9c-4d27-4e34-9fd9-d1971b404f65",
+      "Relationships": [
+        { "Ids": ["c9fc46e4-81b0-4dd1-9922-69cc01088001", "1a058f9e-4ebc-4f4f-ac6a-1c5940e81e0c"], "Type": "CHILD" }
+      ],
+      "RowIndex": 2,
+      "RowSpan": 1
+    },
+    {
+      "BlockType": "CELL",
+      "ColumnIndex": 3,
+      "ColumnSpan": 1,
+      "EntityTypes": ["COLUMN_HEADER"],
+      "Id": "31fbf28e-2cdc-45a9-b839-8bf6e3666d12",
+      "Relationships": [
+        { "Ids": ["5019f71b-a651-4936-9b1e-e995ffaa9536", "4b7bc451-f99f-437e-8c4c-d3d32ae66163"], "Type": "CHILD" }
+      ],
+      "RowIndex": 2,
+      "RowSpan": 1
+    },
+    {
+      "BlockType": "CELL",
+      "ColumnIndex": 4,
+      "ColumnSpan": 1,
+      "EntityTypes": ["COLUMN_HEADER"],
+      "Id": "77047313-a118-4f5c-9570-e53bb36dc22f",
+      "Relationships": [
+        { "Ids": ["e67c40ff-bc37-4c6a-bdeb-0d0e646a7cf0", "8134a13c-5274-4a8e-8c34-de4fe405bc22"], "Type": "CHILD" }
+      ],
+      "RowIndex": 2,
+      "RowSpan": 1
+    },
+    {
+      "BlockType": "CELL",
+      "ColumnIndex": 5,
+      "ColumnSpan": 1,
+      "EntityTypes": ["COLUMN_HEADER"],
+      "Id": "b793a92e-8c01-4585-9449-bc09ff3a42a0",
+      "Relationships": [
+        { "Ids": ["a0b59267-702a-43de-b68c-3fadbc0e68ac", "80b256d2-117d-49d4-9d5c-246ea6e41cd8"], "Type": "CHILD" }
+      ],
+      "RowIndex": 2,
+      "RowSpan": 1
+    },
+    {
+      "BlockType": "CELL",
+      "ColumnIndex": 6,
+      "ColumnSpan": 1,
+      "EntityTypes": ["COLUMN_HEADER"],
+      "Id": "55a0c4ac-cace-47d6-ae1a-ac88c24bb2f9",
+      "Relationships": [
+        { "Ids": ["6d800990-2e10-4d6b-a798-a0e09e9cc335", "de31579e-e1ca-4772-9c1d-3c045cc129a1"], "Type": "CHILD" }
+      ],
+      "RowIndex": 2,
+      "RowSpan": 1
+    },
+    {
+      "BlockType": "CELL",
+      "ColumnIndex": 7,
+      "ColumnSpan": 1,
+      "EntityTypes": ["COLUMN_HEADER"],
+      "Id": "0a4e0f04-3faf-4591-900f-c8b419ed5d8f",
+      "Relationships": [
+        { "Ids": ["be91f4bc-44aa-4ce1-b25d-e5a95d38e62e", "8510bd5c-3f53-41b5-81cf-89ca06331b80"], "Type": "CHILD" }
+      ],
+      "RowIndex": 2,
+      "RowSpan": 1
+    },
+    {
+      "BlockType": "CELL",
+      "ColumnIndex": 8,
+      "ColumnSpan": 1,
+      "EntityTypes": ["COLUMN_HEADER"],
+      "Id": "c5cc970f-0310-47e5-84c0-7c2d6e69c2bd",
+      "Relationships": [
+        { "Ids": ["45583062-5a4a-4d6a-9fd4-43d6e4677894", "2c012af6-93a3-4da1-aa42-1b9df962a80e"], "Type": "CHILD" }
+      ],
+      "RowIndex": 2,
+      "RowSpan": 1
+    },
+    {
+      "BlockType": "CELL",
+      "ColumnIndex": 9,
+      "ColumnSpan": 1,
+      "EntityTypes": ["COLUMN_HEADER"],
+      "Id": "6260184b-503f-4fdb-bef3-7a8e62f82dd3",
+      "Relationships": [
+        { "Ids": ["c1dc1a3b-a126-4372-9bab-b7ba8d95b7c4", "1a3150dc-641c-453f-8b07-bb0cfde87642"], "Type": "CHILD" }
+      ],
+      "RowIndex": 2,
+      "RowSpan": 1
+    },
+    {
+      "BlockType": "CELL",
+      "ColumnIndex": 10,
+      "ColumnSpan": 1,
+      "EntityTypes": ["COLUMN_HEADER"],
+      "Id": "a84115bb-3e3c-4228-89c6-d4c2dbc97e23",
+      "Relationships": [
+        { "Ids": ["b1e698e9-da59-4b9b-9116-38d03c3f7174", "c24b9d61-1496-499a-81e2-49f4435c495e"], "Type": "CHILD" }
+      ],
+      "RowIndex": 2,
+      "RowSpan": 1
+    },
+    {
+      "BlockType": "CELL",
+      "ColumnIndex": 1,
+      "ColumnSpan": 1,
+      "EntityTypes": ["TABLE_SECTION_TITLE"],
+      "Id": "e3d85870-649a-4ad8-b4a0-8d6e09a826c6",
+      "Relationships": [{ "Ids": ["2badb4e7-4d80-4d2e-b141-45605c5e5ec4"], "Type": "CHILD" }],
+      "RowIndex": 3,
+      "RowSpan": 1
+    },
+    {
+      "BlockType": "CELL",
+      "ColumnIndex": 2,
+      "ColumnSpan": 1,
+      "Id": "10292834-ee19-4611-85ed-d1486fe91d8a",
+      "RowIndex": 3,
+      "RowSpan": 1
+    },
+    {
+      "BlockType": "CELL",
+      "ColumnIndex": 3,
+      "ColumnSpan": 1,
+      "Id": "9674f727-1fcd-4081-a7a0-c46f89e0d5a3",
+      "RowIndex": 3,
+      "RowSpan": 1
+    },
+    {
+      "BlockType": "CELL",
+      "ColumnIndex": 4,
+      "ColumnSpan": 1,
+      "Id": "0abd73b1-6588-4033-85b1-8c06b71bff56",
+      "RowIndex": 3,
+      "RowSpan": 1
+    },
+    {
+      "BlockType": "CELL",
+      "ColumnIndex": 5,
+      "ColumnSpan": 1,
+      "Id": "d1009ee2-f60c-43cd-b9eb-b69dee33e53c",
+      "RowIndex": 3,
+      "RowSpan": 1
+    },
+    {
+      "BlockType": "CELL",
+      "ColumnIndex": 6,
+      "ColumnSpan": 1,
+      "Id": "bc9a49df-ea33-4671-9f52-f906789eede2",
+      "RowIndex": 3,
+      "RowSpan": 1
+    },
+    {
+      "BlockType": "CELL",
+      "ColumnIndex": 7,
+      "ColumnSpan": 1,
+      "Id": "177c8db3-f594-4352-91a0-aa681a39ba43",
+      "RowIndex": 3,
+      "RowSpan": 1
+    },
+    {
+      "BlockType": "CELL",
+      "ColumnIndex": 8,
+      "ColumnSpan": 1,
+      "Id": "1f2961f5-2c69-4fa9-a8dc-e31a771cae3d",
+      "RowIndex": 3,
+      "RowSpan": 1
+    },
+    {
+      "BlockType": "CELL",
+      "ColumnIndex": 9,
+      "ColumnSpan": 1,
+      "Id": "23047dff-4a3d-4662-9e00-277d1b86cc12",
+      "RowIndex": 3,
+      "RowSpan": 1
+    },
+    {
+      "BlockType": "CELL",
+      "ColumnIndex": 10,
+      "ColumnSpan": 1,
+      "Id": "a250c26c-da67-4287-8b5c-9997e83ee710",
+      "RowIndex": 3,
+      "RowSpan": 1
+    },
+    {
+      "BlockType": "MERGED_CELL",
+      "ColumnIndex": 1,
+      "ColumnSpan": 1,
+      "EntityTypes": ["COLUMN_HEADER"],
+      "Id": "93477600-ecd5-4716-ac59-097f43116e06",
+      "Relationships": [
+        { "Ids": ["dbf003de-06b3-4dec-907d-79473286bcc5", "d36c3201-4b4a-40ff-b303-ac1e02aa62d6"], "Type": "CHILD" }
+      ],
+      "RowIndex": 1,
+      "RowSpan": 2
+    },
+    {
+      "BlockType": "MERGED_CELL",
+      "ColumnIndex": 2,
+      "ColumnSpan": 3,
+      "EntityTypes": ["COLUMN_HEADER"],
+      "Id": "494d658b-05be-4845-a73a-14874614674f",
+      "Relationships": [
+        {
+          "Ids": [
+            "0a21e574-cae3-4689-81e0-8569b40c34fc",
+            "0146af8c-7c81-4334-953a-f0b7ec019bac",
+            "8697d17b-7a20-48d6-9780-c41d73271bec"
+          ],
+          "Type": "CHILD"
+        }
+      ],
+      "RowIndex": 1,
+      "RowSpan": 1
+    },
+    {
+      "BlockType": "MERGED_CELL",
+      "ColumnIndex": 5,
+      "ColumnSpan": 6,
+      "EntityTypes": ["COLUMN_HEADER"],
+      "Id": "c5a39550-e81e-4558-902d-63ca0d053f8e",
+      "Relationships": [
+        {
+          "Ids": [
+            "75d2f798-cf9b-40d1-aedd-927d55cc36b2",
+            "46ce8132-1d53-46f5-a7d3-dd173851aa09",
+            "dc29af76-cf2b-4ca5-8e5e-0e4ddecedf2a",
+            "45b9e828-7c52-40ea-bef5-577a8ca66bbf",
+            "dae58cd6-0776-4035-bdac-df1c87a915ca",
+            "f7018d5c-9a2f-4e3d-8ce1-8c67415b026b"
+          ],
+          "Type": "CHILD"
+        }
+      ],
+      "RowIndex": 1,
+      "RowSpan": 1
+    },
+    { "BlockType": "LAYOUT_TABLE", "Id": "daa27cb6-3c3c-4e43-9fd9-1a58a261fd37", "Relationships": [] }
+  ]
+}

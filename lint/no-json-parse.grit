@@ -1,0 +1,5 @@
+language js(typescript, jsx)
+
+`JSON.parse($args)` as $violation where {
+  register_diagnostic(span=$violation, message="Decode JSON text with Schema.fromJsonString and Schema.decodeUnknownEffect, so a bad value is a typed failure.", severity="error")
+}

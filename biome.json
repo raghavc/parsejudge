@@ -1,0 +1,36 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.6.3/schema.json",
+  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+  "files": { "includes": ["**", "!**/worker-configuration.d.ts", "!pnpm-lock.yaml"] },
+  "formatter": { "indentStyle": "space", "lineWidth": 130 },
+  "linter": { "enabled": true, "rules": { "preset": "recommended" } },
+  "overrides": [
+    {
+      "includes": ["packages/core/src/**", "apps/api/src/**"],
+      "plugins": [
+        "./node_modules/@catenarycloud/linteffect/rules/no-try-catch.grit",
+        "./node_modules/@catenarycloud/linteffect/rules/no-throw-statement.grit",
+        "./node_modules/@catenarycloud/linteffect/rules/no-effect-async.grit",
+        "./node_modules/@catenarycloud/linteffect/rules/no-effect-do.grit",
+        "./node_modules/@catenarycloud/linteffect/rules/no-effect-bind.grit",
+        "./node_modules/@catenarycloud/linteffect/rules/no-nested-effect-gen.grit",
+        "./node_modules/@catenarycloud/linteffect/rules/no-effect-sync-console.grit",
+        "./lint/no-promise-chain.grit",
+        "./lint/no-json-parse.grit"
+      ]
+    },
+    {
+      "includes": [
+        "packages/core/src/**",
+        "apps/api/src/**",
+        "!apps/api/src/index.ts",
+        "!apps/api/src/workflows.ts",
+        "!apps/api/src/slots.ts",
+        "!apps/api/src/events.ts",
+        "!apps/api/src/run.ts",
+        "!apps/api/src/mcp.ts"
+      ],
+      "plugins": ["./lint/no-effect-run.grit"]
+    }
+  ]
+}
