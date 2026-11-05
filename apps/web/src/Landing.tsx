@@ -105,7 +105,7 @@ const KeyMenu = ({
         onKeyDown={(e) => e.key === "Enter" && save()}
       />
       <div className="pv-key-note">Encrypted. Deleted when the run ends.</div>
-      {zdr && <div className="pv-key-note">ZDR may not apply depending on your terms with this competitor.</div>}
+      {zdr && <div className="pv-key-note">ZDR may not apply depending on your terms with this provider.</div>}
       <div className="pv-key-acts">
         <button className="btn" type="button" onClick={onClose}>
           <span className="btn-label">Cancel</span>
