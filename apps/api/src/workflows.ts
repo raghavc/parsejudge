@@ -51,9 +51,13 @@ const JUDGE_RETRY: WorkflowStepConfig = {
 const MUST: WorkflowStepConfig = { retries: { limit: 10, delay: "5 seconds", backoff: "exponential" }, timeout: "5 minutes" };
 
 const PAGES_TIMEOUT = "6 hours";
-/** How long a page waits for a slot wake-up before it asks the pool again, and how many times (24 hours in all). */
-const SLOT_WAIT = "5 minutes";
-const SLOT_ROUNDS = 288;
+/**
+ * How long a page waits for a slot wake-up before it asks the pool again: 30 seconds for the first 10 minutes, so a
+ * lost wake-up costs at most that, then 5 minutes (about 24 hours in all, in few enough steps).
+ */
+const SLOT_FAST_ROUNDS = 20;
+const slotWait = (round: number) => (round < SLOT_FAST_ROUNDS ? "30 seconds" : "5 minutes");
+const SLOT_ROUNDS = 306;
 
 /** Instance already exists: a retried fan-out step created it on an earlier attempt. */
 const INSTANCE_EXISTS = 10405;
@@ -406,7 +410,8 @@ export class RunWorkflow extends WorkflowEntrypoint<Env, RunWorkflowParams> {
 /**
  * One page of one run: render it, parse it with every preset in parallel, then judge the parses together.
  * Every provider call and the judge call hold a slot in their pool, so each pool stays under its limit.
- * Only the render can fail the page; every other failure is recorded per preset. `report` always runs.
+ * Only the render can fail the page; every other failure is recorded per preset. `report` always runs, right
+ * after the judge; error locations and the page note are written after it.
  */
 export class PageWorkflow extends WorkflowEntrypoint<Env, PageWorkflowParams> {
   override run(event: Readonly<WorkflowEvent<PageWorkflowParams>>, step: WorkflowStep) {
@@ -414,30 +419,27 @@ export class PageWorkflow extends WorkflowEntrypoint<Env, PageWorkflowParams> {
     const env = this.env;
     const parse = (presetId: string) => this.parse(step, event.instanceId, { runId, pageId: page, presetId });
     const judge = () => this.judgeWithSlot(step, event.instanceId, runId, page);
-    const program = Effect.gen(function* () {
+    const locate = (presetId: string) =>
+      bestEffort(
+        attempt(`locate ${presetId}`, () =>
+          step.do(`locate ${presetId}`, RETRY, () => runStep(writeLocations(env, runId, page, presetId))),
+        ),
+        "Locating errors failed",
+        page,
+        presetId,
+      );
+    const note = bestEffort(
+      attempt("note", () => step.do("note", RETRY, () => runStep(writePageNote(env, runId, page)))),
+      "Page note failed",
+      page,
+    );
+    const scored = Effect.gen(function* () {
       yield* attempt("render", () => step.do("render", RETRY, () => runStep(renderPage(env, page)))).pipe(
         Effect.mapError((error) => new RenderFailed({ message: `Page render failed: ${error.message}` })),
       );
       yield* Effect.forEach(parsePresetIds, parse, { concurrency: "unbounded", discard: true });
       yield* judge();
-      yield* Effect.forEach(
-        presetIds,
-        (presetId) =>
-          bestEffort(
-            attempt(`locate ${presetId}`, () =>
-              step.do(`locate ${presetId}`, RETRY, () => runStep(writeLocations(env, runId, page, presetId))),
-            ),
-            "Locating errors failed",
-            page,
-            presetId,
-          ),
-        { concurrency: "unbounded", discard: true },
-      );
-      yield* bestEffort(
-        attempt("note", () => step.do("note", RETRY, () => runStep(writePageNote(env, runId, page)))),
-        "Page note failed",
-        page,
-      );
+      return true;
     }).pipe(
       // Without a page image nothing can run; record the failure for every preset.
       Effect.catchTag("RenderFailed", (error) =>
@@ -454,11 +456,22 @@ export class PageWorkflow extends WorkflowEntrypoint<Env, PageWorkflowParams> {
           ),
           "Could not record render failure",
           page,
-        ),
+        ).pipe(Effect.as(false)),
       ),
       // The run waits for every page, so the page reports whatever happened above.
       Effect.ensuring(
         attempt("report", () => step.do("report", MUST, () => events(env, runId).pageDone(page))).pipe(Effect.orDie),
+      ),
+    );
+    // Error locations and the page note do not change scores, so they fill in after the page reports done.
+    const program = scored.pipe(
+      Effect.flatMap((judged) =>
+        judged
+          ? Effect.all([Effect.forEach(presetIds, locate, { concurrency: "unbounded", discard: true }), note], {
+              concurrency: "unbounded",
+              discard: true,
+            })
+          : Effect.void,
       ),
     );
     return Effect.runPromise(program);
@@ -497,7 +510,7 @@ export class PageWorkflow extends WorkflowEntrypoint<Env, PageWorkflowParams> {
         for (let round = 0; ; round++) {
           const suffix = round === 0 ? "" : ` ${round}`;
           const woken = yield* attempt(`slot ${label}${suffix}`, () =>
-            step.waitForEvent(`slot ${label}${suffix}`, { type: waiter.event, timeout: SLOT_WAIT }),
+            step.waitForEvent(`slot ${label}${suffix}`, { type: waiter.event, timeout: slotWait(round) }),
           ).pipe(
             Effect.as(true),
             Effect.catchTag("StepFailed", (error) => (round + 1 < SLOT_ROUNDS ? Effect.succeed(false) : Effect.fail(error))),
