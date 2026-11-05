@@ -583,6 +583,9 @@ const PresetsLive = HttpApiBuilder.group(Api, "presets", (handlers) =>
   ),
 );
 
+/** Pages from the splitter stored to R2 in parallel at a time. */
+const PUT_BATCH = 32;
+
 const splitFailed = (documentId: string, message: string) =>
   Effect.logError("PDF split in container failed", documentId, message).pipe(
     Effect.andThen(Effect.fail(new ServiceUnavailable({ error: "Could not split this PDF. Retry in a minute." }))),
@@ -625,24 +628,29 @@ const DocumentsLive = HttpApiBuilder.group(Api, "documents", (handlers) =>
         );
         const documentId = crypto.randomUUID();
         const max = Number(cf.MAX_PAGES_PER_RUN);
-        // Large PDFs are split in a container, which stores each page as it arrives; small ones split here.
-        let stored = 0;
+        // Large PDFs are split in a container, which streams pages back; they are stored PUT_BATCH at a time.
+        let seen = 0;
+        const batch: Array<readonly [number, Uint8Array]> = [];
+        const flush = Effect.suspend(() =>
+          Effect.forEach(
+            batch.splice(0),
+            ([index, page]) => query(() => cf.BLOBS.put(pagePdfKey(pageIdOf(documentId, index)), page)),
+            { concurrency: "unbounded", discard: true },
+          ),
+        );
         const pages =
           pdf.byteLength <= SPLIT_IN_WORKER_MAX_BYTES
             ? yield* splitPages(pdf, max)
-            : yield* splitInContainer(cf, pdf, max, (index, page) =>
-                query(() => cf.BLOBS.put(pagePdfKey(pageIdOf(documentId, index)), page)).pipe(
-                  Effect.tap(() =>
-                    Effect.sync(() => {
-                      stored = index + 1;
-                    }),
-                  ),
-                ),
-              ).pipe(
+            : yield* splitInContainer(cf, pdf, max, (index, page) => {
+                batch.push([index, page]);
+                seen = index + 1;
+                return batch.length >= PUT_BATCH ? flush : Effect.void;
+              }).pipe(
+                Effect.tap(() => flush),
                 Effect.map((count) => ({ length: count, inContainer: true as const })),
                 Effect.onError(() =>
                   query(() =>
-                    cf.BLOBS.delete(Array.from({ length: stored }, (_, index) => pagePdfKey(pageIdOf(documentId, index)))),
+                    cf.BLOBS.delete(Array.from({ length: seen }, (_, index) => pagePdfKey(pageIdOf(documentId, index)))),
                   ).pipe(Effect.catch(() => Effect.logError("Split cleanup failed", documentId))),
                 ),
                 Effect.catchTags({
