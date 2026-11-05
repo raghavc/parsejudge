@@ -1,12 +1,12 @@
 import { Data, Effect, Schema } from "effect";
 import { HttpClient, HttpClientRequest } from "effect/http";
-import { ErrorCategory, JudgedError, type PresetVerdict } from "./domain.ts";
+import { JUDGED_CATEGORIES, JudgedError, type PresetVerdict } from "./domain.ts";
 import { isRetryableStatus, JudgeError } from "./errors.ts";
 import { httpErrorMessage, snippet } from "./http.ts";
 import { findPreset } from "./presets.ts";
 import { comparePrompt } from "./prompt.ts";
 
-export const JUDGE_VERSION = "compare-v3";
+export const JUDGE_VERSION = "compare-v4";
 
 export interface JudgeConfig {
   /** Bearer token for each call; may be cached and renewed by the caller. */
@@ -92,7 +92,7 @@ const Completion = Schema.Struct({
   usage: Schema.optional(Schema.Unknown),
 });
 
-const JUDGED_SEVERITIES = ["high", "medium", "low"] as const;
+const JUDGED_SEVERITIES = ["high", "low", "figure_error"] as const;
 
 const responseFormat = (labels: ReadonlyArray<string>) => ({
   type: "json_schema",
@@ -121,7 +121,7 @@ const responseFormat = (labels: ReadonlyArray<string>) => ({
                   required: ["severity", "category", "visual_region_type", "location_hint", "description"],
                   properties: {
                     severity: { type: "string", enum: JUDGED_SEVERITIES },
-                    category: { type: "string", enum: ErrorCategory.literals },
+                    category: { type: "string", enum: JUDGED_CATEGORIES },
                     visual_region_type: { type: "string" },
                     location_hint: { type: "string" },
                     description: { type: "string" },
