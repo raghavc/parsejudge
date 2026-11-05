@@ -33,7 +33,7 @@
 
 ## Judge
 
-- Version `compare-v1`, stored on every run with the judge model.
+- Version `compare-v3`, stored on every run with the judge model.
 - Parses are labelled `parse_a`, `parse_b`, ... in an order derived from SHA-256 of `pageId:presetId`.
 - Output is JSON-schema constrained and validated: every parse scored once, integer scores 1-10.
 
