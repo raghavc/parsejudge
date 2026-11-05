@@ -1,7 +1,6 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep, type WorkflowStepConfig } from "cloudflare:workers";
-import { decodeJson, JUDGE_VERSION, judgePage, splitPages, workloadToken } from "@parsejudge/core";
+import { decodeJson, JUDGE_VERSION, judgePage, splitPages } from "@parsejudge/core";
 import { Data, Effect } from "effect";
-import { checkJudgeBudget } from "./budget.ts";
 import type { Env } from "./env.ts";
 import { StorageFailed, storage } from "./errors.ts";
 import { documentKey, markdownKey, pageId, pagePdfKey, pagePngKey } from "./keys.ts";
@@ -25,7 +24,7 @@ import {
 } from "./run.ts";
 import { MAX_POLLS, pollDelayMs } from "./schedule.ts";
 import type { ProviderSlots } from "./slots.ts";
-import { openRouterUsage, recordUsage } from "./usage.ts";
+import { modelUsage, openAIToken, recordUsage } from "./usage.ts";
 
 export interface RunWorkflowParams {
   readonly runId: string;
@@ -222,15 +221,7 @@ const judge = Effect.fn("judge")(function* (env: Env, runId: string, page: strin
   const startedAt = Date.now();
   const verdicts = yield* judgePage(
     {
-      token: workloadToken({
-        authUrl: env.OPENAI_AUTH_URL,
-        identityProviderId: env.OPENAI_IDENTITY_PROVIDER_ID,
-        serviceAccountId: env.OPENAI_SERVICE_ACCOUNT_ID,
-        issuer: env.OPENAI_JWT_ISSUER,
-        audience: env.OPENAI_JWT_AUDIENCE,
-        subject: env.OPENAI_JWT_SUBJECT,
-        signingKey: env.OPENAI_SIGNING_KEY,
-      }),
+      token: openAIToken(env),
       models: [env.JUDGE_MODEL, ...(env.JUDGE_FALLBACK_MODELS ?? "").split(",").map((m) => m.trim())].filter(Boolean),
       reasoningEffort: env.JUDGE_REASONING_EFFORT,
       baseUrl: env.OPENAI_BASE_URL,
@@ -242,7 +233,7 @@ const judge = Effect.fn("judge")(function* (env: Env, runId: string, page: strin
           pageId: page,
           status: "ok",
           latencyMs: Date.now() - startedAt,
-          ...openRouterUsage(usage),
+          ...modelUsage(model, usage),
         }),
     },
     { pageId: page, imagePng, markdownByPreset },
@@ -315,12 +306,6 @@ export class RunWorkflow extends WorkflowEntrypoint<Env, RunWorkflowParams> {
                 runId,
               )
             : Effect.void,
-        ),
-        Effect.andThen(
-          bestEffort(
-            attempt("check judge budget", () => step.do("check judge budget", RETRY, () => runStep(checkJudgeBudget(this.env)))),
-            "Judge budget check failed",
-          ),
         ),
       ),
     );

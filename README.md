@@ -79,7 +79,7 @@ Deploy `apps/api` to your own Cloudflare account: create the D1 database and R2 
 
 Every provider parse, judge call and small-model call (page notes, error locations, run titles) is logged to
 Workers Logs as an `{"event":"usage",...}` line and written to the Analytics Engine dataset `parsejudge_usage`.
-Model cost is the `usage.cost` OpenRouter returns with each completion; provider cost is the provider's reported
+Model cost is computed from the token counts at OpenAI's list prices (`PRICES` in `apps/api/src/usage.ts`); provider cost is the provider's reported
 cost or the list price. Columns are listed in `apps/api/src/usage.ts`. Query it with the
 [SQL API](https://developers.cloudflare.com/analytics/analytics-engine/sql-api/), for example cost per run and kind:
 

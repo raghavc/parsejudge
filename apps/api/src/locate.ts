@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import { marked } from "marked";
 import type { Env } from "./env.ts";
 import { markdownKey } from "./keys.ts";
-import { complete, openRouterUsage, recordUsage } from "./usage.ts";
+import { complete, modelUsage, recordUsage } from "./usage.ts";
 
 /** One place an error appears: `text` occurs in the output's visible text, and `occurrence` picks which match (1-based). */
 export interface Quote {
@@ -103,7 +103,11 @@ type Where = { readonly runId?: string; readonly pageId?: string };
 
 const ask = (env: Env, messages: ReadonlyArray<Message>, where: Where) => {
   const startedAt = Date.now();
-  return complete(env, { model: env.SMALL_MODEL, max_tokens: 2000, messages }, "60 seconds").pipe(
+  return complete(
+    env,
+    { model: env.SMALL_MODEL, max_completion_tokens: 2000, reasoning_effort: "none", messages },
+    "60 seconds",
+  ).pipe(
     Effect.tap(({ usage }) =>
       recordUsage(env, {
         kind: "locate",
@@ -111,7 +115,7 @@ const ask = (env: Env, messages: ReadonlyArray<Message>, where: Where) => {
         ...where,
         status: "ok",
         latencyMs: Date.now() - startedAt,
-        ...openRouterUsage(usage),
+        ...modelUsage(env.SMALL_MODEL, usage),
       }),
     ),
     Effect.map(({ content }) => content),
@@ -158,7 +162,7 @@ export const locate = Effect.fn("locate")(function* (env: Env, markdown: string,
   return located.map((quotes, i) => quotes ?? (last.get(i + 1) ?? []).filter((q) => checkQuotes(text, [q]).length === 0));
 });
 
-/** Locates the errors of one judged parse and stores them. Fails on a model, HTTP or OpenRouter error so the workflow step retries. */
+/** Locates the errors of one judged parse and stores them. Fails on a model or HTTP error so the workflow step retries. */
 export const writeLocations = Effect.fn("writeLocations")(function* (env: Env, runId: string, pageId: string, presetId: string) {
   const row = yield* Effect.promise(() =>
     env.DB.prepare("SELECT errors FROM verdicts WHERE run_id = ? AND page_id = ? AND preset_id = ?")

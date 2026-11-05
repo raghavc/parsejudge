@@ -21,7 +21,7 @@ const AWS_THROTTLES =
 /** True when a failed response is worth retrying: a transient status, or an AWS throttle sent as 400. */
 export const isRetryableResponse = (status: number, body: string) => isRetryableStatus(status) || AWS_THROTTLES.test(body);
 
-/** The start of a response body, for error messages. */
+/** The start of an error response body, for error messages. Never used on a 2xx body, which can hold document content. */
 export const snippet = (body: unknown): string =>
   (typeof body === "string" ? body : (JSON.stringify(body) ?? String(body))).slice(0, MAX_ERROR_BODY);
 
@@ -57,7 +57,7 @@ export const sendJson = Effect.fn("http.sendJson")(function* (provider: string, 
         ? null
         : yield* decodeJson(text).pipe(
             Effect.mapError(
-              () => new ProviderError({ provider, retryable: true, message: `Invalid JSON: ${text.slice(0, MAX_ERROR_BODY)}` }),
+              () => new ProviderError({ provider, retryable: true, message: `Invalid JSON response (${text.length} bytes)` }),
             ),
           );
     return { status: response.status, headers: response.headers, body } satisfies JsonResponse;
@@ -70,18 +70,27 @@ export const sendJson = Effect.fn("http.sendJson")(function* (provider: string, 
   );
 });
 
+/** The error text of a 2xx error object (`{ detail }`, `{ error }`, `{ message }`), if it has one. */
+const errorText = (body: unknown): string | undefined => {
+  if (typeof body !== "object" || body === null) return undefined;
+  const fields = body as Record<string, unknown>;
+  const text = [fields.detail, fields.error, fields.message].find((value) => typeof value === "string");
+  return typeof text === "string" ? text.slice(0, MAX_ERROR_BODY) : undefined;
+};
+
 /**
  * Decodes the fields an adapter reads from a 2xx body. A body without them (empty, an error object, a changed API)
- * fails with the schema issue and the body text instead of becoming an empty parse.
+ * fails with the schema issue and the body's error text instead of becoming an empty parse. The rest of the body is
+ * left out: it can hold document content.
  */
 export const decodeBody = <A>(provider: string, schema: Schema.Decoder<A>, body: unknown) =>
   Schema.decodeUnknownEffect(schema)(body).pipe(
-    Effect.mapError(
-      (error) =>
-        new ProviderError({
-          provider,
-          retryable: true,
-          message: `Unexpected response: ${error.message}; body: ${snippet(body)}`,
-        }),
-    ),
+    Effect.mapError((error) => {
+      const text = errorText(body);
+      return new ProviderError({
+        provider,
+        retryable: true,
+        message: `Unexpected response: ${error.message}${text === undefined ? "" : `; error: ${text}`}`,
+      });
+    }),
   );

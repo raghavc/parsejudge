@@ -42,7 +42,7 @@ export const extend: ProviderAdapter = {
     if (RUNNING.has(run.status)) return Option.none();
     if (run.status !== "PROCESSED") {
       const error = [run.failureReason, run.failureMessage].filter(Boolean).join(": ");
-      return yield* jobFailure("extend", run.status, error || undefined, response.body);
+      return yield* jobFailure("extend", run.status, error || undefined);
     }
     const { output } = yield* decodeBody("extend", Processed, response.body);
     const usage = record(record(response.body).usage);

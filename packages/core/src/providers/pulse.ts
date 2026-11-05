@@ -37,7 +37,7 @@ export const pulse: ProviderAdapter = {
     );
     const { status, error } = yield* decodeBody("pulse", Job, response.body);
     if (RUNNING.has(status)) return Option.none();
-    if (status !== "completed") return yield* jobFailure("pulse", status, error, response.body);
+    if (status !== "completed") return yield* jobFailure("pulse", status, error);
     const { result } = yield* decodeBody("pulse", Completed, response.body);
     let extraction: unknown = record(response.body).result;
     if ("url" in result) extraction = (yield* sendJson("pulse", HttpClientRequest.get(result.url))).body;

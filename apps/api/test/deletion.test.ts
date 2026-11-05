@@ -6,20 +6,29 @@ const fakeEnv = (getRun: () => Promise<unknown>) => {
   const updates: Array<string> = [];
   const statement = (sql: string) => ({
     bind: () => ({
+      sql,
       all: async () => ({ results: [] }),
       run: async () => {
         updates.push(sql);
       },
     }),
   });
-  return { env: { RUN_WORKFLOW: { get: getRun }, PAGE_WORKFLOW: { get: getRun }, DB: { prepare: statement } } as never, updates };
+  const batch = async (statements: ReadonlyArray<{ sql: string }>) => {
+    for (const s of statements) updates.push(s.sql);
+    return [];
+  };
+  return {
+    env: { RUN_WORKFLOW: { get: getRun }, PAGE_WORKFLOW: { get: getRun }, DB: { prepare: statement, batch } } as never,
+    updates,
+  };
 };
 
 describe("stopRun", () => {
-  it("marks a run stopped when its workflow was never created", async () => {
+  it("marks a run stopped and deletes its keys when its workflow was never created", async () => {
     const { env, updates } = fakeEnv(() => Promise.reject(new Error("(instance.not_found) Instance does not exist")));
     await Effect.runPromise(stopRun(env, "run"));
-    expect(updates).toHaveLength(1);
+    expect(updates).toHaveLength(2);
+    expect(updates[1]).toContain("DELETE FROM run_credentials");
   });
 
   it("fails, leaving the run as is, when terminating its workflow fails", async () => {

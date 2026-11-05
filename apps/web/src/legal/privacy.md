@@ -4,13 +4,13 @@ This Privacy Policy explains how Reducto, Inc. ("Reducto," "we," "us," or "our")
 
 1.1 Account Information. When you sign in: your email address and authentication identifiers.
 
-1.2 Content. Documents you upload, the run names and settings you choose, the instructions and tool calls an AI assistant or agent sends to the Service on your behalf, and the Parser outputs, scores, and reports the Service creates ("Content"). Content may include personal information about you or others.
+1.2 Content. Documents you upload and their file names, the run names and settings you choose, the instructions and tool calls an AI assistant or agent sends to the Service on your behalf, and the Parser outputs, scores, and reports the Service creates ("Content"). Content may include personal information about you or others.
 
 1.3 API Keys. If you provide your own API key for a Parser, we encrypt it, use it only for that run, and delete it when the run ends.
 
 1.4 Platform Information. If you connect the Service to an AI assistant or agent (each, a "Platform"), we receive only what the Platform sends to perform a requested action, such as the request, relevant files, and technical identifiers. We do not receive your full conversation history unless the Platform includes it in a request.
 
-1.5 Usage and Device Information. Log data, IP address, browser and device type, timestamps, features used, request volume, errors, and similar information.
+1.5 Usage and Device Information. Log data, IP address, approximate location (such as city or region) derived from your IP address, browser and device type, timestamps, features used, request volume, errors, and similar information. Our hosting provider records this in operational logs and traces of requests to the Service, which we use to operate, secure, and debug it. These logs record events and failures, such as which run and page an error happened on. We design them to exclude the contents of your documents, Parser outputs, and the AI model's grading.
 
 1.6 Cookies. We use cookies to keep you signed in and to protect sign-in from abuse. We do not use advertising or third-party analytics cookies.
 
@@ -26,7 +26,7 @@ This Privacy Policy explains how Reducto, Inc. ("Reducto," "we," "us," or "our")
 
 3.1 Service Providers. We use vendors that perform services on our behalf, such as cloud hosting, email delivery, abuse prevention, and AI model processing. They may use personal information only to provide services to us.
 
-3.2 Parsers. When you start a run, we send your documents to the document parsing providers you select (each, a "Parser"), and we send pages and Parser outputs to AI model providers that grade and summarize them. Each Parser processes documents under its own terms. If you use your own API key, your agreement with that Parser governs its processing.
+3.2 Parsers. When you start a run, we send your documents to the document parsing providers you select (each, a "Parser"), we send pages and Parser outputs to AI model providers that grade and summarize them, and we send the file names of your documents to an AI model provider to name the run. One of the Parsers is Reducto's own document parsing API. Each Parser processes documents under its own terms. If you use your own API key, your agreement with that Parser governs its processing.
 
 3.3 Shared Reports. If you share a report by link, anyone with the link can view it. You can stop sharing or create a new link at any time.
 
@@ -95,8 +95,8 @@ This Privacy Policy explains how Reducto, Inc. ("Reducto," "we," "us," or "our")
       <tr>
         <td>Internet or other electronic network activity information</td>
         <td>
-          Log data, browser and device type, timestamps, features used, request
-          volume, and errors.
+          Log data, approximate location derived from IP address, browser and
+          device type, timestamps, features used, request volume, and errors.
         </td>
         <td>
           Your browser or device and your Platform.

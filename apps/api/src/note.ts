@@ -1,7 +1,7 @@
 import { decodeJson, PRESETS } from "@parsejudge/core";
 import { Effect } from "effect";
 import type { Env } from "./env.ts";
-import { CompletionFailed, complete, openRouterUsage, recordUsage } from "./usage.ts";
+import { CompletionFailed, complete, modelUsage, recordUsage } from "./usage.ts";
 
 /** A page gets a note when its best and worst scores differ by this much, or a parse failed. Matches the report. */
 const NOTE_GAP = 3;
@@ -68,8 +68,8 @@ export const writePageNote = Effect.fn("writePageNote")(function* (env: Env, run
     env,
     {
       model: env.SMALL_MODEL,
-      max_tokens: 1000,
-      reasoning: { effort: "low", exclude: true },
+      max_completion_tokens: 1000,
+      reasoning_effort: "low",
       messages: [
         { role: "system", content: PROMPT },
         { role: "user", content: lines.join("\n") },
@@ -84,11 +84,11 @@ export const writePageNote = Effect.fn("writePageNote")(function* (env: Env, run
     pageId,
     status: "ok",
     latencyMs: Date.now() - startedAt,
-    ...openRouterUsage(usage),
+    ...modelUsage(env.SMALL_MODEL, usage),
   });
   const note = content.trim();
   if (!note || note.includes("\n"))
-    return yield* new CompletionFailed({ message: `Unusable page note: ${JSON.stringify(note)}` });
+    return yield* new CompletionFailed({ message: `Unusable page note: ${note ? "more than one line" : "empty"}` });
   yield* Effect.promise(() =>
     env.DB.prepare("INSERT OR REPLACE INTO page_notes (run_id, page_id, note) VALUES (?, ?, ?)").bind(runId, pageId, note).run(),
   );
