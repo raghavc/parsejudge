@@ -38,7 +38,7 @@ interface PageSort {
 
 const FLAG_GAP = 3;
 const BLOCKS = "p,li,td,th,h1,h2,h3,h4,h5,h6,blockquote,pre";
-const RANK: Record<Severity, number> = { high: 0, figure_error: 1, low: 2 };
+const RANK: Record<Severity, number> = { high: 0, figure_error: 1, medium: 2, low: 3 };
 
 const isFlagged = (page: PageStat) => page.failed || page.gap >= FLAG_GAP || page.high > 0;
 const FILTERS: ReadonlyArray<readonly [PageFilter, string]> = [
@@ -257,7 +257,7 @@ const FlagCard = ({
 };
 
 const SeverityCounts = ({ parse }: { readonly parse: PageParse }) => {
-  const counts = (["high", "figure_error", "low"] as const)
+  const counts = (["high", "figure_error", "medium", "low"] as const)
     .map((sev) => [sev, flagsOf(parse).filter((f) => f.severity === sev).length] as const)
     .filter(([, n]) => n > 0);
   if (parse.status !== "succeeded") return <span style={{ color: "var(--bad)" }}>Parse failed</span>;
@@ -362,7 +362,7 @@ const Issues = ({
         {parse.error ?? "Parse failed."}
       </p>
     );
-  const counts = (["high", "figure_error", "low"] as const)
+  const counts = (["high", "figure_error", "medium", "low"] as const)
     .map((sev) => [sev, flags.filter((f) => f.severity === sev).length] as const)
     .filter(([, n]) => n > 0);
   return (

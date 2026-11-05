@@ -8,7 +8,6 @@ import {
   PRESETS,
   sniffFormat,
   splitPages,
-  withoutMedium,
 } from "@parsejudge/core";
 import { Cause, Data, Effect, Layer, Schedule, Schema } from "effect";
 import { FetchHttpClient, HttpRouter, HttpServer, HttpServerRequest, HttpServerResponse } from "effect/http";
@@ -172,7 +171,7 @@ const withQuotes = (errors: string | null, quotes: string | null) =>
   Effect.all([decodeJson(quotes ?? "[]"), decodeJson(errors ?? "[]")]).pipe(
     Effect.map(
       ([located, judged]): ReadonlyArray<unknown> =>
-        (withoutMedium(judged) as ReadonlyArray<Record<string, unknown>>).map(({ quotes: _, ...error }, i) => {
+        (judged as ReadonlyArray<Record<string, unknown>>).map(({ quotes: _, ...error }, i) => {
           const found = (located as ReadonlyArray<unknown>)[i];
           return found === undefined ? error : { ...error, quotes: found };
         }),

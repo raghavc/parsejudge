@@ -590,6 +590,7 @@ body {
   border-color: var(--bad);
   color: #fff;
 }
+.sev.medium,
 .sev.figure_error {
   border-color: var(--bad);
   color: var(--bad);
@@ -647,6 +648,7 @@ mark.flag {
   color: inherit;
 }
 mark.flag.low,
+mark.flag.medium,
 mark.flag.figure_error {
   text-decoration: underline wavy var(--bad);
   text-underline-offset: 3px;
@@ -1748,6 +1750,7 @@ svg.caret {
   background: #b33c41;
   color: #fff;
 }
+.sev.medium,
 .sev.figure_error {
   background: #fbeced;
   color: #91252b;
