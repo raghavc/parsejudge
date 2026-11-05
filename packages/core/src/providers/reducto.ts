@@ -50,7 +50,7 @@ export const reducto: ProviderAdapter = {
     const response = yield* sendJson("reducto", request(key, HttpClientRequest.get(`${BASE_URL}/job/${job}`)));
     const { status, reason } = yield* decodeBody("reducto", Job, response.body);
     if (RUNNING.has(status)) return Option.none();
-    if (status !== "Completed") return yield* jobFailure("reducto", status, reason, response.body);
+    if (status !== "Completed") return yield* jobFailure("reducto", status, reason);
     return Option.some(yield* output(record(response.body).result));
   }),
 };

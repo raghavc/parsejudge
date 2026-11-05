@@ -39,7 +39,7 @@ export const datalab: ProviderAdapter = {
     const check = yield* decodeBody("datalab", Check, response.body);
     if (check.status === "processing") return Option.none();
     if (check.status !== "complete" || check.success === false) {
-      return yield* jobFailure("datalab", check.status, check.error, response.body);
+      return yield* jobFailure("datalab", check.status, check.error);
     }
     const { markdown } = yield* decodeBody("datalab", Complete, response.body);
     const cents = number(record(record(response.body).cost_breakdown).final_cost_cents);

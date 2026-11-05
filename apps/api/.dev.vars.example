@@ -9,7 +9,8 @@ PULSE_API_KEY=
 REDUCTO_API_KEY=
 AWS_ACCESS_KEY_ID=
 AWS_SECRET_ACCESS_KEY=
-JUDGE_API_KEY=
+# Private P-256 JWK (JSON, with kid) for OpenAI OIDC workload identity.
+OPENAI_SIGNING_KEY=
 BLOB_SIGNING_KEY=
 CREDENTIALS_KEY=
 # At least 32 characters: openssl rand -base64 32

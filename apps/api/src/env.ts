@@ -28,18 +28,14 @@ export interface Env {
   readonly OPENAI_JWT_SUBJECT: string;
   /** Private P-256 JWK (JSON, with `kid`) whose public half is uploaded to the OpenAI identity provider. */
   readonly OPENAI_SIGNING_KEY: string;
+  /** OpenAI model for the small-model steps (page notes, error locations, run titles), on the same workload identity. */
   readonly SMALL_MODEL: string;
   readonly JUDGE_REASONING_EFFORT: "low" | "medium" | "high";
-  /** OpenRouter, for the small-model steps (notes, locations, titles) and the budget check. */
-  readonly JUDGE_BASE_URL: string;
   readonly MAX_PAGES_PER_RUN: string;
   /** JSON map from provider id or "judge" to max requests in flight per API key, e.g. `{"reducto": 200}`. */
   readonly MAX_CONCURRENCY?: string;
   readonly BLOB_SIGNING_KEY: string;
   readonly CREDENTIALS_KEY: string;
-  readonly JUDGE_API_KEY: string;
-  /** incident.io HTTP alert source URL, with its token. Unset turns budget alerts off. */
-  readonly BUDGET_ALERT_URL?: string;
   /** Analytics Engine dataset for per-call cost and latency (see usage.ts). Unbound turns it off. */
   readonly USAGE?: AnalyticsEngineDataset;
   /** "email" (sign-in by emailed code or link) or "dev" (also trusts the x-parsejudge-user header; local only). */

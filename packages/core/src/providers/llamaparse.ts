@@ -1,7 +1,7 @@
 import { Effect, Option, Schema } from "effect";
 import { HttpClientRequest } from "effect/http";
-import { decodeBody, sendJson, snippet } from "../http.ts";
-import { array, joinNonEmpty, record } from "../json.ts";
+import { decodeBody, sendJson } from "../http.ts";
+import { joinNonEmpty } from "../json.ts";
 import { credential, failure, jobFailure, type ProviderAdapter, pending } from "../provider.ts";
 
 const BASE_URL = "https://api.cloud.llamaindex.ai/api/v2/parse";
@@ -15,7 +15,15 @@ const Text = Schema.optional(Schema.NullOr(Schema.String));
 /** A page that failed has `success: false` and no markdown. Page headers and footers come apart from `markdown`. */
 const Completed = Schema.Struct({
   markdown: Schema.Struct({
-    pages: Schema.Array(Schema.Struct({ markdown: Text, header: Text, footer: Text, success: Schema.optional(Schema.Boolean) })),
+    pages: Schema.Array(
+      Schema.Struct({
+        markdown: Text,
+        header: Text,
+        footer: Text,
+        success: Schema.optional(Schema.Boolean),
+        error: Text,
+      }),
+    ),
   }),
 });
 
@@ -44,11 +52,11 @@ export const llamaparse: ProviderAdapter = {
     );
     const { status, error_message } = (yield* decodeBody("llamaparse", Job, response.body)).job;
     if (RUNNING.has(status)) return Option.none();
-    if (status !== "COMPLETED") return yield* jobFailure("llamaparse", status, error_message, response.body);
+    if (status !== "COMPLETED") return yield* jobFailure("llamaparse", status, error_message);
     const { pages } = (yield* decodeBody("llamaparse", Completed, response.body)).markdown;
     const failed = pages.findIndex((page) => page.success === false || typeof page.markdown !== "string");
     if (failed !== -1) {
-      return yield* failure("llamaparse", `page failed: ${snippet(array(record(record(response.body).markdown).pages)[failed])}`);
+      return yield* failure("llamaparse", `page failed: ${pages[failed]?.error ?? "no error message"}`);
     }
     return Option.some({
       markdown: joinNonEmpty(pages.flatMap((p) => [p.header ?? "", p.markdown ?? "", p.footer ?? ""])),

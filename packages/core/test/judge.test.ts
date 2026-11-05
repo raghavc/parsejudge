@@ -80,7 +80,7 @@ describe("judgePage", () => {
     expect(String(exit)).toContain("judge error 429: Rate limit exceeded");
   });
 
-  it("keeps the body when a 200 response has an error on the choice or is not JSON", async () => {
+  it("keeps the error of a 200 response but not its body, which can hold judge output", async () => {
     const respond = async (body: string) => {
       const fetch = (async () => new Response(body, { status: 200 })) as unknown as typeof globalThis.fetch;
       return String(
@@ -94,7 +94,9 @@ describe("judgePage", () => {
     };
     const choiceError = { choices: [{ finish_reason: "error", error: { code: 502, message: "upstream reset" } }] };
     expect(await respond(JSON.stringify(choiceError))).toContain("judge error 502: upstream reset");
-    expect(await respond('{"choices": [')).toContain('body: {"choices": [');
+    const invalid = await respond('{"choices": [');
+    expect(invalid).toContain("Invalid judge response");
+    expect(invalid).not.toContain('{"choices": [');
   });
 });
 

@@ -6,7 +6,29 @@ import { checkQuotes, locate, visibleText } from "../src/locate.ts";
 
 const OUTPUT = "| Site | Throughput |\n|---|---|\n| Gdansk | 14,210 |\n\nThroughput rose at two of three sites.";
 const FLAGS = [{ category: "table_structure", severity: "medium", description: "Header cell split" }];
-const env = { JUDGE_BASE_URL: "https://or.test", JUDGE_API_KEY: "k", SMALL_MODEL: "m" } as unknown as Env;
+const keyPair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign"])) as CryptoKeyPair;
+const env = {
+  OPENAI_BASE_URL: "https://openai.test/v1",
+  OPENAI_AUTH_URL: "https://auth.test/oauth/token",
+  OPENAI_IDENTITY_PROVIDER_ID: "idp_locate",
+  OPENAI_SERVICE_ACCOUNT_ID: "user-locate",
+  OPENAI_JWT_ISSUER: "https://issuer.test",
+  OPENAI_JWT_AUDIENCE: "https://openai.test/v1",
+  OPENAI_JWT_SUBJECT: "spiffe://issuer.test/worker",
+  OPENAI_SIGNING_KEY: JSON.stringify({ ...(await crypto.subtle.exportKey("jwk", keyPair.privateKey)), kid: "k1" }),
+  SMALL_MODEL: "m",
+} as unknown as Env;
+
+const token = () => new Response(JSON.stringify({ access_token: "t", expires_in: 300 }));
+
+/** Answers the token exchange, and each completion with the next reply. */
+const stubFetch = (next: () => Response) => {
+  const fetch = vi.fn(async (url: string, _init?: RequestInit) =>
+    String(url).startsWith(env.OPENAI_AUTH_URL) ? token() : next(),
+  );
+  vi.stubGlobal("fetch", fetch);
+  return () => fetch.mock.calls.filter(([url]) => String(url).startsWith(env.OPENAI_BASE_URL));
+};
 
 const reply = (errors: unknown) =>
   new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ errors }) } }] }));
@@ -45,33 +67,31 @@ describe("checkQuotes", () => {
 
 describe("locate", () => {
   it("sends problems back to the model until the excerpt matches one place", async () => {
-    const fetch = vi
-      .fn()
-      .mockResolvedValueOnce(reply([{ error: 1, quotes: [{ text: "Throughput", occurrence: 5 }] }]))
-      .mockResolvedValueOnce(reply([{ error: 1, quotes: [{ text: "Throughput", occurrence: 1 }] }]));
-    vi.stubGlobal("fetch", fetch);
+    const replies = [
+      reply([{ error: 1, quotes: [{ text: "Throughput", occurrence: 5 }] }]),
+      reply([{ error: 1, quotes: [{ text: "Throughput", occurrence: 1 }] }]),
+    ];
+    const completions = stubFetch(() => replies.shift() ?? new Response("", { status: 500 }));
     expect(await Effect.runPromise(locate(env, OUTPUT, FLAGS).pipe(withFetch))).toEqual([
       [{ text: "Throughput", occurrence: 1 }],
     ]);
-    expect(fetch).toHaveBeenCalledTimes(2);
-    const second = JSON.parse(new TextDecoder().decode(fetch.mock.calls[1]?.[1].body)).messages.at(-1).content as string;
+    expect(completions()).toHaveLength(2);
+    const body = completions()[1]?.[1]?.body as Uint8Array;
+    const second = JSON.parse(new TextDecoder().decode(body)).messages.at(-1).content as string;
     expect(second).toContain("appears 2 times");
   });
 
   it("keeps only valid excerpts when the rounds run out", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockImplementation(async () =>
-        reply([
-          {
-            error: 1,
-            quotes: [
-              { text: "Gdansk", occurrence: 1 },
-              { text: "nowhere", occurrence: 1 },
-            ],
-          },
-        ]),
-      ),
+    stubFetch(() =>
+      reply([
+        {
+          error: 1,
+          quotes: [
+            { text: "Gdansk", occurrence: 1 },
+            { text: "nowhere", occurrence: 1 },
+          ],
+        },
+      ]),
     );
     expect(await Effect.runPromise(locate(env, OUTPUT, FLAGS).pipe(withFetch))).toEqual([[{ text: "Gdansk", occurrence: 1 }]]);
   });

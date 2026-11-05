@@ -10,7 +10,7 @@ const DOCS = {
   privacy: { title: "Privacy Policy", body: privacy },
 } as const;
 
-const UPDATED = "November 4, 2026";
+const UPDATED = "November 5, 2026";
 
 export const Legal = ({ doc }: { readonly doc: keyof typeof DOCS }) => {
   const { title, body } = DOCS[doc];

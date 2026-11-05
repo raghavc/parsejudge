@@ -1,18 +1,25 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
-import { openRouterUsage, recordUsage } from "../src/usage.ts";
+import { modelUsage, recordUsage } from "../src/usage.ts";
 
 describe("usage", () => {
-  it("reads cost and tokens from an OpenRouter usage object, and zeros when it is missing", () => {
+  it("prices tokens at the model's list price, and zeros when the usage or price is missing", () => {
     expect(
-      openRouterUsage({
-        cost: 0.05,
-        prompt_tokens: 1200,
-        completion_tokens: 300,
-        completion_tokens_details: { reasoning_tokens: 200 },
+      modelUsage("gpt-6-luna", {
+        prompt_tokens: 1_000_000,
+        completion_tokens: 200_000,
+        prompt_tokens_details: { cached_tokens: 400_000, cache_write_tokens: 100_000 },
+        completion_tokens_details: { reasoning_tokens: 50_000 },
       }),
-    ).toEqual({ costUsd: 0.05, promptTokens: 1200, completionTokens: 300, reasoningTokens: 200 });
-    expect(openRouterUsage(undefined)).toEqual({ costUsd: 0, promptTokens: 0, completionTokens: 0, reasoningTokens: 0 });
+    ).toEqual({
+      costUsd: expect.closeTo(0.5 * 0.1 * 2 + 0.4 * 0.01 * 2 + 0.1 * 0.125 * 2 + 0.2 * 0.5 * 1.5, 10),
+      promptTokens: 1_000_000,
+      completionTokens: 200_000,
+      reasoningTokens: 50_000,
+    });
+    expect(modelUsage("gpt-6.1-sol", { prompt_tokens: 10_000, completion_tokens: 1_000 }).costUsd).toBeCloseTo(0.03, 10);
+    expect(modelUsage("unknown", { prompt_tokens: 10_000 }).costUsd).toBe(0);
+    expect(modelUsage("gpt-6-luna", undefined)).toEqual({ costUsd: 0, promptTokens: 0, completionTokens: 0, reasoningTokens: 0 });
   });
 
   it("writes one data point indexed by run, with cost first", () => {

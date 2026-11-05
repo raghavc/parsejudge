@@ -76,7 +76,7 @@ const terminate = (binding: { get(id: string): Promise<WorkflowInstance> }, id: 
     ),
   );
 
-/** Stops a queued or running run: terminates its workflow and every page workflow it started. */
+/** Stops a queued or running run: terminates its workflow and every page workflow it started, and deletes its keys. */
 export const stopRun = Effect.fn("stopRun")(function* (env: Env, runId: string) {
   yield* terminate(env.RUN_WORKFLOW, runId);
   const pages = yield* storage(() =>
@@ -91,11 +91,12 @@ export const stopRun = Effect.fn("stopRun")(function* (env: Env, runId: string) 
     });
   }
   yield* storage(() =>
-    env.DB.prepare(
-      "UPDATE runs SET status = 'failed', error = 'Stopped', completed_at = ? WHERE id = ? AND status IN ('queued', 'running')",
-    )
-      .bind(Date.now(), runId)
-      .run(),
+    env.DB.batch([
+      env.DB.prepare(
+        "UPDATE runs SET status = 'failed', error = 'Stopped', completed_at = ? WHERE id = ? AND status IN ('queued', 'running')",
+      ).bind(Date.now(), runId),
+      env.DB.prepare("DELETE FROM run_credentials WHERE run_id = ?").bind(runId),
+    ]),
   );
 });
 

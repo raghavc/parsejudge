@@ -76,7 +76,7 @@ const isQuotaError = (text: string) => /"(?:code|type)"\s*:\s*"insufficient_quot
 /** A rate limit on our own usage of one model: try the next model. */
 class RateLimited extends Data.TaggedError("RateLimited")<{ readonly message: string }> {}
 
-/** The fields read from an OpenRouter chat completion. Anything can be absent; the checks below say which is missing. */
+/** The fields read from a chat completion. Anything can be absent; the checks below say which is missing. */
 const Completion = Schema.Struct({
   error: Schema.optional(Schema.NullOr(CompletionError)),
   choices: Schema.optional(
@@ -206,12 +206,10 @@ const judgeWith = Effect.fn("judge.model")(function* (config: JudgeConfig, model
     return yield* new JudgeError({ retryable: isRetryableStatus(status), message: `${model} HTTP ${status}: ${snippet(text)}` });
   }
   const body = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(Completion))(text).pipe(
-    Effect.mapError(
-      (error) => new JudgeError({ retryable: true, message: `Invalid judge response: ${error.message}; body: ${snippet(text)}` }),
-    ),
+    Effect.mapError((error) => new JudgeError({ retryable: true, message: `Invalid judge response: ${error.message}` })),
   );
   const choice = body.choices?.[0];
-  // A 200 can carry an `error` object (OpenRouter upstream 429), at the top level or on the choice.
+  // A 200 can carry an `error` object, at the top level or on the choice.
   const error = body.error ?? choice?.error;
   if (error !== undefined && error !== null) {
     const code = Number(error.code);
@@ -226,7 +224,7 @@ const judgeWith = Effect.fn("judge.model")(function* (config: JudgeConfig, model
   if (typeof content !== "string" || content === "") {
     return yield* new JudgeError({
       retryable: true,
-      message: `Judge response has no message content (finish_reason ${choice?.finish_reason ?? "none"}): ${snippet(text)}`,
+      message: `Judge response has no message content (finish_reason ${choice?.finish_reason ?? "none"})`,
     });
   }
   const parsed = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(Verdicts))(content).pipe(

@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import type { Env } from "./env.ts";
-import { complete, openRouterUsage, recordUsage } from "./usage.ts";
+import { complete, modelUsage, recordUsage } from "./usage.ts";
 
 const PROMPT =
   "Write a short title (2 to 6 words) for an evaluation run over these documents. Describe what the documents are, " +
@@ -12,7 +12,8 @@ export const generateTitle = Effect.fn("generateTitle")(function* (env: Env, fil
     env,
     {
       model: env.SMALL_MODEL,
-      max_tokens: 30,
+      max_completion_tokens: 30,
+      reasoning_effort: "none",
       messages: [
         { role: "system", content: PROMPT },
         { role: "user", content: `${filenames.length} documents:\n${filenames.join("\n")}` },
@@ -26,7 +27,7 @@ export const generateTitle = Effect.fn("generateTitle")(function* (env: Env, fil
         name: env.SMALL_MODEL,
         status: "ok",
         latencyMs: Date.now() - startedAt,
-        ...openRouterUsage(usage),
+        ...modelUsage(env.SMALL_MODEL, usage),
       }),
     ),
     Effect.map(({ content }) => {

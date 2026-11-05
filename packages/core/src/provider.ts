@@ -2,7 +2,6 @@ import { Effect, type Option } from "effect";
 import type { HttpClient } from "effect/http";
 import type { Cost, ProviderId } from "./domain.ts";
 import { ProviderError } from "./errors.ts";
-import { snippet } from "./http.ts";
 
 /** One page rendered to PNG. Every provider gets the same image, whatever the source format. The URL is short-lived and public. */
 export interface PageInput {
@@ -62,7 +61,8 @@ export const failure = (provider: ProviderId, message: string, retryable = false
 
 /**
  * A job that ended without a result, or reports a status the adapter does not know. Not retryable: polling the same
- * job again returns the same answer. The message keeps the provider's error text, or the body when it has none.
+ * job again returns the same answer. The message keeps the provider's error text but not the body, which can hold
+ * document content.
  */
-export const jobFailure = (provider: ProviderId, status: string, error: string | null | undefined, body: unknown) =>
-  failure(provider, `job ${status}: ${error ?? snippet(body)}`);
+export const jobFailure = (provider: ProviderId, status: string, error: string | null | undefined) =>
+  failure(provider, `job ${status}: ${error ?? "no error message"}`);

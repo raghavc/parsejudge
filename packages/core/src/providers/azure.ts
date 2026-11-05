@@ -50,7 +50,7 @@ export const azure: ProviderAdapter = {
     if (RUNNING.has(operation.status)) return Option.none();
     if (operation.status !== "succeeded") {
       const error = operation.error && `${operation.error.code ?? ""} ${operation.error.message ?? ""}`.trim();
-      return yield* jobFailure("azure_document_intelligence", operation.status, error || undefined, response.body);
+      return yield* jobFailure("azure_document_intelligence", operation.status, error || undefined);
     }
     const result = yield* decodeBody("azure_document_intelligence", Succeeded, response.body);
     return Option.some({ markdown: result.analyzeResult.content, raw: response.body });

@@ -18,13 +18,13 @@ IMPORTANT NOTICE ABOUT DISPUTES: PLEASE READ SECTION 16 CAREFULLY. EXCEPT FOR CE
 
 ## 3. Parsers and Third-Party Platforms
 
-3.1 When you start a run, the Service sends your documents to the document parsing providers you select (each, a "Parser") and sends pages and Parser outputs to AI model providers that grade and summarize them. Parsers are operated by their providers, not by Reducto. If you use your own API key for a Parser, your agreement with that provider governs its processing.
+3.1 When you start a run, the Service sends your documents to the document parsing providers you select (each, a "Parser") sends pages and Parser outputs to AI model providers that grade and summarize them, and sends the file names of your documents to an AI model provider to name the run. Each Parser is operated by its provider. Reducto is one of those providers: the Reducto Parser is Reducto's own document parsing API. If you use your own API key for a Parser, your agreement with that provider governs its processing.
 
 3.2 You may also connect the Service to third-party AI assistants and agents (each, a "Platform"). Platforms are operated by their providers, not by Reducto. Your use of a Platform is governed by that provider's own terms and privacy policy. Reducto is not responsible for a Parser's or Platform's availability, outputs, data practices, or decisions about which information it shares with us.
 
-3.3 Parse Judge is not affiliated with, endorsed by, or sponsored by any Parser or Platform provider. Parser and Platform names are trademarks of their owners.
+3.3 Reducto operates Parse Judge and also provides the Reducto Parser, which the Service evaluates alongside other Parsers. The AI model that grades a run sees each Parser's output under an anonymous label, not the provider's name. Apart from Reducto, Parse Judge is not affiliated with, endorsed by, or sponsored by any Parser or Platform provider. Parser and Platform names are trademarks of their owners.
 
-## 4. Your Reducto Account
+## 4. Your Account
 
 4.1 You must sign in with your email address to run an evaluation. You must give accurate information and keep your credentials secure. You are responsible for activity under your account.
 
@@ -58,7 +58,7 @@ IMPORTANT NOTICE ABOUT DISPUTES: PLEASE READ SECTION 16 CAREFULLY. EXCEPT FOR CE
 
 ## 8. Acceptable Use
 
-8.1 You will not, and will not let anyone else: (a) use the Service or its outputs in violation of law or third-party rights; (b) submit content you lack the right to share, or that is unlawful, infringing, or malicious; (c) create forged, counterfeit, or fraudulent documents, impersonate any person or organization, or misrepresent the source of any content; (d) harass, threaten, stalk, defame, or abuse any person, or violate their privacy; (e) interfere with or disrupt the Service, or bypass Rate Limits, security, or access controls; (f) reverse engineer, scrape, or extract the Service's source code, models, or prompts, except as permitted by law; (g) create multiple accounts to evade Rate Limits or a suspension; (h) resell or sublicense the Service; or (i) use the Service for high-risk decisions with legal or similarly significant effects on individuals without appropriate human review.
+8.1 You will not, and will not let anyone else: (a) use the Service or its outputs in violation of law or third-party rights; (b) submit content you lack the right to share, or that is unlawful, infringing, or malicious; (c) create forged, counterfeit, or fraudulent documents, impersonate any person or organization, or misrepresent the source of any content; (d) harass, threaten, stalk, defame, or abuse any person, or violate their privacy; (e) interfere with or disrupt the Service, or bypass Rate Limits, security, or access controls; (f) scrape or harvest data from the Service, or access other users' accounts, runs, or reports without authorization; (g) create multiple accounts to evade Rate Limits or a suspension; (h) resell or sublicense the Service; or (i) use the Service for high-risk decisions with legal or similarly significant effects on individuals without appropriate human review.
 
 8.2 We may investigate and suspend or restrict access for suspected violations.
 
@@ -72,7 +72,7 @@ IMPORTANT NOTICE ABOUT DISPUTES: PLEASE READ SECTION 16 CAREFULLY. EXCEPT FOR CE
 
 ## 10. Reducto's Rights
 
-Reducto and its licensors own the Service, including its software, models, and content (excluding Your Content). We grant you a limited, revocable, non-exclusive, non-transferable right to use the Service under these Terms. All rights not expressly granted are reserved.
+Reducto and its licensors own the Service, including its software, models, and content (excluding Your Content). We grant you a limited, revocable, non-exclusive, non-transferable right to use the Service under these Terms. All rights not expressly granted are reserved. The Parse Judge source code is open source, available at [github.com/reductoai/parsejudge](https://github.com/reductoai/parsejudge) under the Apache License 2.0, and nothing in these Terms limits your rights under that license.
 
 ## 11. Data Retention and Deletion
 
