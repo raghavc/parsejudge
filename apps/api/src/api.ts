@@ -473,6 +473,9 @@ type RunRow = {
   data_deleted_at: number | null;
   visibility: string;
   share_content: number;
+  /** Null on runs whose documents were deleted before the counts were stored. */
+  document_count: number | null;
+  page_count: number | null;
 };
 
 const toRun = Effect.fn("toRun")(function* (row: RunRow) {
@@ -565,8 +568,8 @@ const findRun = (column: "id" | "share_id", value: string) =>
     if (!owned && (column === "id" || row.visibility !== "link")) return yield* notFound;
     const documents = yield* runDocuments(row.id);
     const counts = {
-      documentCount: documents.length,
-      pageCount: documents.reduce((n, d) => n + d.pages.length, 0),
+      documentCount: row.document_count ?? documents.length,
+      pageCount: row.page_count ?? documents.reduce((n, d) => n + d.pages.length, 0),
     };
     const run = yield* toRun(row);
     if (!owned && row.share_content !== 1) return { ...run, ...counts, owned, documents: [], scores: [] };
@@ -856,8 +859,8 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
         const inserted = yield* Effect.tryPromise(() =>
           cf.DB.batch([
             cf.DB.prepare(
-              `INSERT INTO runs (id, user_id, share_id, title, status, preset_ids, judge_version, judge_model, created_at, idempotency_key, zdr)
-               VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?,
+              `INSERT INTO runs (id, user_id, share_id, title, status, preset_ids, judge_version, judge_model, created_at, idempotency_key, document_count, page_count, zdr)
+               VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?,
                  ? OR EXISTS (SELECT 1 FROM documents WHERE zdr = 1 AND id IN (SELECT value FROM json_each(?))))`,
             ).bind(
               runId,
@@ -869,6 +872,8 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
               cf.JUDGE_MODEL,
               Date.now(),
               key,
+              documentIds.length,
+              owned.pages,
               payload.zdr === true ? 1 : 0,
               JSON.stringify(documentIds),
             ),
@@ -935,9 +940,9 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
         const rows = yield* query(() =>
           cf.DB.prepare(
             `SELECT r.id, r.share_id, r.title, r.status, r.preset_ids, r.summary, r.created_at, r.data_deleted_at, r.visibility, r.share_content,
-               (SELECT COUNT(*) FROM run_documents rd WHERE rd.run_id = r.id) AS documents,
-               (SELECT COALESCE(SUM(d.page_count), 0) FROM run_documents rd JOIN documents d ON d.id = rd.document_id
-                 WHERE rd.run_id = r.id) AS pages,
+               COALESCE(r.document_count, (SELECT COUNT(*) FROM run_documents rd WHERE rd.run_id = r.id)) AS documents,
+               COALESCE(r.page_count, (SELECT COALESCE(SUM(d.page_count), 0) FROM run_documents rd
+                 JOIN documents d ON d.id = rd.document_id WHERE rd.run_id = r.id)) AS pages,
                (SELECT COUNT(DISTINCT page_id) FROM verdicts v WHERE v.run_id = r.id) AS judged
              FROM runs r WHERE r.user_id = ? ORDER BY r.created_at DESC LIMIT 500`,
           )
