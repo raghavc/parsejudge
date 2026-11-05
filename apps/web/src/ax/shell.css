@@ -260,3 +260,12 @@
 .pjx .site-foot a:hover {
   color: var(--text-primary);
 }
+
+/* sign-in: policy links read as text until hovered */
+.legal-link {
+  color: var(--ink);
+  text-decoration: none;
+}
+.legal-link:hover {
+  text-decoration: underline;
+}

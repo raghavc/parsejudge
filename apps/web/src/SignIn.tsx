@@ -144,9 +144,21 @@ export const SignIn = ({
       >
         <div style={{ fontSize: 24, fontWeight: 500 }}>{sent ? "Check your email" : "Sign in to run an evaluation"}</div>
         <div style={{ color: "var(--muted)", fontSize: 14, lineHeight: "22px" }}>
-          {sent
-            ? `We sent a code to ${email}. Enter it here, or click the link in the email. Your files are kept either way.`
-            : "Hosted runs are free. We email you a sign-in code and the report link."}
+          {sent ? (
+            `We sent a code to ${email}. Enter it here, or click the link in the email. Your files are kept either way.`
+          ) : (
+            <>
+              By continuing you agree to the{" "}
+              <a className="legal-link" href="/terms" target="_blank" rel="noopener">
+                Terms of Service
+              </a>{" "}
+              and{" "}
+              <a className="legal-link" href="/privacy" target="_blank" rel="noopener">
+                Privacy Policy
+              </a>
+              .
+            </>
+          )}
         </div>
         {sent ? (
           <input
@@ -211,17 +223,6 @@ export const SignIn = ({
             Send a new email
           </button>
         )}
-        <div style={{ color: "var(--faint)", fontSize: 12, lineHeight: "18px" }}>
-          By continuing you agree to the{" "}
-          <a href="/terms" target="_blank" rel="noopener" style={{ color: "inherit" }}>
-            Terms of Service
-          </a>{" "}
-          and{" "}
-          <a href="/privacy" target="_blank" rel="noopener" style={{ color: "inherit" }}>
-            Privacy Policy
-          </a>
-          .
-        </div>
       </form>
     </div>
   );
