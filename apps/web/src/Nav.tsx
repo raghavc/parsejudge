@@ -66,7 +66,7 @@ export const SiteBar = ({ user, active }: { readonly user?: string | null; reado
         <Go to="/methodology" className={active === "methodology" ? "is-strong" : undefined}>
           Methodology
         </Go>
-        <a href="https://github.com/reductoai/parsejudge" target="_blank" rel="noopener">
+        <a className="site-src" href="https://github.com/reductoai/parsejudge" target="_blank" rel="noopener">
           Source
         </a>
         {user ? (

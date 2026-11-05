@@ -908,7 +908,7 @@ mark.flag.medium {
     border-bottom: 1px solid var(--line);
     display: grid;
     gap: 4px 16px;
-    grid-template-columns: 1fr auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     padding: 14px 0;
   }
   .runs-table td {
