@@ -474,7 +474,7 @@ const buildServer = (env: Env, userId: string, oauth: OAuthHelpers) => {
       inputSchema: {
         run: runRef,
         presetIds: z.array(z.string()).optional().describe("Only these presets."),
-        severities: z.array(z.enum(["high", "figure_error", "low"])).optional(),
+        severities: z.array(z.enum(["high", "figure_error", "medium", "low"])).optional(),
         categories: z
           .array(z.string())
           .optional()

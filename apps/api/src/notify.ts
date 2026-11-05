@@ -1,5 +1,5 @@
-import { decodeJson, findPreset, JudgedError, type RunSummary, withoutMedium } from "@parsejudge/core";
-import { Effect, Exit, Schema } from "effect";
+import { decodeJson, findPreset, JudgedError, type RunSummary } from "@parsejudge/core";
+import { Effect, Schema } from "effect";
 import type { Env } from "./env.ts";
 
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
@@ -56,12 +56,7 @@ interface RunRow {
   readonly notify_on_done: number;
 }
 
-const decodeJsonExit = Schema.decodeUnknownExit(Schema.fromJsonString(Schema.Unknown));
-const decodeErrorList = Schema.decodeUnknownExit(Schema.Array(JudgedError));
-const decodeErrors = (text: string) => {
-  const json = decodeJsonExit(text);
-  return Exit.isSuccess(json) ? decodeErrorList(withoutMedium(json.value)) : json;
-};
+const decodeErrors = Schema.decodeUnknownExit(Schema.fromJsonString(Schema.Array(JudgedError)));
 
 /** Pages where scores differ by 3 or more, or a parse failed (the report's "flagged" pages), largest gap first. */
 const flaggedPages = Effect.fn("flaggedPages")(function* (env: Env, runId: string, presetCount: number) {

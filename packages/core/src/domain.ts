@@ -19,14 +19,9 @@ export type CostSource = typeof CostSource.Type;
 export const Cost = Schema.Struct({ usd: Schema.Number, source: CostSource });
 export type Cost = typeof Cost.Type;
 
-export const Severity = Schema.Literals(["low", "high", "figure_error"]);
+/** The judge returns high, low or figure_error; medium only appears in verdicts stored before compare-v4. */
+export const Severity = Schema.Literals(["low", "medium", "high", "figure_error"]);
 export type Severity = typeof Severity.Type;
-
-/** Verdicts stored before compare-v4 can carry a `medium` severity; it is read as `low`. */
-export const withoutMedium = (errors: unknown): unknown =>
-  Array.isArray(errors)
-    ? errors.map((e) => (typeof e === "object" && e !== null && e.severity === "medium" ? { ...e, severity: "low" } : e))
-    : errors;
 
 export const ErrorCategory = Schema.Literals([
   "content_omission",

@@ -5,7 +5,7 @@ import type { Env } from "../src/env.ts";
 import { checkQuotes, locate, visibleText } from "../src/locate.ts";
 
 const OUTPUT = "| Site | Throughput |\n|---|---|\n| Gdansk | 14,210 |\n\nThroughput rose at two of three sites.";
-const FLAGS = [{ category: "table_structure", severity: "low", description: "Header cell split" }];
+const FLAGS = [{ category: "table_structure", severity: "medium", description: "Header cell split" }];
 const keyPair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign"])) as CryptoKeyPair;
 const env = {
   OPENAI_BASE_URL: "https://openai.test/v1",

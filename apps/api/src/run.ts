@@ -10,7 +10,6 @@ import {
   PROVIDERS,
   type ProviderError,
   summarize,
-  withoutMedium,
 } from "@parsejudge/core";
 import { Data, Effect, Layer, Option } from "effect";
 import { FetchHttpClient, type HttpClient } from "effect/http";
@@ -298,7 +297,7 @@ export const summarizeRun = Effect.fn("summarizeRun")(function* (env: Env, runId
   );
   const results: Array<PageResult> = [];
   for (const row of parses.results) {
-    const errors = typeof row.score === "number" ? withoutMedium(yield* decodeJson(String(row.errors))) : undefined;
+    const errors = typeof row.score === "number" ? yield* decodeJson(String(row.errors)) : undefined;
     results.push({
       pageId: String(row.page_id),
       presetId: String(row.preset_id),
