@@ -6,7 +6,8 @@
     "dev": "wrangler dev",
     "check": "tsc -p . && tsc -p test",
     "test": "vitest run",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "deploy:prod": "wrangler d1 migrations apply DB --remote -c wrangler.prod.jsonc && wrangler deploy -c wrangler.prod.jsonc"
   },
   "dependencies": {
     "@cloudflare/containers": "^0.3.7",

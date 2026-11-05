@@ -5330,3 +5330,146 @@
   display: block;
   will-change: transform, opacity;
 }
+
+@media (max-width: 640px) {
+  .pjx .site-bar-in {
+    padding: 0 20px;
+    gap: 16px;
+  }
+  .pjx .site-nav {
+    gap: 16px;
+  }
+  .pjx .site-brand,
+  .pjx .site-nav a {
+    white-space: nowrap;
+  }
+  .pjx .site-nav {
+    min-width: 0;
+  }
+  .pjx .site-nav:has(.site-user) .site-src {
+    display: none;
+  }
+  .pjx .site-nav .site-user {
+    min-width: 0;
+  }
+
+  .pjx .su-proof {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .pjx .su-proof-link {
+    order: -1;
+    align-self: stretch;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 44px;
+    margin-bottom: 10px;
+    border-radius: 8px;
+    background: var(--grey-950);
+    color: white;
+    font-size: 14px;
+    font-weight: 500;
+    text-decoration: none;
+  }
+  .pjx .su-proof-link:hover {
+    background: var(--grey-800);
+    color: white;
+  }
+
+  .pjx .pv-row {
+    grid-template-columns: 14px minmax(0, 1fr) auto;
+    grid-template-areas:
+      "check name side"
+      ". modes modes";
+    row-gap: 8px;
+  }
+  .pjx .pv-check {
+    grid-area: check;
+  }
+  .pjx .pv-name {
+    grid-area: name;
+    min-width: 0;
+  }
+  .pjx .pv-modes {
+    grid-area: modes;
+  }
+  .pjx .pv-side {
+    grid-area: side;
+  }
+
+  .pjx .runs .thead,
+  .pjx .runs .trow {
+    grid-template-columns: minmax(0, 1fr) auto 16px;
+    column-gap: 12px;
+    min-width: 0;
+  }
+  .pjx .runs .thead > :nth-child(2),
+  .pjx .runs .trow > :nth-child(2),
+  .pjx .runs .thead > :nth-child(4),
+  .pjx .runs .trow > :nth-child(4) {
+    display: none;
+  }
+
+  .pjx .rp-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .pjx .lb .thead,
+  .pjx .lb .trow {
+    grid-template-columns: 14px minmax(0, 1fr) 84px 56px;
+    min-width: 0;
+  }
+  .pjx .lb .who-n,
+  .pjx .lb .who-m {
+    white-space: normal;
+  }
+  .pjx .lb .thead .col-h-label {
+    white-space: normal;
+  }
+  .pjx .lb .thead > :nth-child(4),
+  .pjx .lb .thead > :nth-child(6),
+  .pjx .lb .thead > :nth-child(7),
+  .pjx .lb .trow > :nth-child(4),
+  .pjx .lb .trow > :nth-child(6),
+  .pjx .lb .trow > :nth-child(7) {
+    display: none;
+  }
+  .pjx .lb .score {
+    gap: 8px;
+  }
+
+  .pjx .h2h-scroll {
+    overflow-x: auto;
+  }
+
+  .pjx .rp-sec-h {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  .pjx .rp-sec-h .sp {
+    flex-basis: 100%;
+    height: 0;
+  }
+  .pjx .dg-foot {
+    flex-wrap: wrap;
+  }
+  .pjx .dg-legend {
+    flex-wrap: wrap;
+  }
+  .pjx .dg-leg {
+    white-space: nowrap;
+  }
+  .pjx .dg-foot .sp {
+    display: none;
+  }
+  .pjx .dg-svg {
+    height: auto;
+  }
+
+  .pjx .rp-fact .v {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}

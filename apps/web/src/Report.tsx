@@ -284,7 +284,9 @@ export const Report = ({
           <h2>Head to head</h2>
           <span className="rp-count">Wins · ties · losses, row against column</span>
         </div>
-        <table className="h2h" id="h2h" />
+        <div className="h2h-scroll">
+          <table className="h2h" id="h2h" />
+        </div>
       </section>
 
       <section className="rp-card dg-card" id="dgCard">
