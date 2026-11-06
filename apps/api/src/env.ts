@@ -32,6 +32,8 @@ export interface Env {
   readonly SMALL_MODEL: string;
   readonly JUDGE_REASONING_EFFORT: "low" | "medium" | "high";
   readonly MAX_PAGES_PER_RUN: string;
+  /** Pages one user can start runs on in any 24 hours. Unset turns it off. */
+  readonly MAX_PAGES_PER_DAY?: string;
   /** JSON map from provider id or "judge" to max requests in flight per API key, e.g. `{"reducto": 200}`. */
   readonly MAX_CONCURRENCY?: string;
   readonly BLOB_SIGNING_KEY: string;
@@ -67,6 +69,7 @@ export const EnvVars = Schema.Struct({
   EMAIL_FROM: Schema.String.check(Schema.isPattern(/^[^@\s]+@[^@\s]+$/)),
   JUDGE_REASONING_EFFORT: Schema.Literals(["low", "medium", "high"]),
   MAX_PAGES_PER_RUN: positiveInt,
+  MAX_PAGES_PER_DAY: Schema.optional(positiveInt),
   MAX_CONCURRENCY: Schema.optional(
     Schema.fromJsonString(Schema.Record(Schema.String, Schema.Int.check(Schema.isGreaterThan(0)))),
   ),
