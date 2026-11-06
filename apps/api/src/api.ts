@@ -823,6 +823,18 @@ const RunsLive = HttpApiBuilder.group(Api, "runs", (handlers) =>
         if (owned.pages > Number(cf.MAX_PAGES_PER_RUN)) {
           return yield* new BadRequest({ error: `A run can have at most ${cf.MAX_PAGES_PER_RUN} pages.` });
         }
+        if (cf.MAX_PAGES_PER_DAY !== undefined) {
+          const today = yield* query(() =>
+            cf.DB.prepare("SELECT COALESCE(SUM(page_count), 0) AS pages FROM runs WHERE user_id = ? AND created_at > ?")
+              .bind(userId, Date.now() - 24 * 60 * 60 * 1000)
+              .first<{ pages: number }>(),
+          );
+          if ((today?.pages ?? 0) + owned.pages > Number(cf.MAX_PAGES_PER_DAY)) {
+            return yield* new BadRequest({
+              error: `You can run at most ${cf.MAX_PAGES_PER_DAY} pages in 24 hours. Try again later or self-host Parse Judge.`,
+            });
+          }
+        }
         const key = payload.idempotencyKey?.trim().slice(0, 200) || null;
         const existing = () =>
           key === null
