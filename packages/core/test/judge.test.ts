@@ -53,6 +53,25 @@ describe("judgePage", () => {
     }
   });
 
+  it("unblinds labels in error descriptions and location hints", async () => {
+    const labels = await Effect.runPromise(blindLabels(input.pageId, Object.keys(input.markdownByPreset)));
+    const [first, second] = Object.keys(labels) as [string, string];
+    const error = {
+      severity: "high",
+      category: "reading_order",
+      visual_region_type: "table",
+      location_hint: `Row 2, unlike ${second}`,
+      description: `Same as ${second}.`,
+    };
+    const exit = await judgeWith((ids) => ids.map((id) => ({ ...evaluation(id, 5), errors: id === first ? [error] : [] })));
+    if (Exit.isFailure(exit)) throw new Error(String(exit.cause));
+    const flagged = exit.value.find((v) => v.presetId === labels[first]);
+    expect(flagged?.errors[0]?.location_hint).not.toContain(second);
+    expect(flagged?.errors).toEqual([
+      { ...error, location_hint: unblind(error.location_hint, labels), description: unblind(error.description, labels) },
+    ]);
+  });
+
   it("fails when the judge skips or repeats a parse", async () => {
     const first = (ids: Array<string>) => ids[0] as string;
     expect(String(await judgeWith((ids) => [evaluation(first(ids), 5)]))).toContain("did not score every parse");

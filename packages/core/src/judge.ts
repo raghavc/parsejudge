@@ -1,12 +1,12 @@
 import { Data, Effect, Schema } from "effect";
 import { HttpClient, HttpClientRequest } from "effect/http";
-import { ErrorCategory, type PresetVerdict, Severity } from "./domain.ts";
+import { JUDGED_CATEGORIES, JudgedError, type PresetVerdict } from "./domain.ts";
 import { isRetryableStatus, JudgeError } from "./errors.ts";
 import { httpErrorMessage, snippet } from "./http.ts";
 import { findPreset } from "./presets.ts";
 import { comparePrompt } from "./prompt.ts";
 
-export const JUDGE_VERSION = "compare-v1";
+export const JUDGE_VERSION = "compare-v4";
 
 export interface JudgeConfig {
   /** Bearer token for each call; may be cached and renewed by the caller. */
@@ -51,10 +51,11 @@ export const unblind = (text: string, labelToPreset: Readonly<Record<string, str
   });
 
 const Verdicts = Schema.Struct({
+  page_features: Schema.optional(Schema.Array(Schema.String)),
   evaluations: Schema.Array(
     Schema.Struct({
       label: Schema.String,
-      errors: Schema.Array(Schema.Struct({ category: ErrorCategory, severity: Severity, description: Schema.String })),
+      errors: Schema.Array(JudgedError),
       reasoning: Schema.String,
       score: Schema.Number,
     }),
@@ -91,6 +92,8 @@ const Completion = Schema.Struct({
   usage: Schema.optional(Schema.Unknown),
 });
 
+const JUDGED_SEVERITIES = ["high", "low", "figure_error"] as const;
+
 const responseFormat = (labels: ReadonlyArray<string>) => ({
   type: "json_schema",
   json_schema: {
@@ -99,8 +102,9 @@ const responseFormat = (labels: ReadonlyArray<string>) => ({
     schema: {
       type: "object",
       additionalProperties: false,
-      required: ["evaluations"],
+      required: ["page_features", "evaluations"],
       properties: {
+        page_features: { type: "array", items: { type: "string" } },
         evaluations: {
           type: "array",
           items: {
@@ -114,10 +118,12 @@ const responseFormat = (labels: ReadonlyArray<string>) => ({
                 items: {
                   type: "object",
                   additionalProperties: false,
-                  required: ["category", "severity", "description"],
+                  required: ["severity", "category", "visual_region_type", "location_hint", "description"],
                   properties: {
-                    category: { type: "string", enum: ErrorCategory.literals },
-                    severity: { type: "string", enum: Severity.literals },
+                    severity: { type: "string", enum: JUDGED_SEVERITIES },
+                    category: { type: "string", enum: JUDGED_CATEGORIES },
+                    visual_region_type: { type: "string" },
+                    location_hint: { type: "string" },
                     description: { type: "string" },
                   },
                 },
@@ -241,7 +247,11 @@ const judgeWith = Effect.fn("judge.model")(function* (config: JudgeConfig, model
       presetId,
       score: evaluation.score,
       reasoning: unblind(evaluation.reasoning, labelToPreset),
-      errors: evaluation.errors.map((error) => ({ ...error, description: unblind(error.description, labelToPreset) })),
+      errors: evaluation.errors.map((error) => ({
+        ...error,
+        description: unblind(error.description, labelToPreset),
+        ...(error.location_hint === undefined ? {} : { location_hint: unblind(error.location_hint, labelToPreset) }),
+      })),
     });
   }
   if (verdicts.size !== labels.length) {

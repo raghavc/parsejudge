@@ -18,6 +18,8 @@ const TOPIC: Partial<Record<JudgedError["category"], string>> = {
   checkbox_state_error: "checkboxes",
   header_footer: "headers and footers",
   watermark: "watermarks",
+  figure_precision: "figure summaries",
+  figure_recall: "figure summaries",
 };
 
 const PROVIDER_NAMES: Readonly<Record<string, string>> = {
