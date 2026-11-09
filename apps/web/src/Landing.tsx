@@ -20,6 +20,26 @@ const countPages = async (file: File): Promise<number | undefined> => {
   }
 };
 
+const DOCUMENT_NAME = /\.(pdf|docx|pptx)$/i;
+const isZip = (file: File) => file.name.toLowerCase().endsWith(".zip");
+const baseName = (path: string) => path.split("/").pop() ?? path;
+// Finder and Office leave resource forks and lock files beside the real documents.
+const isJunk = (path: string) => path.startsWith("__MACOSX/") || /^[.~]/.test(baseName(path));
+
+/** The PDF, DOCX and PPTX files inside a .zip, at any depth. */
+const unzipDocuments = async (zip: File): Promise<ReadonlyArray<File>> => {
+  const { unzip } = await import("fflate");
+  const bytes = new Uint8Array(await zip.arrayBuffer());
+  const entries = await new Promise<Record<string, Uint8Array>>((resolve, reject) =>
+    unzip(bytes, { filter: (f) => DOCUMENT_NAME.test(f.name) && !isJunk(f.name) }, (error, out) =>
+      error ? reject(error) : resolve(out),
+    ),
+  );
+  return Object.entries(entries)
+    .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))
+    .map(([path, data]) => new File([data as Uint8Array<ArrayBuffer>], baseName(path)));
+};
+
 interface Upload {
   readonly id: string;
   readonly name: string;
@@ -30,6 +50,8 @@ interface Upload {
   readonly localPages?: number;
   /** Share of bytes sent, 0 to 1. */
   readonly sent?: number;
+  /** A .zip whose documents are still being extracted. */
+  readonly unzipping?: boolean;
   readonly error?: string;
 }
 
@@ -387,8 +409,29 @@ export const Landing = ({ zdr }: { readonly zdr: boolean }) => {
     }
   };
 
-  const add = (files: FileList | null) => {
-    const list = Array.from(files ?? []);
+  const expand = async (files: ReadonlyArray<File>) => {
+    const out = await Promise.all(
+      files.map(async (file) => {
+        if (!isZip(file)) return [file];
+        const id = crypto.randomUUID();
+        setUploads((u) => [...u, { id, name: file.name, format: "ZIP", unzipping: true }]);
+        const fail = (error: string) => setUploads((u) => u.map((x) => (x.id === id ? { ...x, unzipping: false, error } : x)));
+        try {
+          const inside = await unzipDocuments(file);
+          if (inside.length === 0) fail("no PDF, DOCX or PPTX files inside");
+          else setUploads((u) => u.filter((x) => x.id !== id));
+          return inside;
+        } catch {
+          fail("could not open this .zip");
+          return [];
+        }
+      }),
+    );
+    return out.flat();
+  };
+
+  const add = async (files: FileList | null) => {
+    const list = await expand(Array.from(files ?? []));
     if (list.length === 0) return;
     if (currentUser() === null) {
       uploadedPending.current = false;
@@ -523,7 +566,7 @@ export const Landing = ({ zdr }: { readonly zdr: boolean }) => {
           <div>
             <div className="su-sec-title">Documents</div>
             <div className="su-sec-meta">
-              PDF, DOCX or PPTX. Up to {MAX_PAGES_PER_RUN.toLocaleString("en-US")} pages per run.
+              PDF, DOCX or PPTX, or a .zip of them. Up to {MAX_PAGES_PER_RUN.toLocaleString("en-US")} pages per run.
               {zdr && " Deleted 24 hours after the run. Results stay."}
             </div>
           </div>
@@ -561,7 +604,7 @@ export const Landing = ({ zdr }: { readonly zdr: boolean }) => {
                 type="file"
                 multiple
                 hidden
-                accept=".pdf,.docx,.pptx"
+                accept=".pdf,.docx,.pptx,.zip"
                 onChange={(e) => add(e.target.files)}
               />
               {uploads.length > 0 && (
@@ -606,11 +649,13 @@ export const Landing = ({ zdr }: { readonly zdr: boolean }) => {
                               ? ` · ${u.error}`
                               : u.documentId !== undefined
                                 ? ""
-                                : u.sent === undefined
-                                  ? " · counting pages"
-                                  : u.sent < 1
-                                    ? ` · uploading ${Math.round(u.sent * 100)}%`
-                                    : " · reading"}
+                                : u.unzipping
+                                  ? " · unzipping"
+                                  : u.sent === undefined
+                                    ? " · counting pages"
+                                    : u.sent < 1
+                                      ? ` · uploading ${Math.round(u.sent * 100)}%`
+                                      : " · reading"}
                           </span>
                           <button
                             className="sf-x"
