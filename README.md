@@ -33,6 +33,7 @@ for every page. The prompt and scoring code are in this repo.
 | Reducto                     | r-1, r-1 mini                         | yes                |
 | Azure Document Intelligence | layout, high-res                      | yes                |
 | AWS Textract                | layout, tables                        | yes                |
+| Google Document AI          | Layout Parser                         | yes, opt-in        |
 | Mistral OCR                 | OCR 4.1                               | bring your own key |
 | Extend                      | performance, agentic                  | bring your own key |
 | LlamaParse                  | agentic-plus, agentic, cost-effective | bring your own key |

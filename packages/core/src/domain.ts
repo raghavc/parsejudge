@@ -4,6 +4,7 @@ export const ProviderId = Schema.Literals([
   "reducto",
   "azure_document_intelligence",
   "aws_textract",
+  "google_document_ai",
   "mistral_ocr",
   "extend",
   "llamaparse",

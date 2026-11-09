@@ -101,3 +101,83 @@ describe("provider adapters", () => {
     expect(exit.value.output.warning).toContain("MAX_TOKENS");
   });
 });
+
+describe("Google Document AI", () => {
+  const PROCESSOR = "projects/p/locations/eu/processors/abc";
+  const layout = {
+    document: {
+      documentLayout: {
+        blocks: [
+          {
+            textBlock: { type: "heading-1", text: "Invoice", blocks: [{ textBlock: { type: "paragraph", text: "Due <now>" } }] },
+          },
+          { listBlock: { type: "ordered", listEntries: [{ blocks: [{ textBlock: { text: "One" } }] }, { blocks: [] }] } },
+          {
+            tableBlock: {
+              headerRows: [{ cells: [{ colSpan: 2, blocks: [{ textBlock: { text: "Item & cost" } }] }] }],
+              bodyRows: [{ cells: [{ blocks: [{ textBlock: { text: "Pen" } }] }, { blocks: [{ textBlock: { text: "$1" } }] }] }],
+            },
+          },
+        ],
+      },
+    },
+  };
+
+  const serviceAccount = async () => {
+    const pair = await crypto.subtle.generateKey(
+      { name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
+      true,
+      ["sign", "verify"],
+    );
+    const pkcs8 = Buffer.from(await crypto.subtle.exportKey("pkcs8", pair.privateKey)).toString("base64");
+    return JSON.stringify({
+      client_email: "parsejudge@p.iam.gserviceaccount.com",
+      private_key: `-----BEGIN PRIVATE KEY-----\n${pkcs8}\n-----END PRIVATE KEY-----\n`,
+    });
+  };
+
+  it("exchanges a signed service-account assertion for a token, then renders the layout as markdown", async () => {
+    const requests: Array<{ url: string; auth: string | null; body: string }> = [];
+    const fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init);
+      requests.push({ url: request.url, auth: request.headers.get("authorization"), body: await request.text() });
+      return request.url.startsWith("https://oauth2.googleapis.com/")
+        ? new Response(JSON.stringify({ access_token: "tok", expires_in: 3600 }))
+        : new Response(JSON.stringify(layout));
+    };
+    const creds = { GOOGLE_DOCAI_CREDENTIALS: await serviceAccount(), GOOGLE_DOCAI_PROCESSOR: PROCESSOR };
+    const exit = await Effect.runPromiseExit(
+      PROVIDERS.google_document_ai
+        .submit(page, {}, creds)
+        .pipe(
+          Effect.provide(FetchHttpClient.layer),
+          Effect.provide(Layer.succeed(FetchHttpClient.Fetch, fetch as typeof globalThis.fetch)),
+        ),
+    );
+    expect(requests.map((r) => r.url)).toEqual([
+      "https://oauth2.googleapis.com/token",
+      `https://eu-documentai.googleapis.com/v1/${PROCESSOR}:process`,
+    ]);
+    const assertion = new URLSearchParams(requests[0]?.body).get("assertion") ?? "";
+    expect(JSON.parse(Buffer.from(assertion.split(".")[1] ?? "", "base64url").toString())).toMatchObject({
+      iss: "parsejudge@p.iam.gserviceaccount.com",
+      aud: "https://oauth2.googleapis.com/token",
+    });
+    expect(requests[1]?.auth).toBe("Bearer tok");
+    expect(JSON.parse(requests[1]?.body ?? "{}").rawDocument).toEqual({ content: "AQ==", mimeType: "image/png" });
+    if (!Exit.isSuccess(exit) || exit.value._tag !== "Done") throw new Error(String(exit));
+    expect(exit.value.output.markdown).toBe(
+      '# Invoice\n\nDue <now>\n\n1. One\n\n<table><tr><th colspan="2">Item &amp; cost</th></tr><tr><td>Pen</td><td>$1</td></tr></table>',
+    );
+  });
+
+  it("rejects a processor that is not a full resource name, before calling Google", async () => {
+    const exit = await run(
+      PROVIDERS.google_document_ai.submit(page, {}, { GOOGLE_DOCAI_CREDENTIALS: "{}", GOOGLE_DOCAI_PROCESSOR: "abc" }),
+      () => {
+        throw new Error("no request expected");
+      },
+    );
+    expect(failureOf(exit)).toContain("GOOGLE_DOCAI_PROCESSOR must be");
+  });
+});
