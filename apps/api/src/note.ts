@@ -16,6 +16,7 @@ const SHORT_NAMES: Record<string, string> = {
   reducto: "Reducto",
   azure_document_intelligence: "Azure",
   aws_textract: "Textract",
+  google_document_ai: "Google",
   mistral_ocr: "Mistral",
   extend: "Extend",
   llamaparse: "LlamaParse",

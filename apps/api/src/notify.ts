@@ -26,6 +26,7 @@ const PROVIDER_NAMES: Readonly<Record<string, string>> = {
   reducto: "Reducto",
   azure_document_intelligence: "Azure Document Intelligence",
   aws_textract: "AWS Textract",
+  google_document_ai: "Google Document AI",
   mistral_ocr: "Mistral OCR",
   extend: "Extend",
   llamaparse: "LlamaParse",

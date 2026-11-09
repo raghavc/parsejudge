@@ -9,6 +9,9 @@ PULSE_API_KEY=
 REDUCTO_API_KEY=
 AWS_ACCESS_KEY_ID=
 AWS_SECRET_ACCESS_KEY=
+# Service account key JSON (one line) with roles/documentai.apiUser, and the Layout Parser processor name.
+GOOGLE_DOCAI_CREDENTIALS=
+GOOGLE_DOCAI_PROCESSOR=projects/<project>/locations/us/processors/<id>
 # Private P-256 JWK (JSON, with kid) for OpenAI OIDC workload identity.
 OPENAI_SIGNING_KEY=
 BLOB_SIGNING_KEY=

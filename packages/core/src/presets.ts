@@ -4,6 +4,7 @@ import type { ProviderConfig } from "./provider.ts";
 /**
  * A provider plus a fixed configuration. Runs, scores and prices are keyed by preset.
  * `hosted` presets run on the public site's credentials; the others need the user's own key.
+ * `optIn` hosted presets are left out of the default selection.
  * `listPriceUsdPerPage` is the public list price, used when the provider does not report cost.
  */
 export interface Preset {
@@ -15,6 +16,7 @@ export interface Preset {
   readonly config: ProviderConfig;
   readonly listPriceUsdPerPage: number;
   readonly hosted: boolean;
+  readonly optIn?: boolean;
 }
 
 const llamaparse = (tier: string): ProviderConfig => ({ tier, version: "latest", disable_cache: true });
@@ -61,6 +63,16 @@ export const PRESETS: ReadonlyArray<Preset> = [
     config: { featureTypes: ["LAYOUT", "TABLES"] },
     listPriceUsdPerPage: 0.015,
     hosted: true,
+  },
+  {
+    id: "google_layout_parser",
+    provider: "google_document_ai",
+    label: "Google Document AI Layout Parser",
+    mode: "Layout Parser",
+    config: {},
+    listPriceUsdPerPage: 0.01,
+    hosted: true,
+    optIn: true,
   },
   {
     id: "mistral_ocr_4_1",
@@ -172,7 +184,9 @@ export const PRESETS: ReadonlyArray<Preset> = [
   },
 ];
 
-export const DEFAULT_PRESET_IDS: ReadonlyArray<string> = PRESETS.filter((preset) => preset.hosted).map((preset) => preset.id);
+export const DEFAULT_PRESET_IDS: ReadonlyArray<string> = PRESETS.filter((preset) => preset.hosted && !preset.optIn).map(
+  (preset) => preset.id,
+);
 
 const byId = new Map(PRESETS.map((preset) => [preset.id, preset]));
 
