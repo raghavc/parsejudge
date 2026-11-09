@@ -1,5 +1,6 @@
 import { Effect, Schema } from "effect";
 import { HttpClientRequest } from "effect/http";
+import { PDFDocument } from "pdf-lib";
 import { decodeBody, sendJson } from "../http.ts";
 import { array, bytesToBase64, joinNonEmpty, number, record, string } from "../json.ts";
 import { credential, done, failure, type ProviderAdapter } from "../provider.ts";
@@ -119,6 +120,19 @@ const accessToken = Effect.fn("google.accessToken")(function* (serviceAccountJso
   return token.access_token;
 });
 
+/** Layout Parser rejects images, so each page PNG is wrapped in a one-page PDF of the same size. */
+const pngToPdf = Effect.fn("google.pngToPdf")(function* (png: Uint8Array) {
+  const attempt = <A>(run: () => Promise<A>) =>
+    Effect.tryPromise({
+      try: run,
+      catch: (error) => failure(PROVIDER, `could not wrap page image in a PDF: ${String(error).slice(0, 200)}`),
+    });
+  const pdf = yield* attempt(() => PDFDocument.create());
+  const image = yield* attempt(() => pdf.embedPng(png));
+  pdf.addPage([image.width, image.height]).drawImage(image, { x: 0, y: 0, width: image.width, height: image.height });
+  return yield* attempt(() => pdf.save());
+});
+
 export const google: ProviderAdapter = {
   id: PROVIDER,
   credentialKeys: ["GOOGLE_DOCAI_CREDENTIALS", "GOOGLE_DOCAI_PROCESSOR"],
@@ -130,13 +144,13 @@ export const google: ProviderAdapter = {
       return yield* failure(PROVIDER, "GOOGLE_DOCAI_PROCESSOR must be projects/<project>/locations/<location>/processors/<id>");
     }
     const token = yield* accessToken(serviceAccount);
-    const bytes = yield* page.image;
+    const pdf = yield* pngToPdf(yield* page.image);
     const response = yield* sendJson(
       PROVIDER,
       HttpClientRequest.post(`https://${location}-documentai.googleapis.com/v1/${processor}:process`).pipe(
         HttpClientRequest.bearerToken(token),
         HttpClientRequest.bodyJsonUnsafe({
-          rawDocument: { content: bytesToBase64(bytes), mimeType: "image/png" },
+          rawDocument: { content: bytesToBase64(pdf), mimeType: "application/pdf" },
           processOptions: config.processOptions,
         }),
       ),

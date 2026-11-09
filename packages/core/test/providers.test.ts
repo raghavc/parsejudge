@@ -136,6 +136,13 @@ describe("Google Document AI", () => {
     });
   };
 
+  const pngPage: PageInput = {
+    imageUrl: "https://pages.test/p.png",
+    image: Effect.succeed(
+      Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64"),
+    ),
+  };
+
   it("exchanges a signed service-account assertion for a token, then renders the layout as markdown", async () => {
     const requests: Array<{ url: string; auth: string | null; body: string }> = [];
     const fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -148,7 +155,7 @@ describe("Google Document AI", () => {
     const creds = { GOOGLE_DOCAI_CREDENTIALS: await serviceAccount(), GOOGLE_DOCAI_PROCESSOR: PROCESSOR };
     const exit = await Effect.runPromiseExit(
       PROVIDERS.google_document_ai
-        .submit(page, {}, creds)
+        .submit(pngPage, {}, creds)
         .pipe(
           Effect.provide(FetchHttpClient.layer),
           Effect.provide(Layer.succeed(FetchHttpClient.Fetch, fetch as typeof globalThis.fetch)),
@@ -164,7 +171,9 @@ describe("Google Document AI", () => {
       aud: "https://oauth2.googleapis.com/token",
     });
     expect(requests[1]?.auth).toBe("Bearer tok");
-    expect(JSON.parse(requests[1]?.body ?? "{}").rawDocument).toEqual({ content: "AQ==", mimeType: "image/png" });
+    const sent = JSON.parse(requests[1]?.body ?? "{}").rawDocument;
+    expect(sent.mimeType).toBe("application/pdf");
+    expect(Buffer.from(sent.content, "base64").subarray(0, 5).toString()).toBe("%PDF-");
     if (!Exit.isSuccess(exit) || exit.value._tag !== "Done") throw new Error(String(exit));
     expect(exit.value.output.markdown).toBe(
       '# Invoice\n\nDue <now>\n\n1. One\n\n<table><tr><th colspan="2">Item &amp; cost</th></tr><tr><td>Pen</td><td>$1</td></tr></table>',
