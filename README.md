@@ -35,7 +35,7 @@ for every page. The prompt and scoring code are in this repo.
 | AWS Textract                | layout, tables                        | yes                |
 | Google Document AI          | Layout Parser                         | yes, opt-in        |
 | Mistral OCR                 | OCR 4.1                               | bring your own key |
-| Extend                      | performance, agentic                  | bring your own key |
+| Extend                      | performance, agentic; light           | bring your own key |
 | LlamaParse                  | agentic-plus, agentic, cost-effective | bring your own key |
 | Datalab (Marker)            | accurate, balanced, fast              | bring your own key |
 | Pulse                       | Ultra 2, refine                       | bring your own key |
