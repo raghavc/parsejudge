@@ -102,6 +102,20 @@ export const PRESETS: ReadonlyArray<Preset> = [
     hosted: false,
   },
   {
+    id: "extend_light",
+    provider: "extend",
+    label: "Extend Light",
+    mode: "Light",
+    config: {
+      engine: "parse_light",
+      target: "markdown",
+      chunkingStrategy: { type: "page" },
+      blockOptions: { figures: { enabled: true }, tables: { enabled: true, targetFormat: "html" } },
+    },
+    listPriceUsdPerPage: 0.005,
+    hosted: false,
+  },
+  {
     id: "llamaparse_agentic_plus",
     provider: "llamaparse",
     label: "LlamaParse Agentic Plus",
