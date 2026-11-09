@@ -457,14 +457,57 @@ body {
 .pc-original.narrow {
   width: 300px;
 }
-.pc-original img {
+.pc-original-in {
+  position: sticky;
+  top: 24px;
+}
+.pc-original-bar {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+.zoom-ctl {
+  position: relative;
+}
+.zoom-ctl .seg > button {
+  align-items: center;
+  display: inline-flex;
+  justify-content: center;
+}
+.zoom-ctl svg {
+  height: 13px;
+  stroke-width: 1.75;
+  width: 13px;
+}
+.zoom-ctl .zoom-pct {
+  font-variant-numeric: tabular-nums;
+  min-width: 52px;
+}
+.zoom-menu {
+  left: auto;
+  min-width: 112px;
+  right: 0;
+}
+.zoom-view {
+  margin-top: 12px;
+  max-height: calc(100vh - 84px);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.zoom-view.pannable {
+  cursor: grab;
+}
+.zoom-view.dragging {
+  cursor: grabbing;
+  user-select: none;
+}
+.zoom-view img {
   background: #fff;
   box-shadow: 0 1px 3px rgb(0 0 0 / 0.08);
   display: block;
-  margin-top: 12px;
-  position: sticky;
-  top: 24px;
-  width: 100%;
+  margin: 0 auto;
+  max-width: none;
 }
 .pc-cols {
   display: grid;
@@ -700,9 +743,12 @@ mark.flag.figure_error {
     border-right: none;
     width: auto;
   }
-  .pc-original img {
+  .pc-original-in {
     max-width: 420px;
     position: static;
+  }
+  .zoom-view {
+    max-height: 80vh;
   }
 }
 .seg > * {

@@ -6,6 +6,7 @@ import { Icon } from "./ax/Icon.tsx";
 import { providerName, SHORT_NAMES } from "./names.ts";
 import { navigate } from "./router.ts";
 import { ShareDialog } from "./Share.tsx";
+import { useZoom, ZoomControls, ZoomImage } from "./ZoomImage.tsx";
 
 type View = "side" | "all";
 type Severity = JudgedError["severity"];
@@ -627,6 +628,7 @@ export const PageCompare = ({
   const [presets, setPresets] = useState<ReadonlyArray<Preset>>([]);
   const [detail, setDetail] = useState<PageDetail | null>(null);
   const [pair, setPair] = useState<ReadonlyArray<string>>(() => loadPair(shareId));
+  const zoom = useZoom();
 
   useEffect(() => {
     api.shared(shareId).then(setRun);
@@ -664,6 +666,9 @@ export const PageCompare = ({
       if (event.key === "k") go(prev?.id);
       if (event.key === "ArrowLeft") go(stats[position - 1]?.id);
       if (event.key === "ArrowRight") go(stats[position + 1]?.id);
+      if (event.key === "=" || event.key === "+") zoom.setZoom(zoom.zoom + 0.25);
+      if (event.key === "-") zoom.setZoom(zoom.zoom - 0.25);
+      if (event.key === "0") zoom.setZoom(1);
     };
     addEventListener("keydown", onKey);
     return () => removeEventListener("keydown", onKey);
@@ -774,8 +779,13 @@ export const PageCompare = ({
       )}
       <div className="split pc-body">
         <aside className={`pc-original${view === "all" ? " narrow" : ""}`}>
-          <div className="eyebrow">Original</div>
-          <img src={current.imageUrl} alt={`${current.filename}, page ${current.index + 1}`} />
+          <div className="pc-original-in">
+            <div className="pc-original-bar">
+              <div className="eyebrow">Original</div>
+              <ZoomControls zoom={zoom.zoom} onZoom={zoom.setZoom} />
+            </div>
+            <ZoomImage src={current.imageUrl} alt={`${current.filename}, page ${current.index + 1}`} state={zoom} />
+          </div>
         </aside>
         {detail === null && <p style={{ padding: 24 }}>Loading…</p>}
         {detail !== null && view === "side" && (
