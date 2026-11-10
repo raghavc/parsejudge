@@ -14,9 +14,10 @@ GOOGLE_DOCAI_CREDENTIALS=
 GOOGLE_DOCAI_PROCESSOR=projects/<project>/locations/us/processors/<id>
 # Private P-256 JWK (JSON, with kid) for OpenAI OIDC workload identity.
 OPENAI_SIGNING_KEY=
+# Required. 32 bytes, base64: openssl rand -base64 32
 BLOB_SIGNING_KEY=
 CREDENTIALS_KEY=
-# At least 32 characters: openssl rand -base64 32
+# Required. At least 32 characters: openssl rand -base64 32
 AUTH_KEY=
 # Local only: also trust the x-parsejudge-user header.
 AUTH_MODE=dev
