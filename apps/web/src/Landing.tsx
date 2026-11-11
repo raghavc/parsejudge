@@ -523,7 +523,20 @@ export const Landing = ({ zdr }: { readonly zdr: boolean }) => {
     : error;
 
   return (
-    <Shell topbar={<SiteBar user={user} />} label="Home">
+    <Shell
+      topbar={
+        <>
+          {zdr && (
+            <div className="zdr-banner" role="status">
+              <strong>ZDR mode</strong>
+              <span>Documents and pages are deleted 24 hours after the run. Results stay.</span>
+            </div>
+          )}
+          <SiteBar user={user} />
+        </>
+      }
+      label="Home"
+    >
       {pending && (
         <SignIn
           onEmail={async (email, turnstile) => {
