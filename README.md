@@ -55,10 +55,12 @@ for every page. The prompt and scoring code are in this repo.
 
 ## Run locally
 
-Requirements: Node 22+, pnpm 10.
+Requirements: Node 22+, pnpm 10, Docker (Wrangler builds the conversion containers) and
+[cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/).
 
 ```sh
 pnpm install
+pnpm --filter ./apps/web build    # the Worker serves the frontend from apps/web/dist
 cd apps/api
 cp .dev.vars.example .dev.vars        # fill in the keys you have
 npx wrangler d1 migrations apply parsejudge --local
