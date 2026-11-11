@@ -23,6 +23,7 @@
     "@cloudflare/workers-types": "^5.20261028.1",
     "@types/emscripten": "^1.41.6",
     "@types/node": "^24.19.2",
+    "pdf-lib": "^1.17.1",
     "vitest": "^5.0.5",
     "wrangler": "^4.154.0"
   }
