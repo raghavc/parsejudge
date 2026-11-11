@@ -2,6 +2,7 @@ import { Container, getRandom } from "@cloudflare/containers";
 import { type DocumentFormat, InvalidDocument, MIME_TYPES } from "@parsejudge/core";
 import { Data, Effect, Schedule } from "effect";
 import type { Env } from "./env.ts";
+import { StorageFailed } from "./errors.ts";
 
 /**
  * Converts DOCX and PPTX to PDF. The image decides the engine: this repo ships LibreOffice
@@ -26,7 +27,7 @@ const unavailable = (error: unknown) => new ConverterUnavailable({ message: Stri
 const convertOnce = (env: Env, format: Exclude<DocumentFormat, "pdf">, sourceKey: string, pdfKey: string) =>
   Effect.gen(function* () {
     const source = yield* Effect.tryPromise({ try: () => env.BLOBS.get(sourceKey), catch: unavailable });
-    if (source === null) return yield* new ConverterUnavailable({ message: `Missing upload ${sourceKey}` });
+    if (source === null) return yield* new StorageFailed({ message: `Missing upload ${sourceKey}` });
     const converter = yield* Effect.tryPromise({ try: () => getRandom(env.CONVERTER, INSTANCES), catch: unavailable });
     const response = yield* Effect.tryPromise({
       try: () =>

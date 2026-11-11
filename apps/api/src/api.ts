@@ -596,9 +596,13 @@ const overCap = new BadRequest({
   error: "Uploads before sign-in are limited to one run's pages. Sign in to upload more.",
 });
 
-/** Deletes an upload's blobs after it failed; a failure here is logged, not thrown. */
+/** Deletes an upload's blobs after it failed, 1,000 keys per call (R2's limit); a failure is logged, not thrown. */
 const removeBlobs = (documentId: string, keys: ReadonlyArray<string>) =>
-  query(() => cf.BLOBS.delete([...keys])).pipe(Effect.catch(() => Effect.logError("Upload cleanup failed", documentId)));
+  Effect.forEach(
+    Array.from({ length: Math.ceil(keys.length / 1000) }, (_, i) => keys.slice(i * 1000, (i + 1) * 1000)),
+    (chunk) => query(() => cf.BLOBS.delete(chunk)),
+    { discard: true },
+  ).pipe(Effect.catch(() => Effect.logError("Upload cleanup failed", documentId)));
 
 const DocumentsLive = HttpApiBuilder.group(Api, "documents", (handlers) =>
   handlers
@@ -635,7 +639,8 @@ const DocumentsLive = HttpApiBuilder.group(Api, "documents", (handlers) =>
           Effect.catch((error) =>
             Effect.logError("Storing upload failed", documentId, error.cause).pipe(
               Effect.andThen(removeBlobs(documentId, [source])),
-              Effect.andThen(Effect.fail(new BadRequest({ error: "Could not read the request body." }))),
+              // Usually R2; a client that hung up mid-body never sees this response anyway.
+              Effect.andThen(Effect.fail(new ServiceUnavailable({ error: "Could not store the upload. Retry the request." }))),
             ),
           ),
         );
