@@ -1842,3 +1842,25 @@ svg.caret {
   stroke-width: 1.75;
   flex-shrink: 0;
 }
+
+.zdr-banner {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: center;
+  gap: 4px 12px;
+  padding: 10px 32px;
+  background: var(--ink);
+  color: #fff;
+  font-size: 14px;
+  text-align: center;
+}
+.zdr-banner strong {
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.zdr-banner span {
+  color: #d4d4d4;
+}
