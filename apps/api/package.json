@@ -6,6 +6,7 @@
     "dev": "wrangler dev",
     "check": "tsc -p . && tsc -p test",
     "test": "vitest run",
+    "judge-eval": "node eval/cli.ts",
     "deploy": "wrangler deploy",
     "deploy:prod": "wrangler d1 migrations apply DB --remote -c wrangler.prod.jsonc && wrangler deploy -c wrangler.prod.jsonc"
   },
